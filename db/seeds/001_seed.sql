@@ -21,11 +21,11 @@ WHERE (u.email = 'pruefer@example.local' AND r.slug IN ('pruefer', 'standortvera
 ON CONFLICT DO NOTHING;
 
 INSERT INTO locations (name, code, address)
-VALUES ('Autohaus Simmern', 'SIM', 'Beispielstrasse 1, 55469 Simmern')
+VALUES ('Betrieb Muster', 'BETR', 'Beispielstrasse 1')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO buildings (location_id, name, code)
-SELECT id, 'Hauptgebäude', 'HG' FROM locations WHERE code = 'SIM'
+SELECT id, 'Hauptgebäude', 'HG' FROM locations WHERE code = 'BETR'
 ON CONFLICT (location_id, code) DO NOTHING;
 
 INSERT INTO rooms (building_id, name, code, room_type)

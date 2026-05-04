@@ -47,8 +47,17 @@ class JoinIn(BaseModel):
     device_fingerprint: str | None = None
 
 
+class LocationIn(BaseModel):
+    name: str
+    code: str | None = None
+    address: str | None = None
+
+
 class RoomIn(BaseModel):
-    building_id: str
+    building_id: str | None = None
+    location_id: str | None = None
+    location_name: str | None = None
+    building_name: str | None = None
     name: str
     code: str | None = None
     room_type: str = "workspace"
@@ -159,7 +168,7 @@ def resolve_location(location_id: str | None, location_name: str | None) -> dict
     location = execute(
         """
         INSERT INTO locations (name, code)
-        VALUES ('Autohaus', %s)
+        VALUES ('Betrieb', %s)
         RETURNING *
         """,
         (f"LOC-{secrets.token_hex(2).upper()}",),
@@ -203,13 +212,53 @@ def bootstrap() -> dict[str, Any]:
     }
 
 
+@app.post("/locations")
+def create_location(body: LocationIn) -> dict[str, Any]:
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Betriebsname fehlt")
+    existing = fetch_one("SELECT * FROM locations WHERE lower(name) = lower(%s)", (name,))
+    if existing:
+        return existing
+    code = (body.code or f"BETR-{secrets.token_hex(2).upper()}").strip().upper()
+    row = execute(
+        """
+        INSERT INTO locations (name, code, address)
+        VALUES (%s, %s, %s)
+        RETURNING *
+        """,
+        (name, code, body.address),
+    )
+    audit("location_created", "location", str(row["id"]), row)
+    return row
+
+
 @app.post("/rooms")
 def create_room(body: RoomIn) -> dict[str, Any]:
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Raumname fehlt")
-    if not fetch_one("SELECT id FROM buildings WHERE id = %s", (body.building_id,)):
-        raise HTTPException(status_code=400, detail="Gebäude nicht gefunden")
+    building_id = body.building_id
+    building_name = body.building_name.strip() if body.building_name else None
+    if building_name:
+        location = resolve_location(body.location_id, body.location_name)
+        building = fetch_one(
+            "SELECT * FROM buildings WHERE location_id = %s AND lower(name) = lower(%s)",
+            (location["id"], building_name),
+        )
+        if not building:
+            building = execute(
+                """
+                INSERT INTO buildings (location_id, name, code)
+                VALUES (%s, %s, %s)
+                RETURNING *
+                """,
+                (location["id"], building_name, f"GEB-{secrets.token_hex(3).upper()}"),
+            )
+            audit("building_created", "building", str(building["id"]), building)
+        building_id = str(building["id"])
+    if not building_id or not fetch_one("SELECT id FROM buildings WHERE id = %s", (building_id,)):
+        raise HTTPException(status_code=400, detail="Gebäude auswählen oder neues Gebäude eingeben")
     code = (body.code or f"RAUM-{secrets.token_hex(3).upper()}").strip()
     row = execute(
         """
@@ -217,7 +266,7 @@ def create_room(body: RoomIn) -> dict[str, Any]:
         VALUES (%s, %s, %s, %s)
         RETURNING *
         """,
-        (body.building_id, name, code, body.room_type),
+        (building_id, name, code, body.room_type),
     )
     audit("room_created", "room", str(row["id"]), row)
     return row

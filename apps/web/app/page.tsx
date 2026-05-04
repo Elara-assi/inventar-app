@@ -31,6 +31,8 @@ export default function DashboardPage() {
   const [freeRoomName, setFreeRoomName] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
   const [freeBuildingName, setFreeBuildingName] = useState("");
+  const [newLocationName, setNewLocationName] = useState("");
+  const [newBuildingName, setNewBuildingName] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
   const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
@@ -113,22 +115,52 @@ export default function DashboardPage() {
 
   async function createRoom() {
     const name = newRoomName.trim();
-    const buildingId = selectedBuilding || bootstrap?.buildings[0]?.id;
-    if (!name || !buildingId) {
-      setError("Bitte Raumname und Gebäude auswählen.");
+    const buildingName = newBuildingName.trim();
+    const buildingId = buildingName ? "" : selectedBuilding;
+    if (!name || (!buildingId && !buildingName)) {
+      setError("Bitte Raumname und Gebäude auswählen oder neues Gebäude eingeben.");
       return;
     }
     try {
       setError("");
       await api("/rooms", {
         method: "POST",
-        body: JSON.stringify({ building_id: buildingId, name }),
+        body: JSON.stringify({
+          building_id: buildingId || undefined,
+          location_id: selectedLocation || undefined,
+          building_name: buildingName || undefined,
+          name,
+        }),
       });
       setNewRoomName("");
+      setNewBuildingName("");
       setMessage("Raum angelegt");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Raum konnte nicht angelegt werden");
+    }
+  }
+
+  async function createLocation() {
+    const name = newLocationName.trim();
+    if (!name) {
+      setError("Bitte Betriebsname eingeben.");
+      return;
+    }
+    try {
+      setError("");
+      const location = await api<{ id: string }>("/locations", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      setNewLocationName("");
+      setSelectedLocation(location.id);
+      setSelectedBuilding("");
+      setSelectedRoom("");
+      setMessage("Betrieb angelegt");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Betrieb konnte nicht angelegt werden");
     }
   }
 
@@ -209,12 +241,12 @@ export default function DashboardPage() {
   }
 
   const selectedLocationBuildings = bootstrap?.buildings.filter((building) => !selectedLocation || building.location_id === selectedLocation) ?? [];
-  const buildingOptions = selectedLocationBuildings.length ? selectedLocationBuildings : (bootstrap?.buildings ?? []);
+  const buildingOptions = selectedLocation ? selectedLocationBuildings : (bootstrap?.buildings ?? []);
   const selectedLocationRooms = bootstrap?.rooms.filter((room) => {
     const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
     return !selectedLocation || building?.location_id === selectedLocation;
   }) ?? [];
-  const roomOptions = selectedLocationRooms.length ? selectedLocationRooms : (bootstrap?.rooms ?? []);
+  const roomOptions = selectedLocation ? selectedLocationRooms : (bootstrap?.rooms ?? []);
 
   return (
     <main className="page grid">
@@ -233,6 +265,7 @@ export default function DashboardPage() {
                 setSelectedLocation(locationId);
                 const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
                 setSelectedBuilding(firstBuilding?.id || "");
+                setSelectedRoom("");
               }}
             >
               <option value="">Kein Betrieb aus Liste</option>
@@ -246,7 +279,7 @@ export default function DashboardPage() {
             <input
               value={freeLocationName}
               onChange={(event) => setFreeLocationName(event.target.value)}
-              placeholder="z. B. Autohaus Simmern oder Autohaus Mainz"
+              placeholder="z. B. Betrieb XYZ"
             />
           </label>
           <label className="field">
@@ -301,6 +334,42 @@ export default function DashboardPage() {
 
       <section className="panel grid">
         <div>
+          <h2>Betriebe verwalten</h2>
+          <p className="muted">Betriebe sind die oberste Ebene für Gebäude, Räume und Sessions.</p>
+        </div>
+        <div className="grid grid-2">
+          <label className="field">
+            <span>Neuer Betrieb</span>
+            <input
+              value={newLocationName}
+              onChange={(event) => setNewLocationName(event.target.value)}
+              placeholder="z. B. Betrieb XYZ"
+            />
+          </label>
+          <label className="field">
+            <span>Aktiver Betrieb</span>
+            <select
+              value={selectedLocation}
+              onChange={(event) => {
+                const locationId = event.target.value;
+                setSelectedLocation(locationId);
+                const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
+                setSelectedBuilding(firstBuilding?.id || "");
+                setSelectedRoom("");
+              }}
+            >
+              <option value="">Betrieb auswählen</option>
+              {bootstrap?.locations.map((location) => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <button className="btn accent room-action" onClick={createLocation}>Betrieb anlegen</button>
+      </section>
+
+      <section className="panel grid">
+        <div>
           <h2>Räume bearbeiten</h2>
           <p className="muted">Räume können hier für die Auswahl vorbereitet oder umbenannt werden.</p>
         </div>
@@ -314,6 +383,7 @@ export default function DashboardPage() {
                 setSelectedLocation(locationId);
                 const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
                 setSelectedBuilding(firstBuilding?.id || "");
+                setSelectedRoom("");
               }}
             >
               {bootstrap?.locations.map((location) => (
@@ -324,10 +394,19 @@ export default function DashboardPage() {
           <label className="field">
             <span>Gebäude für neuen Raum</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
+              <option value="">Gebäude auswählen</option>
               {buildingOptions.map((building) => (
                 <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
+          </label>
+          <label className="field">
+            <span>Neues Gebäude für neuen Raum</span>
+            <input
+              value={newBuildingName}
+              onChange={(event) => setNewBuildingName(event.target.value)}
+              placeholder="z. B. Gebäude XYZ, Werkstatt oder Lager"
+            />
           </label>
           <label className="field">
             <span>Neuer Raum</span>
