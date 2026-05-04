@@ -55,9 +55,9 @@ Use cards for repeated objects only. Do not nest cards inside cards.
 
 - Erfasst: gray.
 - KI-vorgefuellt: blue.
-- Nacharbeit noetig: orange.
-- Pruefen: yellow.
-- Geprueft: green.
+- Nacharbeit nötig: orange.
+- PrÃ¼fen: yellow.
+- Geprüft: green.
 - Finalisiert: dark green.
 - Abweichung: red.
 - Dublette: violet.
@@ -83,7 +83,7 @@ Expected views:
 - Session starten.
 - QR-Kopplung.
 - Mobile Erfassung.
-- Live-Pruefung.
+- Live-PrÃ¼fung.
 - Objektakte.
 - Raumabschluss.
 - Export.

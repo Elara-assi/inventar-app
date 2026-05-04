@@ -233,9 +233,9 @@ Records relevant state changes:
 
 - Reifen
 - Monitor
-- Hebebuehne
+- Hebebühne
 - Werkzeugwagen
-- IT-Geraet
+- IT-Gerät
 
 ## Condition Values
 

@@ -133,7 +133,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setObjectPhoto(null);
     setDotPhoto(null);
     setNameplatePhoto(null);
-    setMessage("Bereit fuer naechstes Objekt");
+    setMessage("Bereit für nächstes Objekt");
   }
 
   return (
@@ -159,7 +159,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </label>
 
         <label className="field">
-          <span>Sprachnotiz fuer Raumtest</span>
+          <span>Sprachnotiz für Raumtest</span>
           <textarea
             value={transcript}
             rows={3}

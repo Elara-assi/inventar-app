@@ -187,7 +187,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
                 building = execute(
                     """
                     INSERT INTO buildings (location_id, name, code)
-                    VALUES (%s, 'Hauptgebaeude', %s)
+                    VALUES (%s, 'HauptgebÃ¤ude', %s)
                     RETURNING *
                     """,
                     (location["id"], f"HG-{secrets.token_hex(2).upper()}"),
@@ -197,7 +197,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         else:
             building = fetch_one("SELECT * FROM buildings WHERE id = %s", (building_id,))
             if not building:
-                raise HTTPException(status_code=400, detail="Gebaeude nicht gefunden")
+                raise HTTPException(status_code=400, detail="GebÃ¤ude nicht gefunden")
         location_id = location_id or str(building["location_id"])
         room = fetch_one(
             "SELECT * FROM rooms WHERE building_id = %s AND lower(name) = lower(%s)",
@@ -216,7 +216,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         room_id = str(room["id"])
 
     if not room_id:
-        raise HTTPException(status_code=400, detail="Raum auswaehlen oder freien Raum eingeben")
+        raise HTTPException(status_code=400, detail="Raum auswÃ¤hlen oder freien Raum eingeben")
 
     room = fetch_one(
         """
@@ -465,7 +465,7 @@ def finalize_item(item_id: str) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/request-rework")
 def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    assigned_role = body.get("assigned_role", "Pruefer")
+    assigned_role = body.get("assigned_role", "PrÃ¼fer")
     row = execute(
         """
         INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)
@@ -694,13 +694,13 @@ def export_excel(session_id: str) -> dict[str, Any]:
     ws = wb.active
     ws.title = "Inventur"
     headers = [
-        "Inventar-ID", "temporaere ID", "Objektart", "Objektklasse", "Kategorie", "Marke",
-        "Modell", "Seriennummer", "Zustand", "Altersquelle", "geschaetztes Alter",
-        "Herstellungsdatum", "Anschaffungsdatum", "Betrieb", "Gebaeude", "Raum",
-        "Verantwortlicher", "Kostenstelle", "kaufmaennische Kategorie",
-        "Buchhaltungsstatus", "Buchhaltung pruefen", "Status", "Pruefstatus",
+        "Inventar-ID", "temporäre ID", "Objektart", "Objektklasse", "Kategorie", "Marke",
+        "Modell", "Seriennummer", "Zustand", "Altersquelle", "geschätztes Alter",
+        "Herstellungsdatum", "Anschaffungsdatum", "Betrieb", "GebÃ¤ude", "Raum",
+        "Verantwortlicher", "Kostenstelle", "kaufmännische Kategorie",
+        "Buchhaltungsstatus", "Buchhaltung prüfen", "Status", "Prüfstatus",
         "KI-Konfidenz", "Foto vorhanden", "Typenschildfoto vorhanden", "DOT-Foto vorhanden",
-        "Erfasst von", "Geprueft von", "Finalisiert am", "Bemerkung",
+        "Erfasst von", "Geprüft von", "Finalisiert am", "Bemerkung",
     ]
     ws.append(headers)
     session = get_session(session_id)

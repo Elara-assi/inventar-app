@@ -1,9 +1,9 @@
 # Inventar Maschine
 
-KI-gestuetzte Inventur-App fuer Autohaus-Standorte. Das System trennt den schnellen Vor-Ort-Prozess vom Pruef- und Buchhaltungsprozess:
+KI-gestÃ¼tzte Inventur-App fÃ¼r Autohaus-Standorte. Das System trennt den schnellen Vor-Ort-Prozess vom Prüf- und Buchhaltungsprozess:
 
 - Handy: Foto, Code, Sprache.
-- iPad/Laptop: pruefen, korrigieren, freigeben.
+- iPad/Laptop: prüfen, korrigieren, freigeben.
 - KI: strukturierte Vorschlaege und Hinweise.
 - Mensch: finale Entscheidung.
 - System: Audit, Nachweisbilder, Export.
@@ -16,7 +16,7 @@ Folgeaufgaben sollen zuerst diese Dateien lesen:
 - [docs/MASTER_ARCHITECTURE.md](docs/MASTER_ARCHITECTURE.md): Zielarchitektur und Systembild.
 - [docs/PHASES.md](docs/PHASES.md): Phasenlogik und Scope-Grenzen.
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md): Tabellen, Statuswerte und Seed-Struktur.
-- [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md): UI-Regeln fuer mobile Erfassung und Pruefung.
+- [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md): UI-Regeln fÃ¼r mobile Erfassung und PrÃ¼fung.
 - [docs/ROOM_TEST_V01.md](docs/ROOM_TEST_V01.md): Raumtest und Akzeptanzkriterien.
 
 ## Umgesetzter Scope
@@ -27,8 +27,8 @@ Phase 0:
 - Next.js PWA-Grundgeruest mit industriellem Look & Feel.
 - FastAPI Backend mit REST API.
 - Docker Compose mit PostgreSQL, Redis, API, Web, Worker sowie optional LiteLLM und Uptime Kuma.
-- PostgreSQL-Migrationen fuer MVP- und vorbereitende Phase-2-Tabellen.
-- Seed-Daten fuer Rollen, Standort, Gebaeude, Raeume, Objektklassen, Pflichtfelder und Buchhaltungsprofile.
+- PostgreSQL-Migrationen fÃ¼r MVP- und vorbereitende Phase-2-Tabellen.
+- Seed-Daten fÃ¼r Rollen, Standort, GebÃ¤ude, RÃ¤ume, Objektklassen, Pflichtfelder und Buchhaltungsprofile.
 - Uploadordner: `originals`, `stamped`, `audio`, `exports`, `temp`.
 - README und Smoke-Check.
 
@@ -40,15 +40,15 @@ Phase 1:
 - Mobile Kopplung per Join-Link.
 - Mobile Erfassung mit drei Hauptaktionen: Foto, Code, Sprache.
 - Objektanlage in PostgreSQL.
-- Live-Prueferansicht per Polling und SSE-Endpunkt.
-- KI-Job-Stub mit strukturierter JSON-Ausgabe fuer Monitor/Reifen/Hebebuehne.
+- Live-PrÃ¼feransicht per Polling und SSE-Endpunkt.
+- KI-Job-Stub mit strukturierter JSON-Ausgabe fÃ¼r Monitor/Reifen/HebebÃ¼hne.
 - Pflichtfeld-/Blockerlogik.
 - Nacharbeitsaufgaben.
 - Buchhaltungs-Vorprofil.
 - Korrektur, Statuswechsel, Finalisierung mit Sperre.
-- Raumabschluss mit Blocker-Pruefung.
+- Raumabschluss mit Blocker-PrÃ¼fung.
 - Excel-Export.
-- Audit-Log fuer Kernaktionen.
+- Audit-Log fÃ¼r Kernaktionen.
 
 Nicht gebaut:
 
@@ -65,11 +65,11 @@ Diese Themen sind durch Tabellen, Worker und Service-Struktur vorbereitet.
 ## Annahmen
 
 - Es gab im Repo keine `AGENTS.md` und keinen `/docs`-Ordner. Die Anforderungen aus dem Chat sind daher fuehrend.
-- Backend wurde mit FastAPI umgesetzt, weil es fuer den MVP schneller und gut testbar ist.
+- Backend wurde mit FastAPI umgesetzt, weil es fÃ¼r den MVP schneller und gut testbar ist.
 - Die Phase-1-KI ist ein deterministischer Stub. Er speichert bereits das geforderte JSON-Format und ist so vorbereitet, dass LiteLLM im Worker angebunden wird.
 - Mobile Foto-/Audioaufnahme ist im UI als Prozess angelegt. Die Upload-Endpunkte existieren; echte Kamera-/Mikrofonintegration und Retry-Queue gehoeren zur Haertung.
 - Der Excel-Export nutzt `openpyxl`.
-- Buchhaltung blockiert die schnelle Erfassung nicht. Sie blockiert nur kaufmaennische Nacharbeit/Freigabe, wenn spaeter entsprechend konfiguriert.
+- Buchhaltung blockiert die schnelle Erfassung nicht. Sie blockiert nur kaufmännische Nacharbeit/Freigabe, wenn später entsprechend konfiguriert.
 
 ## Start mit Docker Compose
 
@@ -161,13 +161,13 @@ Kurzfassung:
 
 1. DB mit `npm run db:reset` initialisieren.
 2. API und Web starten.
-3. http://localhost:3000 oeffnen.
-4. Raum waehlen und Session starten.
-5. QR-Code oder Link `/mobile/join/{token}` mit Handy oeffnen.
-6. Monitor, Reifen und Hebebuehne mit Objektfoto, Evidence-Foto und Sprachnotiz erfassen.
-7. Prueferansicht oeffnen und alle Objekte sehen.
+3. http://localhost:3000 Ã¶ffnen.
+4. Raum wÃ¤hlen und Session starten.
+5. QR-Code oder Link `/mobile/join/{token}` mit Handy Ã¶ffnen.
+6. Monitor, Reifen und HebebÃ¼hne mit Objektfoto, Evidence-Foto und Sprachnotiz erfassen.
+7. PrÃ¼feransicht Ã¶ffnen und alle Objekte sehen.
 8. Monitor finalisieren.
-9. Raumabschluss testen; Reifen/Hebebuehne zeigen offene Pflichtpunkte.
+9. Raumabschluss testen; Reifen/HebebÃ¼hne zeigen offene Pflichtpunkte.
 10. Excel-Export erzeugen.
 
 ## Demo-Accounts
@@ -204,8 +204,8 @@ python -m py_compile apps/api/app/main.py apps/api/app/db.py apps/api/app/logic.
 ## Naechste technische Schritte
 
 1. Echte Kamera-, Barcode- und Audioaufnahme in der PWA anbinden.
-2. Upload-Queue mit Retry und Offline-Puffer fuer Phase 1.5.
+2. Upload-Queue mit Retry und Offline-Puffer fÃ¼r Phase 1.5.
 3. Worker an Redis und LiteLLM anbinden.
 4. Bildstempel wirklich rendern statt Phase-1-Kopie.
-5. Rollenpruefung und Session-Token absichern.
-6. Deployment-Profile fuer VPS, NPM und Backup ergaenzen.
+5. Rollenprüfung und Session-Token absichern.
+6. Deployment-Profile fÃ¼r VPS, NPM und Backup ergÃ¤nzen.

@@ -61,7 +61,7 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
         "requires_accounting_review": True,
         "missing_fields": ["Seriennummer", "Anschaffungsdatum", "Buchwert"],
         "required_evidence_missing": [],
-        "recommended_tasks": [{"role": "Buchhaltung", "task": "Anlagenummer, Anschaffungsdatum und Buchwert pruefen"}],
+        "recommended_tasks": [{"role": "Buchhaltung", "task": "Anlagenummer, Anschaffungsdatum und Buchwert prüfen"}],
         "confidence": 0.62,
         "requires_review": True,
         "recommended_status": "nacharbeit_buchhaltung",
@@ -95,12 +95,12 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
     elif "hebeb" in text or "buehne" in text:
         result.update(
             {
-                "object_type": "Hebebuehne",
-                "object_class": "Hebebuehne",
+                "object_type": "HebebÃ¼hne",
+                "object_class": "HebebÃ¼hne",
                 "brand": "Nussbaum" if "nussbaum" in text else None,
                 "commercial_category": "anlagevermoegen",
                 "requires_accounting_review": True,
-                "missing_fields": ["Typenschildfoto", "Seriennummer", "Tragfaehigkeit"],
+                "missing_fields": ["Typenschildfoto", "Seriennummer", "TragfÃ¤higkeit"],
                 "required_evidence_missing": ["nameplate"],
                 "recommended_status": "nacharbeit_erfasser",
                 "confidence": 0.69,
@@ -154,7 +154,7 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
         elif field in ["Profiltiefe", "DOT-Foto", "Typenschildfoto"]:
             role = "Erfasser"
         else:
-            role = "Pruefer"
+            role = "PrÃ¼fer"
         execute(
             """
             INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)

@@ -51,12 +51,12 @@ export default function DashboardPage() {
     const building = bootstrap?.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
     const location = bootstrap?.locations.find((entry) => entry.id === building?.location_id);
     if (!trimmedRoomName && !room) {
-      setError("Bitte Raum auswaehlen oder freien Raum eingeben.");
+      setError("Bitte Raum auswählen oder freien Raum eingeben.");
       setMessage("");
       return;
     }
     if (!trimmedRoomName && (!building || !location)) {
-      setError("Kein Gebaeude/Standort fuer den Raum gefunden.");
+      setError("Kein Gebäude/Standort für den Raum gefunden.");
       setMessage("");
       return;
     }
@@ -87,7 +87,7 @@ export default function DashboardPage() {
       <section className="panel grid grid-2">
         <div className="grid">
           <h1>Raum-Session starten</h1>
-          <p className="muted">Pruefer startet den Raum, Erfasser koppeln ihr Handy per QR-Link.</p>
+          <p className="muted">Prüfer startet den Raum, Erfasser koppeln ihr Handy per QR-Link.</p>
           {error ? <p className="status upload_fehler">{error}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
           <label className="field">
@@ -108,20 +108,20 @@ export default function DashboardPage() {
             />
           </label>
           <label className="field">
-            <span>Gebaeude aus Liste</span>
+            <span>Gebäude aus Liste</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
-              <option value="">Standard-Gebaeude verwenden</option>
+              <option value="">Standard-Gebäude verwenden</option>
               {bootstrap?.buildings.map((building) => (
                 <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
           </label>
           <label className="field">
-            <span>Freies Gebaeude / neues Gebaeude</span>
+            <span>Freies Gebäude / neues Gebäude</span>
             <input
               value={freeBuildingName}
               onChange={(event) => setFreeBuildingName(event.target.value)}
-              placeholder="z. B. Werkstatt, Lagerhalle oder Buero"
+              placeholder="z. B. Werkstatt, Lagerhalle oder Büro"
             />
           </label>
           <button className="btn accent" onClick={startSession}>Session starten</button>
@@ -135,7 +135,7 @@ export default function DashboardPage() {
             )}
           </div>
           {activeSession ? (
-            <a className="btn secondary" href={`/session/${activeSession.id}`}>Live-Pruefung oeffnen</a>
+            <a className="btn secondary" href={`/session/${activeSession.id}`}>Live-Prüfung öffnen</a>
           ) : null}
         </div>
       </section>
@@ -147,7 +147,7 @@ export default function DashboardPage() {
               <StatusBadgeShim value={session.status} />
               <strong>{session.room_name || "Raum"}</strong>
               <span className="muted">{session.location_name} / {session.building_name}</span>
-              <a className="btn secondary" href={`/session/${session.id}`}>Pruefen</a>
+              <a className="btn secondary" href={`/session/${session.id}`}>Prüfen</a>
               <a className="btn secondary" href={`${API_BASE}/sessions/${session.id}/events`}>Live-Feed</a>
             </div>
           </article>

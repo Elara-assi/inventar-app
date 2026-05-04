@@ -91,7 +91,7 @@ export function ItemReviewCard({
     onChanged();
   }
 
-  async function requestRework(role: "Buchhaltung" | "Erfasser" | "Pruefer", missingField: string) {
+  async function requestRework(role: "Buchhaltung" | "Erfasser" | "PrÃ¼fer", missingField: string) {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -160,7 +160,7 @@ export function ItemReviewCard({
         </label>
 
         <label className="field">
-          <span>Pruefstatus</span>
+          <span>Prüfstatus</span>
           <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
             {reviewStatuses.map((entry) => (
               <option key={entry} value={entry}>{entry}</option>

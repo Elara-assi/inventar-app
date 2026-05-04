@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Inventar Maschine",
-  description: "KI-gestuetzte Inventur fuer Autohaus-Standorte",
+  description: "KI-gestützte Inventur für Autohaus-Standorte",
   manifest: "/manifest.json",
 };
 
@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="topbar-inner">
               <div className="brand">
                 Inventar Maschine
-                <span>Handy schnell erfassen. Pruefer entscheidet.</span>
+                <span>Handy schnell erfassen. Prüfer entscheidet.</span>
               </div>
               <span className="status ki_vorgefuellt">Phase 1</span>
             </div>

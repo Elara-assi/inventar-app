@@ -91,7 +91,7 @@ CREATE TABLE field_requirements (
   evidence_photo_type TEXT,
   source_type TEXT NOT NULL DEFAULT 'human_or_ai',
   rework_allowed BOOLEAN NOT NULL DEFAULT true,
-  responsible_role TEXT NOT NULL DEFAULT 'Pruefer',
+  responsible_role TEXT NOT NULL DEFAULT 'Prüfer',
   sort_order INTEGER NOT NULL DEFAULT 100,
   UNIQUE (object_class_id, field_name)
 );

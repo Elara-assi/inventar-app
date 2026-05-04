@@ -77,13 +77,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     <main className="page grid">
       <section className="panel grid grid-2">
         <div className="grid">
-          <h1>{session?.room_name || "Live-Pruefung"}</h1>
+          <h1>{session?.room_name || "Live-Prüfung"}</h1>
           <p className="muted">{session?.location_name} / {session?.building_name}</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <span className="status pruefen">{items.length} Objekte</span>
             <span className={blockerCount ? "status upload_fehler" : "status finalisierbar"}>{blockerCount} Blocker</span>
             <button className="btn accent" onClick={exportExcel}>Excel-Export</button>
-            <button className="btn" onClick={closeRoom}>Raum abschliessen</button>
+            <button className="btn" onClick={closeRoom}>Raum abschließen</button>
           </div>
           {message ? <p className="status pruefen">{message}</p> : null}
         </div>

@@ -156,17 +156,17 @@ Expected:
 - missing Profiltiefe creates rework.
 - finalization is blocked until Profiltiefe is handled.
 
-### 6. Capture Hebebuehne
+### 6. Capture Hebebühne
 
 Mobile input:
 
 ```text
-Nussbaum Hebebühne, Werkstattplatz 4, Zustand gut
+Nussbaum HebebÃ¼hne, Werkstattplatz 4, Zustand gut
 ```
 
 Actions:
 
-1. Select object class Hebebuehne.
+1. Select object class Hebebühne.
 2. Select or take object photo.
 3. Press `Foto`.
 4. Select or take Typenschild photo.
@@ -176,7 +176,7 @@ Actions:
 
 Expected:
 
-- AI result JSON contains Hebebuehne.
+- AI result JSON contains Hebebühne.
 - brand hint `Nussbaum` is stored when detected.
 - Typenschild evidence is stored.
 - missing serial number and load capacity block finalization.
@@ -190,7 +190,7 @@ Expected:
 - close request is rejected with blocking missing requirements.
 - UI shows that room cannot close yet.
 - Reifen blocker includes Profiltiefe.
-- Hebebuehne blockers include Seriennummer and Tragfaehigkeit.
+- Hebebühne blockers include Seriennummer and Tragfähigkeit.
 
 ### 8. Resolve And Finalize
 

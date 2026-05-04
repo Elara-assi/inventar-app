@@ -1,6 +1,6 @@
 INSERT INTO roles (name, slug, description) VALUES
   ('Erfasser', 'erfasser', 'Mobile Schnellerfassung im Raum'),
-  ('Pruefer', 'pruefer', 'Live-Pruefung, Korrektur und Finalisierung'),
+  ('Prüfer', 'pruefer', 'Live-Prüfung, Korrektur und Finalisierung'),
   ('Standortverantwortlicher', 'standortverantwortlicher', 'Raumfreigabe und Export'),
   ('Admin', 'admin', 'Systemkonfiguration'),
   ('Revision/Leser', 'revision_leser', 'Audit und Leserechte'),
@@ -8,7 +8,7 @@ INSERT INTO roles (name, slug, description) VALUES
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO users (email, display_name, password_hash) VALUES
-  ('pruefer@example.local', 'Demo Pruefer', 'demo'),
+  ('pruefer@example.local', 'Demo Prüfer', 'demo'),
   ('erfasser@example.local', 'Demo Erfasser', 'demo'),
   ('buchhaltung@example.local', 'Demo Buchhaltung', 'demo')
 ON CONFLICT (email) DO NOTHING;
@@ -25,7 +25,7 @@ VALUES ('Autohaus Simmern', 'SIM', 'Beispielstrasse 1, 55469 Simmern')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO buildings (location_id, name, code)
-SELECT id, 'Hauptgebaeude', 'HG' FROM locations WHERE code = 'SIM'
+SELECT id, 'Hauptgebäude', 'HG' FROM locations WHERE code = 'SIM'
 ON CONFLICT (location_id, code) DO NOTHING;
 
 INSERT INTO rooms (building_id, name, code, room_type)
@@ -45,9 +45,9 @@ INSERT INTO object_classes (
 ) VALUES
   ('Reifen', 'reifen', 'Reifen und Reifensaetze mit DOT-Logik', 'ware', false, false, true),
   ('Monitor', 'monitor', 'Bildschirme und Arbeitsplatzmonitore', 'it_ausstattung', false, false, true),
-  ('Hebebuehne', 'hebebuehne', 'Werkstatteinrichtung mit Typenschildpflicht', 'anlagevermoegen', true, true, true),
+  ('Hebebühne', 'hebebuehne', 'Werkstatteinrichtung mit Typenschildpflicht', 'anlagevermoegen', true, true, true),
   ('Werkzeugwagen', 'werkzeugwagen', 'Mobile Werkstattwagen und Werkzeugaufbewahrung', 'betriebsmittel', false, false, true),
-  ('IT-Geraet', 'it_geraet', 'IT-Hardware mit Datenschutzrelevanz', 'it_ausstattung', false, false, true)
+  ('IT-Gerät', 'it_geraet', 'IT-Hardware mit Datenschutzrelevanz', 'it_ausstattung', false, false, true)
 ON CONFLICT (slug) DO UPDATE SET
   description = EXCLUDED.description,
   default_commercial_category = EXCLUDED.default_commercial_category,
@@ -83,24 +83,24 @@ FROM object_classes oc
 JOIN (VALUES
   ('reifen','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
   ('reifen','dot_photo','DOT-Foto',true,true,true,'dot','human_or_ai',true,'Erfasser',20),
-  ('reifen','dot_number','DOT-Nummer',true,true,false,null,'human_or_ai',true,'Pruefer',30),
-  ('reifen','tire_size','Reifengroesse',true,false,false,null,'human_or_ai',true,'Pruefer',40),
+  ('reifen','dot_number','DOT-Nummer',true,true,false,null,'human_or_ai',true,'Prüfer',30),
+  ('reifen','tire_size','Reifengröße',true,false,false,null,'human_or_ai',true,'Prüfer',40),
   ('reifen','tread_depth','Profiltiefe',true,true,false,null,'human',true,'Erfasser',50),
-  ('reifen','ownership_type','Eigentumsart',true,false,false,null,'human',true,'Pruefer',60),
+  ('reifen','ownership_type','Eigentumsart',true,false,false,null,'human',true,'Prüfer',60),
   ('monitor','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
-  ('monitor','condition','Zustand',true,true,false,null,'human_or_ai',true,'Pruefer',20),
-  ('monitor','brand','Marke falls sichtbar',false,false,false,null,'human_or_ai',true,'Pruefer',30),
-  ('monitor','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Pruefer',40),
+  ('monitor','condition','Zustand',true,true,false,null,'human_or_ai',true,'Prüfer',20),
+  ('monitor','brand','Marke falls sichtbar',false,false,false,null,'human_or_ai',true,'Prüfer',30),
+  ('monitor','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Prüfer',40),
   ('hebebuehne','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
   ('hebebuehne','nameplate_photo','Typenschildfoto',true,true,true,'nameplate','human',false,'Erfasser',20),
-  ('hebebuehne','serial_number','Seriennummer',true,true,false,null,'human_or_ai',true,'Pruefer',30),
-  ('hebebuehne','load_capacity','Tragfaehigkeit',true,true,false,null,'human_or_ai',true,'Pruefer',40),
+  ('hebebuehne','serial_number','Seriennummer',true,true,false,null,'human_or_ai',true,'Prüfer',30),
+  ('hebebuehne','load_capacity','Tragfähigkeit',true,true,false,null,'human_or_ai',true,'Prüfer',40),
   ('werkzeugwagen','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
-  ('werkzeugwagen','responsible_user','Verantwortlicher',true,false,false,null,'human',true,'Pruefer',20),
+  ('werkzeugwagen','responsible_user','Verantwortlicher',true,false,false,null,'human',true,'Prüfer',20),
   ('it_geraet','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
-  ('it_geraet','device_type','Geraetetyp',true,true,false,null,'human_or_ai',true,'Pruefer',20),
-  ('it_geraet','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Pruefer',30),
-  ('it_geraet','privacy_relevance','Datenschutzrelevanz',true,false,false,null,'human',true,'Pruefer',40)
+  ('it_geraet','device_type','Gerätetyp',true,true,false,null,'human_or_ai',true,'Prüfer',20),
+  ('it_geraet','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Prüfer',30),
+  ('it_geraet','privacy_relevance','Datenschutzrelevanz',true,false,false,null,'human',true,'Prüfer',40)
 ) AS fr(slug, field_name, field_label, required, blocks_finalization, evidence_required, evidence_photo_type, source_type, rework_allowed, responsible_role, sort_order)
 ON oc.slug = fr.slug
 ON CONFLICT (object_class_id, field_name) DO UPDATE SET
