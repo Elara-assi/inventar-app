@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [freeBuildingName, setFreeBuildingName] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
   const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -142,10 +143,25 @@ export default function DashboardPage() {
         }),
       });
       setMessage("Raum gespeichert");
+      setEditingRoomId(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Raum konnte nicht gespeichert werden");
     }
+  }
+
+  function startRoomEdit(roomId: string) {
+    const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
+    if (!room) return;
+    setRoomDrafts((current) => ({
+      ...current,
+      [roomId]: {
+        name: room.name,
+        building_id: room.building_id,
+        code: room.code ?? "",
+      },
+    }));
+    setEditingRoomId(roomId);
   }
 
   return (
@@ -234,48 +250,59 @@ export default function DashboardPage() {
           {bootstrap?.rooms.map((room) => {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
             const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
+            const isEditing = editingRoomId === room.id;
             return (
-              <div className="room-row" key={room.id}>
-                <div>
-                  <strong>{room.name}</strong>
-                  <span className="muted">{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
+              <div className={`room-row ${isEditing ? "is-editing" : ""}`} key={room.id}>
+                <div className="room-summary">
+                  <div>
+                    <strong>{room.name}</strong>
+                    <span>{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
+                  </div>
+                  <button className="btn secondary compact-btn" onClick={() => startRoomEdit(room.id)}>Bearbeiten</button>
                 </div>
-                <label className="field">
-                  <span>Raumname</span>
-                  <input
-                    value={draft.name}
-                    onChange={(event) => setRoomDrafts((current) => ({
-                      ...current,
-                      [room.id]: { ...draft, name: event.target.value },
-                    }))}
-                  />
-                </label>
-                <label className="field">
-                  <span>Gebäude</span>
-                  <select
-                    value={draft.building_id}
-                    onChange={(event) => setRoomDrafts((current) => ({
-                      ...current,
-                      [room.id]: { ...draft, building_id: event.target.value },
-                    }))}
-                  >
-                    {bootstrap.buildings.map((entry) => (
-                      <option key={entry.id} value={entry.id}>{entry.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Code</span>
-                  <input
-                    value={draft.code}
-                    onChange={(event) => setRoomDrafts((current) => ({
-                      ...current,
-                      [room.id]: { ...draft, code: event.target.value },
-                    }))}
-                    placeholder="optional"
-                  />
-                </label>
-                <button className="btn secondary" onClick={() => updateRoom(room.id)}>Änderungen speichern</button>
+                {isEditing ? (
+                  <div className="room-edit-panel">
+                    <label className="field">
+                      <span>Raumname</span>
+                      <input
+                        value={draft.name}
+                        onChange={(event) => setRoomDrafts((current) => ({
+                          ...current,
+                          [room.id]: { ...draft, name: event.target.value },
+                        }))}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Gebäude</span>
+                      <select
+                        value={draft.building_id}
+                        onChange={(event) => setRoomDrafts((current) => ({
+                          ...current,
+                          [room.id]: { ...draft, building_id: event.target.value },
+                        }))}
+                      >
+                        {bootstrap.buildings.map((entry) => (
+                          <option key={entry.id} value={entry.id}>{entry.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Code</span>
+                      <input
+                        value={draft.code}
+                        onChange={(event) => setRoomDrafts((current) => ({
+                          ...current,
+                          [room.id]: { ...draft, code: event.target.value },
+                        }))}
+                        placeholder="optional"
+                      />
+                    </label>
+                    <div className="room-edit-actions">
+                      <button className="btn accent compact-btn" onClick={() => updateRoom(room.id)}>Speichern</button>
+                      <button className="btn secondary compact-btn" onClick={() => setEditingRoomId(null)}>Abbrechen</button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             );
           })}
