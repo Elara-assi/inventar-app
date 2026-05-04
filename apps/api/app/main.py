@@ -92,6 +92,23 @@ def ensure_upload_dirs() -> None:
         Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
 
 
+def require_item_session_open(item_id: str) -> dict[str, Any]:
+    row = fetch_one(
+        """
+        SELECT i.id, i.session_id, s.status AS session_status
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if row["session_status"] != "open":
+        raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
+    return row
+
+
 @app.on_event("startup")
 def startup() -> None:
     ensure_upload_dirs()
@@ -377,6 +394,10 @@ def close_session(session_id: str) -> dict[str, Any]:
         "UPDATE inventory_sessions SET status = 'closed', closed_at = now() WHERE id = %s RETURNING *",
         (session_id,),
     )
+    execute(
+        "UPDATE inventory_items SET locked_at = COALESCE(locked_at, now()), updated_at = now() WHERE session_id = %s RETURNING id",
+        (session_id,),
+    )
     audit("session_closed", "inventory_session", session_id, row)
     return row
 
@@ -399,6 +420,8 @@ def revoke_device(session_id: str, device_id: str) -> dict[str, Any]:
 @app.post("/items")
 def create_item(body: ItemIn) -> dict[str, Any]:
     session = get_session(body.session_id)
+    if session["status"] != "open":
+        raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
     inventory_id = body.inventory_id or next_inventory_id(session["location_code"])
     temporary_id = body.temporary_id or f"TEMP-{secrets.token_hex(4).upper()}"
     oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (body.object_class_id,)) if body.object_class_id else None
@@ -488,23 +511,25 @@ def get_item(item_id: str) -> dict[str, Any]:
 
 @app.patch("/items/{item_id}")
 def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
+    require_item_session_open(item_id)
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
     allowed = list(data.keys())
     sql = ", ".join([f"{key} = %s" for key in allowed])
     row = execute(
-        f"UPDATE inventory_items SET {sql}, updated_at = now() WHERE id = %s AND locked_at IS NULL RETURNING *",
+        f"UPDATE inventory_items SET {sql}, updated_at = now() WHERE id = %s RETURNING *",
         tuple(data[key] for key in allowed) + (item_id,),
     )
     if not row:
-        raise HTTPException(status_code=409, detail="Item locked or not found")
+        raise HTTPException(status_code=404, detail="Item not found")
     audit("item_changed", "inventory_item", item_id, data)
     return row
 
 
 @app.post("/items/{item_id}/finalize")
 def finalize_item(item_id: str) -> dict[str, Any]:
+    require_item_session_open(item_id)
     blockers = finalization_blockers(item_id)
     if blockers:
         raise HTTPException(status_code=409, detail={"message": "Item has blockers", "blockers": blockers})
@@ -513,7 +538,7 @@ def finalize_item(item_id: str) -> dict[str, Any]:
         UPDATE inventory_items
         SET review_status = 'finalisiert', status = 'finalisiert',
             lifecycle_status = COALESCE(lifecycle_status, 'aktiv'),
-            finalized_at = now(), locked_at = now(), updated_at = now()
+            finalized_at = now(), updated_at = now()
         WHERE id = %s RETURNING *
         """,
         (item_id,),
@@ -524,6 +549,7 @@ def finalize_item(item_id: str) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/request-rework")
 def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    require_item_session_open(item_id)
     assigned_role = body.get("assigned_role", "PrÃ¼fer")
     row = execute(
         """
@@ -552,6 +578,7 @@ def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/change-status")
 def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    require_item_session_open(item_id)
     row = execute(
         "UPDATE inventory_items SET status = %s, review_status = COALESCE(%s, review_status), updated_at = now() WHERE id = %s RETURNING *",
         (body.get("status"), body.get("review_status"), item_id),
@@ -563,8 +590,7 @@ def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 @app.post("/items/{item_id}/photos")
 async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFile = File(...)) -> dict[str, Any]:
     ensure_upload_dirs()
-    if not fetch_one("SELECT id FROM inventory_items WHERE id = %s", (item_id,)):
-        raise HTTPException(status_code=404, detail="Item not found")
+    require_item_session_open(item_id)
     data = await file.read()
     digest = hashlib.sha256(data).hexdigest()
     suffix = Path(file.filename or "upload.bin").suffix or ".bin"
@@ -588,6 +614,7 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
 @app.post("/items/{item_id}/audio")
 async def upload_audio(item_id: str, transcript: str | None = None, file: UploadFile | None = File(None)) -> dict[str, Any]:
     ensure_upload_dirs()
+    require_item_session_open(item_id)
     path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
     if file:
         data = await file.read()
@@ -609,6 +636,7 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
 
 @app.post("/items/{item_id}/ai/run")
 def run_ai(item_id: str) -> dict[str, Any]:
+    require_item_session_open(item_id)
     execute("UPDATE inventory_items SET status = 'ki_laeuft' WHERE id = %s RETURNING id", (item_id,))
     suggestion = build_ai_suggestion(item_id)
     model_used = suggestion.pop("_model_used", "phase1-stub")
@@ -723,6 +751,7 @@ def item_accounting(item_id: str) -> dict[str, Any]:
 
 @app.patch("/items/{item_id}/accounting")
 def patch_item_accounting(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    require_item_session_open(item_id)
     row = execute(
         """
         UPDATE item_accounting_data

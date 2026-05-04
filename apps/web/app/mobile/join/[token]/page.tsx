@@ -291,6 +291,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
         <p className="status pruefen">{message}</p>
+        {joined ? (
+          <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a>
+        ) : null}
         <button className="btn" disabled={busy} onClick={resetItem}>Nächstes Objekt</button>
       </section>
     </main>
