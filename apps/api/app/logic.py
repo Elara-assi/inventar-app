@@ -35,14 +35,23 @@ def json_dumps(value: Any) -> str:
 
 
 def build_ai_suggestion(item_id: str) -> dict[str, Any]:
-    item = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    item = fetch_one(
+        """
+        SELECT i.*, oc.slug AS object_class_slug, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
     notes = fetch_all("SELECT transcript FROM item_audio_notes WHERE item_id = %s", (item_id,))
     text = " ".join([str(n.get("transcript") or "") for n in notes]).lower()
     object_type = (item or {}).get("object_type") or "Unbekanntes Objekt"
-    object_class = "monitor"
+    object_class = (item or {}).get("object_class_slug") or "monitor"
+    object_class_name = (item or {}).get("object_class_name") or "Monitor"
     result: dict[str, Any] = {
         "object_type": object_type,
-        "object_class": "Monitor",
+        "object_class": object_class_name,
         "category": None,
         "brand": None,
         "model": None,
@@ -65,10 +74,10 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
         "confidence": 0.62,
         "requires_review": True,
         "recommended_status": "nacharbeit_buchhaltung",
-        "notes": "Phase-1 KI-Stub. LiteLLM/Vision wird ueber Worker angebunden.",
+        "notes": "Phase-1-Auswertung. LiteLLM/Vision wird über Worker angebunden.",
     }
 
-    if "reifen" in text or "dot" in text or "michelin" in text:
+    if object_class == "reifen" or "reifen" in text or "dot" in text or "michelin" in text:
         dot = re.search(r"\b(\d{4})\b", text)
         dot_number = dot.group(1) if dot else None
         result.update(
@@ -92,15 +101,15 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
             }
         )
         object_class = "reifen"
-    elif "hebeb" in text or "buehne" in text:
+    elif object_class == "hebebuehne" or "hebeb" in text or "bühne" in text or "buehne" in text:
         result.update(
             {
-                "object_type": "HebebÃ¼hne",
-                "object_class": "HebebÃ¼hne",
+                "object_type": "Hebebühne",
+                "object_class": "Hebebühne",
                 "brand": "Nussbaum" if "nussbaum" in text else None,
                 "commercial_category": "anlagevermoegen",
                 "requires_accounting_review": True,
-                "missing_fields": ["Typenschildfoto", "Seriennummer", "TragfÃ¤higkeit"],
+                "missing_fields": ["Typenschildfoto", "Seriennummer", "Tragfähigkeit"],
                 "required_evidence_missing": ["nameplate"],
                 "recommended_status": "nacharbeit_erfasser",
                 "confidence": 0.69,
@@ -154,7 +163,7 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
         elif field in ["Profiltiefe", "DOT-Foto", "Typenschildfoto"]:
             role = "Erfasser"
         else:
-            role = "PrÃ¼fer"
+            role = "Prüfer"
         execute(
             """
             INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)

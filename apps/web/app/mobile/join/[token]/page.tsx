@@ -122,7 +122,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     try {
       const item = await ensureItem();
       await uploadPhoto(item.id, type, file);
-      setMessage(`${photoLabels[type]} gespeichert: ${item.inventory_id || item.temporary_id}`);
+      await api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+      setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
     }
@@ -160,7 +161,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     try {
       const item = await ensureItem();
       await uploadPhoto(item.id, type, selected);
-      setMessage(`${photoLabels[type]} gespeichert: ${item.inventory_id || item.temporary_id}`);
+      await api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+      setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
     }
