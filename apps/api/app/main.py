@@ -128,6 +128,52 @@ def require_item_session_open(item_id: str) -> dict[str, Any]:
     return row
 
 
+def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
+    hints: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(kind: str, label: str, severity: str = "info") -> None:
+        if kind in seen:
+            return
+        seen.add(kind)
+        hints.append({"kind": kind, "label": label, "severity": severity})
+
+    if row.get("status") in {"ki_wartet", "ki_laeuft"}:
+        add("ki", "KI läuft", "info")
+    if row.get("confidence_score") and float(row["confidence_score"]) >= 0.7:
+        add("ki_confident", "KI sicher", "ok")
+
+    special_matches = ai_result.get("special_tool_matches") or []
+    history_matches = ai_result.get("inventory_history_matches") or []
+    if special_matches:
+        add("reference", "Referenztreffer", "info")
+    if history_matches:
+        add("history", "Historie", "warn")
+
+    for match in history_matches:
+        if match.get("uvv_due"):
+            add("uvv", "UVV prüfen", "danger")
+        if match.get("maintenance_due"):
+            add("maintenance", "Wartung prüfen", "warn")
+        if match.get("inspection_book_missing"):
+            add("inspection_book", "Prüfbuch fehlt", "warn")
+        if match.get("missing"):
+            add("target_missing", "Soll/Fehlt prüfen", "danger")
+        if match.get("defective"):
+            add("defective", "Defekt prüfen", "danger")
+
+    for task in tasks:
+        role = task.get("assigned_role")
+        if role == "Technik":
+            add("technical_rework", "Technik-Nacharbeit", "warn")
+        elif role == "Buchhaltung":
+            add("accounting_rework", "Buchhaltung", "info")
+        elif role == "Erfasser":
+            add("capture_rework", "Erfasser-Nacharbeit", "warn")
+
+    return hints
+
+
 @app.on_event("startup")
 def startup() -> None:
     ensure_upload_dirs()
@@ -611,6 +657,18 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
             "SELECT * FROM accounting_tasks WHERE item_id = %s AND status = 'open' ORDER BY created_at",
             (row["id"],),
         )
+        ai_row = fetch_one(
+            "SELECT result_json FROM ai_results WHERE item_id = %s ORDER BY created_at DESC LIMIT 1",
+            (row["id"],),
+        )
+        ai_result = ai_row.get("result_json") if ai_row else {}
+        row["ai_summary"] = {
+            "confidence": ai_result.get("confidence"),
+            "notes": ai_result.get("notes"),
+            "special_tool_matches": (ai_result.get("special_tool_matches") or [])[:3],
+            "inventory_history_matches": (ai_result.get("inventory_history_matches") or [])[:3],
+        }
+        row["process_hints"] = build_process_hints(row, ai_result, row["open_tasks"])
     return rows
 
 

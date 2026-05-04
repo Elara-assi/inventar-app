@@ -64,6 +64,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }
 
   const blockerCount = items.reduce((sum, item) => sum + (item.blockers?.length ?? 0), 0);
+  const hintCount = items.reduce((sum, item) => sum + (item.process_hints?.length ?? 0), 0);
+  const technicalCount = items.filter((item) =>
+    item.process_hints?.some((hint) => hint.kind.includes("technical") || hint.kind === "uvv" || hint.kind === "maintenance" || hint.kind === "inspection_book"),
+  ).length;
+  const aiRunningCount = items.filter((item) => item.status === "ki_wartet" || item.status === "ki_laeuft").length;
+  const finalCount = items.filter((item) => item.review_status === "finalisiert" || item.status === "finalisiert").length;
 
   return (
     <main className="page grid">
@@ -78,6 +84,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             <span className={blockerCount ? "status upload_fehler" : "status finalisierbar"}>{blockerCount} Blocker</span>
             <button className="btn accent" onClick={exportExcel}>Excel-Export</button>
             <button className="btn" onClick={closeRoom}>Raum abschließen</button>
+          </div>
+          <div className="room-process-grid">
+            <ProcessCard label="Erfasst" value={items.length} tone="info" />
+            <ProcessCard label="KI läuft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
+            <ProcessCard label="Hinweise" value={hintCount} tone={hintCount ? "warn" : "ok"} />
+            <ProcessCard label="Technik" value={technicalCount} tone={technicalCount ? "warn" : "ok"} />
+            <ProcessCard label="Blocker" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
+            <ProcessCard label="Finalisiert" value={finalCount} tone="ok" />
           </div>
           <p className="muted">
             {items.length
@@ -103,5 +117,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         />
       </section>
     </main>
+  );
+}
+
+function ProcessCard({ label, value, tone }: { label: string; value: number; tone: "info" | "ok" | "warn" | "danger" }) {
+  return (
+    <div className={`process-card ${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
   );
 }

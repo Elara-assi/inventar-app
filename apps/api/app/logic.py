@@ -347,6 +347,8 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         result["object_type"] = "Monitor"
 
     special_matches = select_special_tool_references(transcripts, object_class_name, limit=1)
+    if special_matches:
+        result["special_tool_matches"] = special_matches
     if special_matches and text:
         match = special_matches[0]
         result.update(
@@ -362,6 +364,8 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
             }
         )
     history_matches = select_inventory_history_references(transcripts, object_class_name, limit=1)
+    if history_matches:
+        result["inventory_history_matches"] = history_matches
     if history_matches and text:
         match = history_matches[0]
         notes = [str(match.get("source_file") or "Bestandsunterlage")]
@@ -511,6 +515,10 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     content = response.json().get("message", {}).get("content", "{}")
     parsed = normalize_ollama_result(parse_ollama_json(content), fallback)
     result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
+    if special_tool_matches:
+        result["special_tool_matches"] = special_tool_matches[:5]
+    if inventory_history_matches:
+        result["inventory_history_matches"] = inventory_history_matches[:5]
     result["_model_used"] = settings.ollama_model
     result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
     apply_suggestion_to_item(item_id, result, item.get("object_class_slug") or "monitor")
@@ -674,6 +682,8 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
             role = "Buchhaltung"
         elif field in ["Profiltiefe", "DOT-Foto", "Typenschildfoto"]:
             role = "Erfasser"
+        elif field in ["Wartung/UVV prüfen", "Defekt prüfen", "Prüfbuch fehlt"]:
+            role = "Technik"
         else:
             role = "Prüfer"
         execute(

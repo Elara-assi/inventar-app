@@ -11,6 +11,27 @@ type Task = {
   missing_field?: string;
 };
 
+type ProcessHint = {
+  kind: string;
+  label: string;
+  severity: "info" | "ok" | "warn" | "danger";
+};
+
+type ReferenceMatch = {
+  designation_de?: string;
+  tool_no?: string;
+  vag_no?: string;
+  action?: string;
+  note?: string;
+  source_file?: string;
+};
+
+type AiSummary = {
+  notes?: string;
+  special_tool_matches?: ReferenceMatch[];
+  inventory_history_matches?: ReferenceMatch[];
+};
+
 export type ReviewItem = {
   id: string;
   inventory_id?: string;
@@ -30,6 +51,8 @@ export type ReviewItem = {
   object_photo_id?: string;
   blockers?: string[];
   open_tasks?: Task[];
+  process_hints?: ProcessHint[];
+  ai_summary?: AiSummary;
 };
 
 const conditions = ["neu", "sehr_gut", "gut", "gebraucht", "reparaturbeduerftig", "defekt", "aussondern"];
@@ -39,6 +62,7 @@ const reviewStatuses = [
   "nacharbeit_erfasser",
   "nacharbeit_pruefer",
   "nacharbeit_buchhaltung",
+  "nacharbeit_technik",
   "finalisierbar",
   "geprueft",
   "finalisiert",
@@ -157,7 +181,7 @@ function ItemReviewRow({
     onChanged();
   }
 
-  async function requestRework(role: "Buchhaltung" | "Erfasser", missingField: string) {
+  async function requestRework(role: "Buchhaltung" | "Erfasser" | "Technik", missingField: string) {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -195,6 +219,9 @@ function ItemReviewRow({
 
   const blockers = item.blockers ?? [];
   const tasks = item.open_tasks ?? [];
+  const hints = item.process_hints ?? [];
+  const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
+  const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
   const photoUrl = item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
 
@@ -252,13 +279,21 @@ function ItemReviewRow({
       <div className="row-actions">
         <button className="btn accent" onClick={save}>Speichern</button>
         <button className="btn secondary" onClick={() => requestRework("Erfasser", "Foto/Nachweis")}>Erfasser</button>
+        <button className="btn secondary" onClick={() => requestRework("Technik", "UVV/Wartung/Prüfbuch")}>Technik</button>
         <button className="btn secondary" onClick={() => requestRework("Buchhaltung", "Anlagenummer/Buchwert")}>Buchhaltung</button>
         <button className="btn" onClick={finalize}>Finalisieren</button>
         <button className="btn danger" onClick={removeItem}>Löschen</button>
       </div>
 
-      {(blockers.length || tasks.length || message) ? (
+      {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
         <div className="item-row-notes">
+          {hints.map((hint) => <span className={`hint-badge ${hint.severity}`} key={hint.kind}>{hint.label}</span>)}
+          {firstSpecial ? (
+            <span className="hint-badge info">Referenz: {firstSpecial.designation_de || firstSpecial.vag_no || firstSpecial.source_file}</span>
+          ) : null}
+          {firstHistory ? (
+            <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
+          ) : null}
           {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
           {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role}: {task.missing_field}</span>)}
           {message ? <span className="status pruefen">{message}</span> : null}
