@@ -46,6 +46,19 @@ class JoinIn(BaseModel):
     device_fingerprint: str | None = None
 
 
+class RoomIn(BaseModel):
+    building_id: str
+    name: str
+    code: str | None = None
+    room_type: str = "workspace"
+
+
+class RoomPatch(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    room_type: str | None = None
+
+
 class ItemIn(BaseModel):
     session_id: str
     object_type: str | None = None
@@ -127,6 +140,49 @@ def bootstrap() -> dict[str, Any]:
         "rooms": fetch_all("SELECT * FROM rooms ORDER BY name"),
         "object_classes": fetch_all("SELECT * FROM object_classes ORDER BY name"),
     }
+
+
+@app.post("/rooms")
+def create_room(body: RoomIn) -> dict[str, Any]:
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Raumname fehlt")
+    if not fetch_one("SELECT id FROM buildings WHERE id = %s", (body.building_id,)):
+        raise HTTPException(status_code=400, detail="Gebäude nicht gefunden")
+    code = (body.code or f"RAUM-{secrets.token_hex(3).upper()}").strip()
+    row = execute(
+        """
+        INSERT INTO rooms (building_id, name, code, room_type)
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+        """,
+        (body.building_id, name, code, body.room_type),
+    )
+    audit("room_created", "room", str(row["id"]), row)
+    return row
+
+
+@app.patch("/rooms/{room_id}")
+def update_room(room_id: str, body: RoomPatch) -> dict[str, Any]:
+    current = fetch_one("SELECT * FROM rooms WHERE id = %s", (room_id,))
+    if not current:
+        raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    name = body.name.strip() if body.name is not None else current["name"]
+    code = body.code.strip() if body.code is not None else current["code"]
+    room_type = body.room_type.strip() if body.room_type is not None else current["room_type"]
+    if not name:
+        raise HTTPException(status_code=400, detail="Raumname fehlt")
+    row = execute(
+        """
+        UPDATE rooms
+        SET name = %s, code = %s, room_type = %s
+        WHERE id = %s
+        RETURNING *
+        """,
+        (name, code, room_type, room_id),
+    )
+    audit("room_changed", "room", room_id, {"name": name, "code": code, "room_type": room_type})
+    return row
 
 
 @app.post("/sessions")

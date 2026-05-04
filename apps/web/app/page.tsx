@@ -22,6 +22,8 @@ export default function DashboardPage() {
   const [freeRoomName, setFreeRoomName] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
   const [freeBuildingName, setFreeBuildingName] = useState("");
+  const [newRoomName, setNewRoomName] = useState("");
+  const [roomDrafts, setRoomDrafts] = useState<Record<string, string>>({});
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -35,6 +37,11 @@ export default function DashboardPage() {
       setSessions(list);
       setSelectedRoom((current) => current || boot.rooms[0]?.id || "");
       setSelectedBuilding((current) => current || boot.buildings[0]?.id || "");
+      setRoomDrafts((current) => {
+        const next = { ...current };
+        for (const room of boot.rooms) next[room.id] = next[room.id] ?? room.name;
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "API nicht erreichbar");
     }
@@ -81,6 +88,46 @@ export default function DashboardPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Session konnte nicht gestartet werden");
       setMessage("");
+    }
+  }
+
+  async function createRoom() {
+    const name = newRoomName.trim();
+    const buildingId = selectedBuilding || bootstrap?.buildings[0]?.id;
+    if (!name || !buildingId) {
+      setError("Bitte Raumname und Gebäude auswählen.");
+      return;
+    }
+    try {
+      setError("");
+      await api("/rooms", {
+        method: "POST",
+        body: JSON.stringify({ building_id: buildingId, name }),
+      });
+      setNewRoomName("");
+      setMessage("Raum angelegt");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Raum konnte nicht angelegt werden");
+    }
+  }
+
+  async function updateRoom(roomId: string) {
+    const name = roomDrafts[roomId]?.trim();
+    if (!name) {
+      setError("Raumname darf nicht leer sein.");
+      return;
+    }
+    try {
+      setError("");
+      await api(`/rooms/${roomId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      });
+      setMessage("Raum gespeichert");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Raum konnte nicht gespeichert werden");
     }
   }
 
@@ -139,6 +186,50 @@ export default function DashboardPage() {
           {activeSession ? (
             <a className="btn secondary" href={`/session/${activeSession.id}`}>Live-Prüfung öffnen</a>
           ) : null}
+        </div>
+      </section>
+
+      <section className="panel grid">
+        <div>
+          <h2>Räume bearbeiten</h2>
+          <p className="muted">Räume können hier für die Auswahl vorbereitet oder umbenannt werden.</p>
+        </div>
+        <div className="grid grid-2">
+          <label className="field">
+            <span>Gebäude für neuen Raum</span>
+            <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
+              {bootstrap?.buildings.map((building) => (
+                <option key={building.id} value={building.id}>{building.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Neuer Raum</span>
+            <input
+              value={newRoomName}
+              onChange={(event) => setNewRoomName(event.target.value)}
+              placeholder="z. B. Reifenlager, Werkstattplatz 4"
+            />
+          </label>
+        </div>
+        <button className="btn accent room-action" onClick={createRoom}>Raum anlegen</button>
+        <div className="room-list">
+          {bootstrap?.rooms.map((room) => {
+            const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
+            return (
+              <div className="room-row" key={room.id}>
+                <div>
+                  <strong>{building?.name || "Gebäude"}</strong>
+                  <span className="muted">{room.code || "ohne Code"}</span>
+                </div>
+                <input
+                  value={roomDrafts[room.id] ?? room.name}
+                  onChange={(event) => setRoomDrafts((current) => ({ ...current, [room.id]: event.target.value }))}
+                />
+                <button className="btn secondary" onClick={() => updateRoom(room.id)}>Speichern</button>
+              </div>
+            );
+          })}
         </div>
       </section>
 
