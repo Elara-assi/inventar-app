@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { ItemReviewCard } from "@/components/ItemReviewCard";
+import { ItemReviewList, ReviewItem } from "@/components/ItemReviewList";
 import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
 
 type Session = {
@@ -15,22 +15,11 @@ type Session = {
   status: string;
 };
 
-type Item = {
-  id: string;
-  inventory_id?: string;
-  object_type?: string;
-  review_status?: string;
-  has_object_photo?: boolean;
-  object_class_id?: string;
-  blockers?: string[];
-  open_tasks?: Array<{ id: string; assigned_role: string; missing_field?: string }>;
-};
-
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const [sessionId, setSessionId] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<ReviewItem[]>([]);
   const [message, setMessage] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -52,7 +41,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   async function load() {
     const [sessionData, itemData] = await Promise.all([
       api<Session>(`/sessions/${sessionId}`),
-      api<Item[]>(`/sessions/${sessionId}/items`),
+      api<ReviewItem[]>(`/sessions/${sessionId}/items`),
     ]);
     setSession(sessionData);
     setItems(itemData);
@@ -102,21 +91,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         </div>
       </section>
 
-      <section className="grid grid-3">
-        {!items.length ? (
-          <div className="empty-state">
-            <strong>Warte auf mobile Erfassung</strong>
-            <span>QR-Code mit dem Handy öffnen, Foto aufnehmen und Sprachnotiz speichern.</span>
-          </div>
-        ) : null}
-        {items.map((item) => (
-          <ItemReviewCard
-            item={item}
-            key={item.id}
-            objectClasses={bootstrap?.object_classes ?? []}
-            onChanged={load}
-          />
-        ))}
+      <section className="panel grid">
+        <div>
+          <h2>Gegenstände im Raum</h2>
+          <p className="muted">Liste direkt bearbeiten, speichern, Nacharbeit setzen oder finalisieren.</p>
+        </div>
+        <ItemReviewList
+          items={items}
+          objectClasses={bootstrap?.object_classes ?? []}
+          onChanged={load}
+        />
       </section>
     </main>
   );
