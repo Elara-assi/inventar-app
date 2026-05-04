@@ -27,7 +27,7 @@ services:
       UPLOAD_ROOT: /opt/inventar/uploads
       APP_ORIGIN: http://localhost:3000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
-      OLLAMA_MODEL: gemma3:27b-it-qat
+      OLLAMA_MODEL: gemma4:31b-cloud
     ports:
       - "8000:8000"
     volumes:
@@ -66,7 +66,7 @@ services:
       REDIS_URL: redis://inventar-app-redis-1:6379/0
       LITELLM_URL: http://litellm:4000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
-      OLLAMA_MODEL: gemma3:27b-it-qat
+      OLLAMA_MODEL: gemma4:31b-cloud
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads
