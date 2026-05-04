@@ -361,7 +361,7 @@ export default function DashboardPage() {
                   const exact = erfasserOptions.find((user) => sameName(user.display_name, name));
                   if (exact) setSelectedUser(exact.id);
                 }}
-                placeholder="z. B. Markus oder neuer Erfasser"
+                placeholder="z. B. Vorname Nachname oder neuer Erfasser"
               />
             </label>
 
@@ -380,7 +380,7 @@ export default function DashboardPage() {
                     setSelectedBuilding(firstBuilding?.id || "");
                   }
                 }}
-                placeholder="z. B. Betrieb Muster oder neuer Betrieb"
+                placeholder="z. B. Betrieb Beispiel oder neuer Betrieb"
               />
             </label>
 
@@ -451,11 +451,11 @@ export default function DashboardPage() {
         <div className="grid grid-3">
           <label className="field">
             <span>Neuer Erfasser</span>
-            <input value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="z. B. Markus" />
+            <input value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="z. B. Vorname Nachname" />
           </label>
           <label className="field">
             <span>Neuer Betrieb</span>
-            <input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} placeholder="z. B. Betrieb XYZ" />
+            <input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} placeholder="z. B. Betrieb Beispiel" />
           </label>
           <div className="settings-actions">
             <button className="btn accent" onClick={() => createUser()}>Erfasser anlegen</button>
