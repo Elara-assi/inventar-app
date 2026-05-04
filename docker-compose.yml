@@ -26,6 +26,8 @@ services:
       DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
       APP_ORIGIN: http://localhost:3000
+      OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
+      OLLAMA_MODEL: gemma3:27b-it-qat
     ports:
       - "8000:8000"
     volumes:
@@ -36,6 +38,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    networks:
+      - default
+      - elara
 
   web:
     build:
@@ -60,6 +65,8 @@ services:
       UPLOAD_ROOT: /opt/inventar/uploads
       REDIS_URL: redis://redis:6379/0
       LITELLM_URL: http://litellm:4000
+      OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
+      OLLAMA_MODEL: gemma3:27b-it-qat
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads
@@ -68,6 +75,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    networks:
+      - default
+      - elara
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
@@ -88,3 +98,8 @@ services:
 volumes:
   postgres-data:
   uptime-kuma-data:
+
+networks:
+  elara:
+    external: true
+    name: ELARA

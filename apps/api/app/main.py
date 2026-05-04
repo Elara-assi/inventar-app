@@ -552,13 +552,14 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
 def run_ai(item_id: str) -> dict[str, Any]:
     execute("UPDATE inventory_items SET status = 'ki_laeuft' WHERE id = %s RETURNING id", (item_id,))
     suggestion = build_ai_suggestion(item_id)
+    model_used = suggestion.pop("_model_used", "phase1-stub")
     row = execute(
         """
         INSERT INTO ai_results (item_id, ai_type, model_used, input_sources, result_json, confidence)
-        VALUES (%s, 'phase1_stub', 'litellm-placeholder', %s::jsonb, %s::jsonb, %s)
+        VALUES (%s, 'ollama', %s, %s::jsonb, %s::jsonb, %s)
         RETURNING *
         """,
-        (item_id, '["photos","audio"]', json_string(suggestion), suggestion["confidence"]),
+        (item_id, model_used, '["photos","audio"]', json_string(suggestion), suggestion["confidence"]),
     )
     create_rework_tasks(item_id, suggestion)
     execute(

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import base64
+import json
 import re
 from datetime import date
 from typing import Any
 
+import httpx
+
 from .db import execute, fetch_all, fetch_one
+from .settings import settings
 
 
 def next_inventory_id(location_code: str = "SIM") -> str:
@@ -35,6 +40,16 @@ def json_dumps(value: Any) -> str:
 
 
 def build_ai_suggestion(item_id: str) -> dict[str, Any]:
+    fallback = build_stub_suggestion(item_id)
+    try:
+        return build_ollama_suggestion(item_id, fallback)
+    except Exception as exc:
+        fallback["notes"] = f"{fallback.get('notes')} Ollama nicht erreichbar, Stub genutzt: {type(exc).__name__}"
+        fallback["_model_used"] = "phase1-stub"
+        return fallback
+
+
+def build_stub_suggestion(item_id: str) -> dict[str, Any]:
     item = fetch_one(
         """
         SELECT i.*, oc.slug AS object_class_slug, oc.name AS object_class_name
@@ -148,6 +163,137 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
             ),
         )
     return result
+
+
+def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str, Any]:
+    item = fetch_one(
+        """
+        SELECT i.*, oc.slug AS object_class_slug, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    ) or {}
+    notes = fetch_all("SELECT transcript FROM item_audio_notes WHERE item_id = %s", (item_id,))
+    photos = fetch_all(
+        """
+        SELECT photo_type, original_path
+        FROM item_photos
+        WHERE item_id = %s
+        ORDER BY uploaded_at DESC
+        LIMIT 4
+        """,
+        (item_id,),
+    )
+    transcripts = [str(note.get("transcript") or "") for note in notes if note.get("transcript")]
+    photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
+    images = []
+    for photo in photos:
+        path = photo.get("original_path")
+        if not path:
+            continue
+        try:
+            with open(path, "rb") as handle:
+                images.append(base64.b64encode(handle.read()).decode("ascii"))
+        except OSError:
+            continue
+
+    prompt = {
+        "task": "Analysiere ein Inventarobjekt für ein Autohaus. Antworte ausschließlich als JSON.",
+        "object_class_hint": item.get("object_class_name"),
+        "object_class_slug": item.get("object_class_slug"),
+        "condition_hint": item.get("condition"),
+        "inventory_id": item.get("inventory_id"),
+        "photo_types": photo_types,
+        "transcripts": transcripts,
+        "required_schema": {
+            "object_type": "string",
+            "object_class": "string",
+            "brand": "string|null",
+            "model": "string|null",
+            "serial_number": "string|null",
+            "condition": "neu|sehr_gut|gut|gebraucht|reparaturbeduerftig|defekt|aussondern|null",
+            "commercial_category": "string",
+            "requires_accounting_review": "boolean",
+            "missing_fields": ["string"],
+            "required_evidence_missing": ["string"],
+            "recommended_tasks": [{"role": "string", "task": "string"}],
+            "confidence": "number",
+            "recommended_status": "string",
+            "notes": "string",
+        },
+    }
+    payload = {
+        "model": settings.ollama_model,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {
+                "role": "user",
+                "content": json.dumps(prompt, ensure_ascii=False),
+                **({"images": images} if images else {}),
+            }
+        ],
+    }
+    with httpx.Client(timeout=settings.ollama_timeout_seconds) as client:
+        response = client.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload)
+        response.raise_for_status()
+    content = response.json().get("message", {}).get("content", "{}")
+    parsed = json.loads(content)
+    result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
+    result["_model_used"] = settings.ollama_model
+    result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
+    apply_suggestion_to_item(item_id, result, item.get("object_class_slug") or "monitor")
+    return result
+
+
+def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug: str) -> None:
+    object_class_text = str(result.get("object_class") or "").lower()
+    object_type_text = str(result.get("object_type") or "").lower()
+    object_class = default_slug
+    if "reifen" in object_class_text or "reifen" in object_type_text:
+        object_class = "reifen"
+    elif "hebeb" in object_class_text or "bühne" in object_class_text or "hebeb" in object_type_text:
+        object_class = "hebebuehne"
+    elif "it" in object_class_text and "gerät" in object_class_text:
+        object_class = "it_geraet"
+    elif "werkzeugwagen" in object_class_text:
+        object_class = "werkzeugwagen"
+    elif "monitor" in object_class_text or "monitor" in object_type_text:
+        object_class = "monitor"
+
+    oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
+    if not oc:
+        return
+    execute(
+        """
+        UPDATE inventory_items
+        SET object_type = %s, object_class_id = %s, brand = COALESCE(%s, brand),
+            model = COALESCE(%s, model), serial_number = COALESCE(%s, serial_number),
+            commercial_category = %s, requires_accounting_review = %s,
+            review_status = %s, status = 'ki_fertig', confidence_score = %s,
+            age_source = %s, age_verification_status = %s, estimated_age_years = %s,
+            updated_at = now()
+        WHERE id = %s
+        RETURNING id
+        """,
+        (
+            result.get("object_type") or "Unbekanntes Objekt",
+            oc["id"],
+            result.get("brand"),
+            result.get("model"),
+            result.get("serial_number"),
+            result.get("commercial_category") or "ungeklaert",
+            bool(result.get("requires_accounting_review")),
+            result.get("recommended_status") or "pruefen",
+            result.get("confidence") or 0,
+            result.get("age_source") or "unbekannt",
+            result.get("age_verification_status") or "offen",
+            result.get("estimated_age_years"),
+            item_id,
+        ),
+    )
 
 
 def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
