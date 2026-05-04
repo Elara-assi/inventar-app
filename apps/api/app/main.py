@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
@@ -928,6 +929,7 @@ def filename_part(value: str | None, fallback: str) -> str:
 
 
 EXPORT_COLUMNS = [
+    ("Foto", "photo_cell"),
     ("Betrieb", "location_name"),
     ("Gebäude", "building_name"),
     ("Raum", "room_name"),
@@ -988,6 +990,20 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
+          (
+            SELECT p.id
+            FROM item_photos p
+            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            ORDER BY p.uploaded_at DESC
+            LIMIT 1
+          ) AS object_photo_id,
+          (
+            SELECT COALESCE(p.stamped_path, p.original_path)
+            FROM item_photos p
+            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            ORDER BY p.uploaded_at DESC
+            LIMIT 1
+          ) AS object_photo_path,
           (SELECT count(*)::int FROM item_photos p WHERE p.item_id = i.id) AS photo_count,
           (SELECT count(*)::int FROM item_audio_notes a WHERE a.item_id = i.id) AS audio_count,
           (SELECT count(*)::int FROM accounting_tasks t WHERE t.item_id = i.id AND t.status = 'open') AS open_task_count,
@@ -1026,8 +1042,9 @@ def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[s
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="20343D")
 
-    for row in rows:
+    for row_index, row in enumerate(rows, start=2):
         ws.append([excel_value(row.get(key)) for _, key in EXPORT_COLUMNS])
+        insert_excel_photo(ws, row, row_index)
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
@@ -1035,7 +1052,7 @@ def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[s
         max_length = len(header)
         for row in rows[:200]:
             max_length = max(max_length, len(str(row.get(key) or "")))
-        ws.column_dimensions[get_column_letter(index)].width = min(max(max_length + 2, 12), 42)
+        ws.column_dimensions[get_column_letter(index)].width = 16 if key == "photo_cell" else min(max(max_length + 2, 12), 42)
 
     summary_ws = wb.create_sheet("Übersicht", 0)
     summary_ws.append(["Export", title])
@@ -1068,6 +1085,35 @@ def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[s
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
     return wb
+
+
+def insert_excel_photo(ws: Any, row: dict[str, Any], row_index: int) -> None:
+    photo_path = row.get("object_photo_path")
+    if not photo_path:
+        ws.cell(row=row_index, column=1, value="kein Foto")
+        return
+    path = Path(str(photo_path))
+    if not path.exists():
+        ws.cell(row=row_index, column=1, value="Foto fehlt")
+        return
+    try:
+        image = ExcelImage(str(path))
+    except Exception:
+        ws.cell(row=row_index, column=1, value="Foto nicht lesbar")
+        return
+
+    max_side = 82
+    scale = min(max_side / image.width, max_side / image.height, 1)
+    image.width = int(image.width * scale)
+    image.height = int(image.height * scale)
+    image.anchor = f"A{row_index}"
+    ws.add_image(image)
+    ws.row_dimensions[row_index].height = 68
+    cell = ws.cell(row=row_index, column=1)
+    cell.value = " "
+    if row.get("object_photo_id"):
+        cell.hyperlink = f"/uploads/photos/{row['object_photo_id']}"
+        cell.style = "Hyperlink"
 
 
 def save_export(
