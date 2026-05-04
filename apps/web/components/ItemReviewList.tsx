@@ -151,6 +151,19 @@ function ItemReviewRow({
     }
   }
 
+  async function removeItem() {
+    const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
+    const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
+    if (!confirmed) return;
+    try {
+      await api(`/items/${item.id}`, { method: "DELETE" });
+      setMessage("Gelöscht");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Gegenstand konnte nicht gelöscht werden");
+    }
+  }
+
   const blockers = item.blockers ?? [];
   const tasks = item.open_tasks ?? [];
 
@@ -200,6 +213,7 @@ function ItemReviewRow({
         <button className="btn secondary" onClick={() => requestRework("Erfasser", "Foto/Nachweis")}>Erfasser</button>
         <button className="btn secondary" onClick={() => requestRework("Buchhaltung", "Anlagenummer/Buchwert")}>Buchhaltung</button>
         <button className="btn" onClick={finalize}>Finalisieren</button>
+        <button className="btn danger" onClick={removeItem}>Löschen</button>
       </div>
 
       {(blockers.length || tasks.length || message) ? (

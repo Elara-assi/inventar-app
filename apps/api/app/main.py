@@ -429,6 +429,17 @@ def close_session(session_id: str) -> dict[str, Any]:
     return row
 
 
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str) -> dict[str, Any]:
+    current = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not current:
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    item_count = fetch_one("SELECT count(*)::int AS count FROM inventory_items WHERE session_id = %s", (session_id,))
+    audit("session_deleted", "inventory_session", session_id, {"session": current, "item_count": item_count["count"] if item_count else 0})
+    row = execute("DELETE FROM inventory_sessions WHERE id = %s RETURNING *", (session_id,))
+    return {"deleted": True, "session": row}
+
+
 @app.get("/sessions/{session_id}/devices")
 def devices(session_id: str) -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM session_devices WHERE session_id = %s ORDER BY created_at DESC", (session_id,))
@@ -552,6 +563,17 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Item not found")
     audit("item_changed", "inventory_item", item_id, data)
     return row
+
+
+@app.delete("/items/{item_id}")
+def delete_item(item_id: str) -> dict[str, Any]:
+    require_item_session_open(item_id)
+    current = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not current:
+        raise HTTPException(status_code=404, detail="Gegenstand nicht gefunden")
+    audit("item_deleted", "inventory_item", item_id, current)
+    row = execute("DELETE FROM inventory_items WHERE id = %s RETURNING *", (item_id,))
+    return {"deleted": True, "item": row}
 
 
 @app.post("/items/{item_id}/finalize")

@@ -168,6 +168,21 @@ export default function DashboardPage() {
     }
   }
 
+  async function deleteSession(session: Session) {
+    const label = session.room_name || "Raum";
+    const confirmed = window.confirm(`Session "${label}" wirklich löschen? Dabei werden die erfassten Gegenstände dieser Test-Session aus der Datenbank entfernt.`);
+    if (!confirmed) return;
+    try {
+      setError("");
+      await api(`/sessions/${session.id}`, { method: "DELETE" });
+      setMessage("Session gelöscht");
+      setActiveSession((current) => (current?.id === session.id ? null : current));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session konnte nicht gelöscht werden");
+    }
+  }
+
   function startRoomEdit(roomId: string) {
     const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
     if (!room) return;
@@ -348,8 +363,12 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-3">
           {sessions.map((session) => (
-            <article className="card" key={session.id}>
-              <a className="card-body card-link grid" href={`/session/${session.id}`}>
+            <article
+              className="card clickable-card"
+              key={session.id}
+              onClick={() => { window.location.href = `/session/${session.id}`; }}
+            >
+              <div className="card-body grid">
                 <StatusBadgeShim value={session.status} />
                 <strong>{session.room_name || "Raum"}</strong>
                 <span className="muted">{session.location_name} / {session.building_name}</span>
@@ -357,8 +376,21 @@ export default function DashboardPage() {
                   <span>{session.item_count ?? 0} Objekte</span>
                   <span>{formatDateTime(session.created_at)}</span>
                 </div>
-                <span className="btn secondary">Inventarliste öffnen</span>
-              </a>
+                <div className="session-actions">
+                  <span className="btn secondary">Inventarliste öffnen</span>
+                  <button
+                    className="btn danger icon-btn"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deleteSession(session);
+                    }}
+                    title="Session löschen"
+                    aria-label={`Session ${session.room_name || "Raum"} löschen`}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
             </article>
           ))}
         </div>

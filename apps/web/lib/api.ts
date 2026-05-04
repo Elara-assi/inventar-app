@@ -19,6 +19,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
+    try {
+      const parsed = JSON.parse(text);
+      const detail = parsed?.detail;
+      if (typeof detail === "string") throw new Error(detail);
+      if (detail?.message) throw new Error(detail.message);
+    } catch (err) {
+      if (err instanceof Error && err.name === "Error") throw err;
+    }
     throw new Error(text || `API error ${response.status}`);
   }
   return response.json() as Promise<T>;
