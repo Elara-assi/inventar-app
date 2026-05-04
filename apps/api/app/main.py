@@ -32,9 +32,10 @@ class LoginIn(BaseModel):
 
 
 class SessionIn(BaseModel):
-    location_id: str
-    building_id: str
-    room_id: str
+    location_id: str | None = None
+    building_id: str | None = None
+    room_id: str | None = None
+    room_name: str | None = None
     started_by: str | None = None
 
 
@@ -130,13 +131,64 @@ def bootstrap() -> dict[str, Any]:
 @app.post("/sessions")
 def create_session(body: SessionIn) -> dict[str, Any]:
     token = secrets.token_urlsafe(18)
+    room_id = body.room_id
+    building_id = body.building_id
+    location_id = body.location_id
+
+    if body.room_name and not room_id:
+        room_name = body.room_name.strip()
+        if not room_name:
+            raise HTTPException(status_code=400, detail="Raumname fehlt")
+        if not building_id:
+            building = fetch_one("SELECT * FROM buildings ORDER BY created_at LIMIT 1")
+            if not building:
+                raise HTTPException(status_code=400, detail="Kein Gebaeude vorhanden")
+            building_id = str(building["id"])
+        else:
+            building = fetch_one("SELECT * FROM buildings WHERE id = %s", (building_id,))
+            if not building:
+                raise HTTPException(status_code=400, detail="Gebaeude nicht gefunden")
+        location_id = location_id or str(building["location_id"])
+        room = fetch_one(
+            "SELECT * FROM rooms WHERE building_id = %s AND lower(name) = lower(%s)",
+            (building_id, room_name),
+        )
+        if not room:
+            room = execute(
+                """
+                INSERT INTO rooms (building_id, name, code, room_type)
+                VALUES (%s, %s, %s, 'workspace')
+                RETURNING *
+                """,
+                (building_id, room_name, f"FREI-{secrets.token_hex(3).upper()}"),
+            )
+            audit("room_created", "room", str(room["id"]), room)
+        room_id = str(room["id"])
+
+    if not room_id:
+        raise HTTPException(status_code=400, detail="Raum auswaehlen oder freien Raum eingeben")
+
+    room = fetch_one(
+        """
+        SELECT r.*, b.location_id
+        FROM rooms r
+        JOIN buildings b ON b.id = r.building_id
+        WHERE r.id = %s
+        """,
+        (room_id,),
+    )
+    if not room:
+        raise HTTPException(status_code=400, detail="Raum nicht gefunden")
+    building_id = str(room["building_id"])
+    location_id = str(room["location_id"])
+
     row = execute(
         """
         INSERT INTO inventory_sessions (location_id, building_id, room_id, join_token, started_by)
         VALUES (%s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (body.location_id, body.building_id, body.room_id, token, body.started_by),
+        (location_id, building_id, room_id, token, body.started_by),
     )
     audit("session_started", "inventory_session", str(row["id"]), row)
     return row

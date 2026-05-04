@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedRoom, setSelectedRoom] = useState("");
+  const [freeRoomName, setFreeRoomName] = useState("");
+  const [selectedBuilding, setSelectedBuilding] = useState("");
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
 
@@ -26,7 +28,8 @@ export default function DashboardPage() {
       const list = await api<Session[]>("/sessions");
       setBootstrap(boot);
       setSessions(list);
-      setSelectedRoom(boot.rooms[0]?.id ?? "");
+      setSelectedRoom((current) => current || boot.rooms[0]?.id || "");
+      setSelectedBuilding((current) => current || boot.buildings[0]?.id || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "API nicht erreichbar");
     }
@@ -37,20 +40,36 @@ export default function DashboardPage() {
   }, []);
 
   async function startSession() {
-    if (!bootstrap || !selectedRoom) return;
+    if (!bootstrap) return;
+    setError("");
+    const trimmedRoomName = freeRoomName.trim();
     const room = bootstrap.rooms.find((entry) => entry.id === selectedRoom);
-    const building = bootstrap.buildings.find((entry) => entry.id === room?.building_id);
+    const building = bootstrap.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
     const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
-    const session = await api<Session>("/sessions", {
-      method: "POST",
-      body: JSON.stringify({
-        location_id: location?.id,
-        building_id: building?.id,
-        room_id: room?.id,
-      }),
-    });
-    setActiveSession(session);
-    await load();
+    if (!trimmedRoomName && !room) {
+      setError("Bitte Raum auswaehlen oder freien Raum eingeben.");
+      return;
+    }
+    if (!building || !location) {
+      setError("Kein Gebaeude/Standort fuer den Raum gefunden.");
+      return;
+    }
+    try {
+      const session = await api<Session>("/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          location_id: location.id,
+          building_id: building.id,
+          room_id: trimmedRoomName ? undefined : room?.id,
+          room_name: trimmedRoomName || undefined,
+        }),
+      });
+      setActiveSession(session);
+      setFreeRoomName("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session konnte nicht gestartet werden");
+    }
   }
 
   return (
@@ -61,10 +80,27 @@ export default function DashboardPage() {
           <p className="muted">Pruefer startet den Raum, Erfasser koppeln ihr Handy per QR-Link.</p>
           {error ? <p className="status upload_fehler">{error}</p> : null}
           <label className="field">
-            <span>Raum</span>
+            <span>Raum aus Liste</span>
             <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)}>
+              <option value="">Kein Raum aus Liste</option>
               {bootstrap?.rooms.map((room) => (
                 <option key={room.id} value={room.id}>{room.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Freier Raum / neuer Raum</span>
+            <input
+              value={freeRoomName}
+              onChange={(event) => setFreeRoomName(event.target.value)}
+              placeholder="z. B. Werkstattplatz 4 oder Serviceannahme"
+            />
+          </label>
+          <label className="field">
+            <span>Gebaeude fuer neuen Raum</span>
+            <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
+              {bootstrap?.buildings.map((building) => (
+                <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
           </label>
