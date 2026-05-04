@@ -154,14 +154,19 @@ export default function DashboardPage() {
   async function deleteRoom(roomId: string) {
     const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
     if (!room) return;
-    const confirmed = window.confirm(`Raum "${room.name}" wirklich löschen? Das geht nur, wenn noch keine Session oder kein Objekt daran hängt.`);
+    const relatedSessions = sessions.filter((session) => session.room_id === roomId);
+    const itemCount = relatedSessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0);
+    const confirmed = window.confirm(
+      `Raum "${room.name}" wirklich löschen?\n\nDabei werden ${relatedSessions.length} Session(s) und ${itemCount} Gegenstand/Gegenstände dieses Raums aus der Datenbank entfernt.`
+    );
     if (!confirmed) return;
     try {
       setError("");
-      await api(`/rooms/${roomId}`, { method: "DELETE" });
+      await api(`/rooms/${roomId}?force=true`, { method: "DELETE" });
       setMessage("Raum gelöscht");
       setEditingRoomId((current) => (current === roomId ? null : current));
       setSelectedRoom((current) => (current === roomId ? "" : current));
+      setActiveSession((current) => (relatedSessions.some((session) => session.id === current?.id) ? null : current));
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Raum konnte nicht gelöscht werden");

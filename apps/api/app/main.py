@@ -207,7 +207,7 @@ def update_room(room_id: str, body: RoomPatch) -> dict[str, Any]:
 
 
 @app.delete("/rooms/{room_id}")
-def delete_room(room_id: str) -> dict[str, Any]:
+def delete_room(room_id: str, force: bool = False) -> dict[str, Any]:
     current = fetch_one("SELECT * FROM rooms WHERE id = %s", (room_id,))
     if not current:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
@@ -219,14 +219,18 @@ def delete_room(room_id: str) -> dict[str, Any]:
         """,
         (room_id, room_id),
     )
-    if usage and (usage["session_count"] or usage["item_count"]):
+    has_usage = bool(usage and (usage["session_count"] or usage["item_count"]))
+    if has_usage and not force:
         raise HTTPException(
             status_code=409,
-            detail="Raum kann nicht gelöscht werden, weil bereits Sessions oder Objekte daran hängen.",
+            detail="Raum enthält noch Sessions oder Gegenstände. Nutze Löschen mit Bestätigung, um Testdaten mit zu entfernen.",
         )
+    if has_usage:
+        audit("room_delete_cascade_requested", "room", room_id, {"room": current, "usage": usage})
+        execute("DELETE FROM inventory_sessions WHERE room_id = %s RETURNING id", (room_id,))
     row = execute("DELETE FROM rooms WHERE id = %s RETURNING *", (room_id,))
-    audit("room_deleted", "room", room_id, row)
-    return {"deleted": True, "room": row}
+    audit("room_deleted", "room", room_id, {"room": row, "deleted_dependents": usage if has_usage else None})
+    return {"deleted": True, "room": row, "deleted_dependents": usage if has_usage else None}
 
 
 @app.post("/sessions")
