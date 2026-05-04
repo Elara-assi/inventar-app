@@ -47,7 +47,11 @@ INSERT INTO object_classes (
   ('Monitor', 'monitor', 'Bildschirme und Arbeitsplatzmonitore', 'it_ausstattung', false, false, true),
   ('Hebebühne', 'hebebuehne', 'Werkstatteinrichtung mit Typenschildpflicht', 'anlagevermoegen', true, true, true),
   ('Werkzeugwagen', 'werkzeugwagen', 'Mobile Werkstattwagen und Werkzeugaufbewahrung', 'betriebsmittel', false, false, true),
-  ('IT-Gerät', 'it_geraet', 'IT-Hardware mit Datenschutzrelevanz', 'it_ausstattung', false, false, true)
+  ('IT-Gerät', 'it_geraet', 'IT-Hardware mit Datenschutzrelevanz', 'it_ausstattung', false, false, true),
+  ('Wuchtmaschine', 'wuchtmaschine', 'Radwuchtmaschinen mit Schutzhaube, Spindel und Bedienpanel', 'werkstattausstattung', true, true, true),
+  ('Reifenmontiermaschine', 'reifenmontiermaschine', 'Reifenmontiermaschinen mit Montageteller, Montagearm und Abdrückeinheit', 'werkstattausstattung', true, true, true),
+  ('Diagnosegerät', 'diagnosegeraet', 'Diagnose- und Testgeräte mit OBD-/Werkstattbezug', 'gwg_pruefen', false, false, true),
+  ('Kompressor', 'kompressor', 'Druckluftkompressoren und stationäre Drucklufterzeuger', 'werkstattausstattung', true, true, true)
 ON CONFLICT (slug) DO UPDATE SET
   description = EXCLUDED.description,
   default_commercial_category = EXCLUDED.default_commercial_category,
@@ -100,7 +104,19 @@ JOIN (VALUES
   ('it_geraet','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
   ('it_geraet','device_type','Gerätetyp',true,true,false,null,'human_or_ai',true,'Prüfer',20),
   ('it_geraet','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Prüfer',30),
-  ('it_geraet','privacy_relevance','Datenschutzrelevanz',true,false,false,null,'human',true,'Prüfer',40)
+  ('it_geraet','privacy_relevance','Datenschutzrelevanz',true,false,false,null,'human',true,'Prüfer',40),
+  ('wuchtmaschine','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
+  ('wuchtmaschine','nameplate_photo','Typenschildfoto',true,true,true,'nameplate','human',true,'Erfasser',20),
+  ('wuchtmaschine','serial_number','Seriennummer',true,true,false,null,'human_or_ai',true,'Prüfer',30),
+  ('reifenmontiermaschine','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
+  ('reifenmontiermaschine','nameplate_photo','Typenschildfoto',true,true,true,'nameplate','human',true,'Erfasser',20),
+  ('reifenmontiermaschine','serial_number','Seriennummer',true,true,false,null,'human_or_ai',true,'Prüfer',30),
+  ('diagnosegeraet','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
+  ('diagnosegeraet','device_type','Gerätetyp',true,true,false,null,'human_or_ai',true,'Prüfer',20),
+  ('diagnosegeraet','serial_number','Seriennummer falls sichtbar',false,false,false,null,'human_or_ai',true,'Prüfer',30),
+  ('kompressor','object_photo','Objektfoto',true,true,true,'object','human',false,'Erfasser',10),
+  ('kompressor','nameplate_photo','Typenschildfoto',true,true,true,'nameplate','human',true,'Erfasser',20),
+  ('kompressor','serial_number','Seriennummer',true,true,false,null,'human_or_ai',true,'Prüfer',30)
 ) AS fr(slug, field_name, field_label, required, blocks_finalization, evidence_required, evidence_photo_type, source_type, rework_allowed, responsible_role, sort_order)
 ON oc.slug = fr.slug
 ON CONFLICT (object_class_id, field_name) DO UPDATE SET

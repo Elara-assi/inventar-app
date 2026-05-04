@@ -39,6 +39,55 @@ def json_dumps(value: Any) -> str:
     return json.dumps(value or {}, default=str)
 
 
+WORKSHOP_REFERENCE_CATALOG: list[dict[str, Any]] = [
+    {
+        "object_class": "Wuchtmaschine",
+        "slug": "wuchtmaschine",
+        "visual_features": ["Radaufnahme/Spindel", "Bedienpanel oder Display", "Schutzhaube", "Gehäuse mit seitlicher Ablage"],
+        "typical_brands": ["Hofmann", "Hunter", "Corghi", "Sicam", "Beissbarth", "John Bean"],
+        "required_hints": ["Objektfoto", "Typenschildfoto wenn erreichbar", "Hersteller", "Modell", "Seriennummer"],
+        "commercial_category": "werkstattausstattung",
+        "requires_accounting_review": True,
+    },
+    {
+        "object_class": "Reifenmontiermaschine",
+        "slug": "reifenmontiermaschine",
+        "visual_features": ["Montageteller", "Montagearm", "Abdrückschaufel", "Pedale", "Spannbacken"],
+        "typical_brands": ["Hofmann", "Corghi", "Sicam", "Butler", "Ravaglioli", "Hunter"],
+        "required_hints": ["Objektfoto", "Typenschildfoto wenn erreichbar", "Hersteller", "Modell", "Seriennummer"],
+        "commercial_category": "werkstattausstattung",
+        "requires_accounting_review": True,
+    },
+    {
+        "object_class": "Hebebühne",
+        "slug": "hebebuehne",
+        "visual_features": ["Säulen oder Scherenhub", "Tragarme oder Plattform", "Bedieneinheit", "Traglastschild", "Werkstattplatz"],
+        "typical_brands": ["Nussbaum", "Ravaglioli", "Rotary", "Consul", "MAHA", "ATH Heinl"],
+        "required_hints": ["Objektfoto", "Typenschildfoto", "Seriennummer", "Tragfähigkeit"],
+        "commercial_category": "anlagevermoegen",
+        "requires_accounting_review": True,
+    },
+    {
+        "object_class": "Diagnosegerät",
+        "slug": "diagnosegeraet",
+        "visual_features": ["Tablet oder Handgerät", "OBD-Kabel", "Dockingstation", "Werkstattwagen oder Koffer"],
+        "typical_brands": ["Bosch", "Gutmann", "Hella Gutmann", "Texa", "Launch", "Autel"],
+        "required_hints": ["Objektfoto", "Hersteller", "Modell", "Seriennummer falls sichtbar"],
+        "commercial_category": "gwg_pruefen",
+        "requires_accounting_review": True,
+    },
+    {
+        "object_class": "Kompressor",
+        "slug": "kompressor",
+        "visual_features": ["Druckkessel", "Motorblock", "Manometer", "Druckluftanschlüsse", "Typenschild"],
+        "typical_brands": ["Kaeser", "CompAir", "Atlas Copco", "Aircraft", "Schneider", "Boge"],
+        "required_hints": ["Objektfoto", "Typenschildfoto wenn erreichbar", "Hersteller", "Modell", "Seriennummer"],
+        "commercial_category": "werkstattausstattung",
+        "requires_accounting_review": True,
+    },
+]
+
+
 def build_ai_suggestion(item_id: str) -> dict[str, Any]:
     fallback = build_stub_suggestion(item_id)
     try:
@@ -89,7 +138,7 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         "confidence": 0.62,
         "requires_review": True,
         "recommended_status": "nacharbeit_buchhaltung",
-        "notes": "Phase-1-Auswertung. LiteLLM/Vision wird über Worker angebunden.",
+        "notes": "Phase-1-Auswertung. Ollama/Vision läuft im Hintergrund.",
     }
 
     if object_class == "reifen" or "reifen" in text or "dot" in text or "michelin" in text:
@@ -131,6 +180,61 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
             }
         )
         object_class = "hebebuehne"
+    elif object_class == "wuchtmaschine" or "wucht" in text:
+        result.update(
+            {
+                "object_type": "Wuchtmaschine",
+                "object_class": "Wuchtmaschine",
+                "commercial_category": "werkstattausstattung",
+                "requires_accounting_review": True,
+                "missing_fields": ["Typenschildfoto", "Seriennummer"],
+                "required_evidence_missing": ["nameplate"],
+                "recommended_status": "nacharbeit_erfasser",
+                "confidence": 0.68,
+            }
+        )
+        object_class = "wuchtmaschine"
+    elif object_class == "reifenmontiermaschine" or "reifenmontier" in text or "montiermaschine" in text:
+        result.update(
+            {
+                "object_type": "Reifenmontiermaschine",
+                "object_class": "Reifenmontiermaschine",
+                "commercial_category": "werkstattausstattung",
+                "requires_accounting_review": True,
+                "missing_fields": ["Typenschildfoto", "Seriennummer"],
+                "required_evidence_missing": ["nameplate"],
+                "recommended_status": "nacharbeit_erfasser",
+                "confidence": 0.68,
+            }
+        )
+        object_class = "reifenmontiermaschine"
+    elif object_class == "diagnosegeraet" or "diagnose" in text or "tester" in text:
+        result.update(
+            {
+                "object_type": "Diagnosegerät",
+                "object_class": "Diagnosegerät",
+                "commercial_category": "gwg_pruefen",
+                "requires_accounting_review": True,
+                "missing_fields": ["Seriennummer"],
+                "recommended_status": "nacharbeit_pruefer",
+                "confidence": 0.66,
+            }
+        )
+        object_class = "diagnosegeraet"
+    elif object_class == "kompressor" or "kompressor" in text or "druckluft" in text:
+        result.update(
+            {
+                "object_type": "Kompressor",
+                "object_class": "Kompressor",
+                "commercial_category": "werkstattausstattung",
+                "requires_accounting_review": True,
+                "missing_fields": ["Typenschildfoto", "Seriennummer"],
+                "required_evidence_missing": ["nameplate"],
+                "recommended_status": "nacharbeit_erfasser",
+                "confidence": 0.66,
+            }
+        )
+        object_class = "kompressor"
     elif "dell" in text:
         result["brand"] = "Dell"
         result["object_type"] = "Monitor"
@@ -200,13 +304,22 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             continue
 
     prompt = {
-        "task": "Analysiere ein Inventarobjekt für ein Autohaus. Antworte ausschließlich als JSON.",
+        "task": "Analysiere ein Inventarobjekt in einem Betrieb mit Werkstatt, Lager und Büro. Antworte ausschließlich als JSON.",
         "object_class_hint": item.get("object_class_name"),
         "object_class_slug": item.get("object_class_slug"),
         "condition_hint": item.get("condition"),
         "inventory_id": item.get("inventory_id"),
         "photo_types": photo_types,
         "transcripts": transcripts,
+        "reference_catalog": WORKSHOP_REFERENCE_CATALOG,
+        "classification_rules": [
+            "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
+            "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
+            "Reifenmontiermaschine: Montageteller, Montagearm, Abdrückschaufel und Pedale sprechen klar für Reifenmontiermaschine.",
+            "Hebebühne: Säulen, Scherenhub, Tragarme, Plattform und Traglastschild sprechen klar für Hebebühne.",
+            "Gib kaufmännische Daten nicht endgültig frei; setze bei Maschinen in der Regel requires_accounting_review=true.",
+            "Wenn Typenschild oder Seriennummer für Maschinen fehlen, erzeuge missing_fields und recommended_status=nacharbeit_erfasser.",
+        ],
         "required_schema": {
             "object_type": "string",
             "object_class": "string",
@@ -303,6 +416,9 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         "customer goods": "kundenware",
         "office equipment": "bueroausstattung",
         "workshop equipment": "werkstattausstattung",
+        "werkstatt": "werkstattausstattung",
+        "werkstattgerät": "werkstattausstattung",
+        "workshop machine": "werkstattausstattung",
     }
     status_aliases = {
         "incomplete": fallback.get("recommended_status") or "nacharbeit_pruefer",
@@ -342,6 +458,14 @@ def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug:
         object_class = "reifen"
     elif "hebeb" in object_class_text or "bühne" in object_class_text or "hebeb" in object_type_text:
         object_class = "hebebuehne"
+    elif "wucht" in object_class_text or "wucht" in object_type_text:
+        object_class = "wuchtmaschine"
+    elif "reifenmontier" in object_class_text or "montiermaschine" in object_type_text:
+        object_class = "reifenmontiermaschine"
+    elif "diagnose" in object_class_text or "diagnose" in object_type_text or "tester" in object_type_text:
+        object_class = "diagnosegeraet"
+    elif "kompressor" in object_class_text or "kompressor" in object_type_text or "druckluft" in object_type_text:
+        object_class = "kompressor"
     elif "it" in object_class_text and "gerät" in object_class_text:
         object_class = "it_geraet"
     elif "werkzeugwagen" in object_class_text:
