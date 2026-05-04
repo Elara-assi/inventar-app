@@ -141,8 +141,8 @@ export default function DashboardPage() {
     }
   }
 
-  async function createLocation() {
-    const name = newLocationName.trim();
+  async function createLocation(nameOverride?: string) {
+    const name = (nameOverride ?? newLocationName).trim();
     if (!name) {
       setError("Bitte Betriebsname eingeben.");
       return;
@@ -153,11 +153,15 @@ export default function DashboardPage() {
         method: "POST",
         body: JSON.stringify({ name }),
       });
-      setNewLocationName("");
+      if (nameOverride !== undefined) {
+        setFreeLocationName("");
+      } else {
+        setNewLocationName("");
+      }
       setSelectedLocation(location.id);
       setSelectedBuilding("");
       setSelectedRoom("");
-      setMessage("Betrieb angelegt");
+      setMessage("Betrieb gespeichert");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Betrieb konnte nicht angelegt werden");
@@ -282,6 +286,9 @@ export default function DashboardPage() {
               placeholder="z. B. Betrieb XYZ"
             />
           </label>
+          <button className="btn secondary compact-btn" onClick={() => createLocation(freeLocationName)}>
+            Betrieb speichern
+          </button>
           <label className="field">
             <span>Raum aus Liste</span>
             <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)}>
@@ -365,7 +372,7 @@ export default function DashboardPage() {
             </select>
           </label>
         </div>
-        <button className="btn accent room-action" onClick={createLocation}>Betrieb anlegen</button>
+        <button className="btn accent room-action" onClick={() => createLocation()}>Betrieb anlegen</button>
       </section>
 
       <section className="panel grid">
