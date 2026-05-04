@@ -278,6 +278,21 @@ textarea {
   color: var(--ink);
 }
 
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.session-meta span {
+  border-radius: 999px;
+  background: #f1f5f9;
+  padding: 4px 9px;
+}
+
 @keyframes live-pulse {
   70% {
     box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);

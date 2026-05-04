@@ -248,11 +248,14 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 def list_sessions() -> list[dict[str, Any]]:
     return fetch_all(
         """
-        SELECT s.*, l.name AS location_name, b.name AS building_name, r.name AS room_name
+        SELECT s.*, l.name AS location_name, b.name AS building_name, r.name AS room_name,
+          count(i.id)::int AS item_count
         FROM inventory_sessions s
         JOIN locations l ON l.id = s.location_id
         JOIN buildings b ON b.id = s.building_id
         JOIN rooms r ON r.id = s.room_id
+        LEFT JOIN inventory_items i ON i.session_id = s.id
+        GROUP BY s.id, l.name, b.name, r.name
         ORDER BY s.created_at DESC
         """
     )

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
+import { Bootstrap, api, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -11,6 +11,8 @@ type Session = {
   building_name?: string;
   room_name?: string;
   status: string;
+  created_at?: string;
+  item_count?: number;
 };
 
 export default function DashboardPage() {
@@ -140,23 +142,42 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid grid-3">
+      <section className="grid">
+        <div>
+          <h2>Raum-Sessions</h2>
+          <p className="muted">Hier stehen gestartete Räume. Test-Sessions bleiben sichtbar, bis sie abgeschlossen oder später bereinigt werden.</p>
+        </div>
+        <div className="grid grid-3">
         {sessions.map((session) => (
           <article className="card" key={session.id}>
             <div className="card-body grid">
               <StatusBadgeShim value={session.status} />
               <strong>{session.room_name || "Raum"}</strong>
               <span className="muted">{session.location_name} / {session.building_name}</span>
-              <a className="btn secondary" href={`/session/${session.id}`}>Prüfen</a>
-              <a className="btn secondary" href={`${API_BASE}/sessions/${session.id}/events`}>Live-Feed</a>
+              <div className="session-meta">
+                <span>{session.item_count ?? 0} Objekte</span>
+                <span>{formatDateTime(session.created_at)}</span>
+              </div>
+              <a className="btn secondary" href={`/session/${session.id}`}>Prüfung öffnen</a>
             </div>
           </article>
         ))}
+        </div>
       </section>
     </main>
   );
 }
 
 function StatusBadgeShim({ value }: { value: string }) {
-  return <span className={`status ${value === "closed" ? "finalisiert" : "pruefen"}`}>{value}</span>;
+  return <span className={`status ${value === "closed" ? "finalisiert" : "pruefen"}`}>{value === "closed" ? "Abgeschlossen" : "Offen"}</span>;
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "Startzeit offen";
+  return new Date(value).toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
