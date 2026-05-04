@@ -7,6 +7,7 @@ import { Bootstrap, api, joinUrl } from "@/lib/api";
 type Session = {
   id: string;
   join_token: string;
+  room_id?: string;
   location_name?: string;
   building_name?: string;
   room_name?: string;
@@ -268,6 +269,7 @@ export default function DashboardPage() {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
             const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
             const isEditing = editingRoomId === room.id;
+            const roomSession = sessions.find((session) => session.room_id === room.id);
             return (
               <div className={`room-row ${isEditing ? "is-editing" : ""}`} key={room.id}>
                 <div className="room-summary">
@@ -276,6 +278,9 @@ export default function DashboardPage() {
                     <span>{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
                   </div>
                   <div className="room-summary-actions">
+                    {roomSession ? (
+                      <a className="btn accent compact-btn" href={`/session/${roomSession.id}`}>Inventarliste</a>
+                    ) : null}
                     <button className="btn secondary compact-btn" onClick={() => startRoomEdit(room.id)}>Bearbeiten</button>
                     <button
                       className="btn danger icon-btn"
@@ -344,7 +349,7 @@ export default function DashboardPage() {
         <div className="grid grid-3">
           {sessions.map((session) => (
             <article className="card" key={session.id}>
-              <div className="card-body grid">
+              <a className="card-body card-link grid" href={`/session/${session.id}`}>
                 <StatusBadgeShim value={session.status} />
                 <strong>{session.room_name || "Raum"}</strong>
                 <span className="muted">{session.location_name} / {session.building_name}</span>
@@ -352,8 +357,8 @@ export default function DashboardPage() {
                   <span>{session.item_count ?? 0} Objekte</span>
                   <span>{formatDateTime(session.created_at)}</span>
                 </div>
-                <a className="btn secondary" href={`/session/${session.id}`}>Prüfung öffnen</a>
-              </div>
+                <span className="btn secondary">Inventarliste öffnen</span>
+              </a>
             </article>
           ))}
         </div>
