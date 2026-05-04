@@ -53,6 +53,12 @@ class LocationIn(BaseModel):
     address: str | None = None
 
 
+class UserIn(BaseModel):
+    display_name: str
+    email: str | None = None
+    role_slug: str = "erfasser"
+
+
 class RoomIn(BaseModel):
     building_id: str | None = None
     location_id: str | None = None
@@ -252,11 +258,49 @@ def me() -> dict[str, Any]:
 @app.get("/meta/bootstrap")
 def bootstrap() -> dict[str, Any]:
     return {
+        "users": fetch_all(
+            """
+            SELECT u.id, u.email, u.display_name, array_remove(array_agg(r.slug), null) AS roles
+            FROM users u
+            LEFT JOIN user_roles ur ON ur.user_id = u.id
+            LEFT JOIN roles r ON r.id = ur.role_id
+            WHERE u.active = true
+            GROUP BY u.id
+            ORDER BY u.display_name
+            """
+        ),
         "locations": fetch_all("SELECT * FROM locations ORDER BY name"),
         "buildings": fetch_all("SELECT * FROM buildings ORDER BY name"),
         "rooms": fetch_all("SELECT * FROM rooms ORDER BY name"),
         "object_classes": fetch_all("SELECT * FROM object_classes ORDER BY name"),
     }
+
+
+@app.post("/users")
+def create_user(body: UserIn) -> dict[str, Any]:
+    name = body.display_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name fehlt")
+    email = (body.email or f"{name.lower().replace(' ', '.')}@example.local").strip().lower()
+    existing = fetch_one("SELECT * FROM users WHERE lower(email) = lower(%s)", (email,))
+    if existing:
+        return existing
+    user = execute(
+        """
+        INSERT INTO users (email, display_name, password_hash)
+        VALUES (%s, %s, 'demo')
+        RETURNING *
+        """,
+        (email, name),
+    )
+    role = fetch_one("SELECT id FROM roles WHERE slug = %s", (body.role_slug,))
+    if role:
+        execute(
+            "INSERT INTO user_roles (user_id, role_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING user_id",
+            (user["id"], role["id"]),
+        )
+    audit("user_created", "user", str(user["id"]), {"email": email, "role_slug": body.role_slug})
+    return user
 
 
 @app.post("/locations")

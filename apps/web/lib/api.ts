@@ -1,6 +1,7 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export type Bootstrap = {
+  users: Array<{ id: string; email: string; display_name: string; roles?: string[] }>;
   locations: Array<{ id: string; name: string; code: string }>;
   buildings: Array<{ id: string; name: string; location_id: string }>;
   rooms: Array<{ id: string; name: string; building_id: string; code?: string; room_type?: string }>;
