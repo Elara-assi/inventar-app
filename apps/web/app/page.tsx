@@ -25,6 +25,8 @@ type RoomDraft = {
 export default function DashboardPage() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState("");
+  const [freeLocationName, setFreeLocationName] = useState("");
   const [selectedRoom, setSelectedRoom] = useState("");
   const [freeRoomName, setFreeRoomName] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
@@ -43,6 +45,7 @@ export default function DashboardPage() {
       const list = await api<Session[]>("/sessions");
       setBootstrap(boot);
       setSessions(list);
+      setSelectedLocation((current) => current || boot.locations[0]?.id || "");
       setSelectedRoom((current) => current || boot.rooms[0]?.id || "");
       setSelectedBuilding((current) => current || boot.buildings[0]?.id || "");
       setRoomDrafts((current) => {
@@ -68,11 +71,12 @@ export default function DashboardPage() {
   async function startSession() {
     setError("");
     setMessage("Session wird gestartet...");
+    const trimmedLocationName = freeLocationName.trim();
     const trimmedRoomName = freeRoomName.trim();
     const trimmedBuildingName = freeBuildingName.trim();
     const room = bootstrap?.rooms.find((entry) => entry.id === selectedRoom);
     const building = bootstrap?.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
-    const location = bootstrap?.locations.find((entry) => entry.id === building?.location_id);
+    const location = bootstrap?.locations.find((entry) => entry.id === (building?.location_id || selectedLocation));
     if (!trimmedRoomName && !room) {
       setError("Bitte Raum auswählen oder freien Raum eingeben.");
       setMessage("");
@@ -87,14 +91,16 @@ export default function DashboardPage() {
       const session = await api<Session>("/sessions", {
         method: "POST",
         body: JSON.stringify({
-          location_id: location?.id,
-          building_id: building?.id,
+          location_id: trimmedLocationName ? undefined : location?.id,
+          location_name: trimmedLocationName || undefined,
+          building_id: trimmedBuildingName ? undefined : building?.id,
           building_name: trimmedBuildingName || undefined,
           room_id: trimmedRoomName ? undefined : room?.id,
           room_name: trimmedRoomName || undefined,
         }),
       });
       setActiveSession(session);
+      setFreeLocationName("");
       setFreeRoomName("");
       setFreeBuildingName("");
       setMessage("Session gestartet");
@@ -202,6 +208,14 @@ export default function DashboardPage() {
     setEditingRoomId(roomId);
   }
 
+  const selectedLocationBuildings = bootstrap?.buildings.filter((building) => !selectedLocation || building.location_id === selectedLocation) ?? [];
+  const buildingOptions = selectedLocationBuildings.length ? selectedLocationBuildings : (bootstrap?.buildings ?? []);
+  const selectedLocationRooms = bootstrap?.rooms.filter((room) => {
+    const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
+    return !selectedLocation || building?.location_id === selectedLocation;
+  }) ?? [];
+  const roomOptions = selectedLocationRooms.length ? selectedLocationRooms : (bootstrap?.rooms ?? []);
+
   return (
     <main className="page grid">
       <section className="panel grid grid-2">
@@ -211,10 +225,35 @@ export default function DashboardPage() {
           {error ? <p className="status upload_fehler">{error}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
           <label className="field">
+            <span>Betrieb aus Liste</span>
+            <select
+              value={selectedLocation}
+              onChange={(event) => {
+                const locationId = event.target.value;
+                setSelectedLocation(locationId);
+                const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
+                setSelectedBuilding(firstBuilding?.id || "");
+              }}
+            >
+              <option value="">Kein Betrieb aus Liste</option>
+              {bootstrap?.locations.map((location) => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Freier Betrieb / neuer Betrieb</span>
+            <input
+              value={freeLocationName}
+              onChange={(event) => setFreeLocationName(event.target.value)}
+              placeholder="z. B. Autohaus Simmern oder Autohaus Mainz"
+            />
+          </label>
+          <label className="field">
             <span>Raum aus Liste</span>
             <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)}>
               <option value="">Kein Raum aus Liste</option>
-              {bootstrap?.rooms.map((room) => (
+              {roomOptions.map((room) => (
                 <option key={room.id} value={room.id}>{room.name}</option>
               ))}
             </select>
@@ -231,7 +270,7 @@ export default function DashboardPage() {
             <span>Gebäude aus Liste</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
               <option value="">Standard-Gebäude verwenden</option>
-              {bootstrap?.buildings.map((building) => (
+              {buildingOptions.map((building) => (
                 <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
@@ -267,9 +306,25 @@ export default function DashboardPage() {
         </div>
         <div className="grid grid-2">
           <label className="field">
+            <span>Betrieb für neuen Raum</span>
+            <select
+              value={selectedLocation}
+              onChange={(event) => {
+                const locationId = event.target.value;
+                setSelectedLocation(locationId);
+                const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
+                setSelectedBuilding(firstBuilding?.id || "");
+              }}
+            >
+              {bootstrap?.locations.map((location) => (
+                <option key={location.id} value={location.id}>{location.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
             <span>Gebäude für neuen Raum</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
-              {bootstrap?.buildings.map((building) => (
+              {buildingOptions.map((building) => (
                 <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
@@ -287,6 +342,7 @@ export default function DashboardPage() {
         <div className="room-list">
           {bootstrap?.rooms.map((room) => {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
+            const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
             const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
             const isEditing = editingRoomId === room.id;
             const roomSession = sessions.find((session) => session.room_id === room.id);
@@ -295,7 +351,7 @@ export default function DashboardPage() {
                 <div className="room-summary">
                   <div>
                     <strong>{room.name}</strong>
-                    <span>{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
+                    <span>{location?.name || "Betrieb"} / {building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
                   </div>
                   <div className="room-summary-actions">
                     {roomSession ? (
@@ -376,7 +432,7 @@ export default function DashboardPage() {
               <div className="card-body grid">
                 <StatusBadgeShim value={session.status} />
                 <strong>{session.room_name || "Raum"}</strong>
-                <span className="muted">{session.location_name} / {session.building_name}</span>
+                <span className="muted">{session.location_name || "Betrieb"} / {session.building_name || "Gebäude"}</span>
                 <div className="session-meta">
                   <span>{session.item_count ?? 0} Objekte</span>
                   <span>{formatDateTime(session.created_at)}</span>

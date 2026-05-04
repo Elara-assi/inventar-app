@@ -33,6 +33,7 @@ class LoginIn(BaseModel):
 
 class SessionIn(BaseModel):
     location_id: str | None = None
+    location_name: str | None = None
     building_id: str | None = None
     building_name: str | None = None
     room_id: str | None = None
@@ -123,6 +124,40 @@ def health() -> dict[str, Any]:
     except Exception:
         db_ok = False
     return {"ok": True, "database": db_ok, "phase": "0+1"}
+
+
+def resolve_location(location_id: str | None, location_name: str | None) -> dict[str, Any]:
+    name = location_name.strip() if location_name else None
+    if name:
+        location = fetch_one("SELECT * FROM locations WHERE lower(name) = lower(%s)", (name,))
+        if not location:
+            location = execute(
+                """
+                INSERT INTO locations (name, code)
+                VALUES (%s, %s)
+                RETURNING *
+                """,
+                (name, f"BETR-{secrets.token_hex(2).upper()}"),
+            )
+            audit("location_created", "location", str(location["id"]), location)
+        return location
+    if location_id:
+        location = fetch_one("SELECT * FROM locations WHERE id = %s", (location_id,))
+        if location:
+            return location
+    location = fetch_one("SELECT * FROM locations ORDER BY created_at LIMIT 1")
+    if location:
+        return location
+    location = execute(
+        """
+        INSERT INTO locations (name, code)
+        VALUES ('Autohaus', %s)
+        RETURNING *
+        """,
+        (f"LOC-{secrets.token_hex(2).upper()}",),
+    )
+    audit("location_created", "location", str(location["id"]), location)
+    return location
 
 
 @app.post("/auth/login")
@@ -239,6 +274,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
     room_id = body.room_id
     building_id = body.building_id
     location_id = body.location_id
+    location_name = body.location_name.strip() if body.location_name else None
     building_name = body.building_name.strip() if body.building_name else None
 
     if body.room_name and not room_id:
@@ -246,19 +282,8 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         if not room_name:
             raise HTTPException(status_code=400, detail="Raumname fehlt")
         if building_name:
-            if not location_id:
-                location = fetch_one("SELECT * FROM locations ORDER BY created_at LIMIT 1")
-                if not location:
-                    location = execute(
-                        """
-                        INSERT INTO locations (name, code)
-                        VALUES ('Autohaus', %s)
-                        RETURNING *
-                        """,
-                        (f"LOC-{secrets.token_hex(2).upper()}",),
-                    )
-                    audit("location_created", "location", str(location["id"]), location)
-                location_id = str(location["id"])
+            location = resolve_location(location_id, location_name)
+            location_id = str(location["id"])
             building = fetch_one(
                 "SELECT * FROM buildings WHERE location_id = %s AND lower(name) = lower(%s)",
                 (location_id, building_name),
@@ -275,23 +300,14 @@ def create_session(body: SessionIn) -> dict[str, Any]:
                 audit("building_created", "building", str(building["id"]), building)
             building_id = str(building["id"])
         elif not building_id:
-            building = fetch_one("SELECT * FROM buildings ORDER BY created_at LIMIT 1")
+            location = resolve_location(location_id, location_name)
+            location_id = str(location["id"])
+            building = fetch_one("SELECT * FROM buildings WHERE location_id = %s ORDER BY created_at LIMIT 1", (location_id,))
             if not building:
-                location = fetch_one("SELECT * FROM locations ORDER BY created_at LIMIT 1")
-                if not location:
-                    location = execute(
-                        """
-                        INSERT INTO locations (name, code)
-                        VALUES ('Autohaus', %s)
-                        RETURNING *
-                        """,
-                        (f"LOC-{secrets.token_hex(2).upper()}",),
-                    )
-                    audit("location_created", "location", str(location["id"]), location)
                 building = execute(
                     """
                     INSERT INTO buildings (location_id, name, code)
-                    VALUES (%s, 'HauptgebÃ¤ude', %s)
+                    VALUES (%s, 'Hauptgebäude', %s)
                     RETURNING *
                     """,
                     (location["id"], f"HG-{secrets.token_hex(2).upper()}"),
@@ -301,7 +317,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         else:
             building = fetch_one("SELECT * FROM buildings WHERE id = %s", (building_id,))
             if not building:
-                raise HTTPException(status_code=400, detail="GebÃ¤ude nicht gefunden")
+                raise HTTPException(status_code=400, detail="Gebäude nicht gefunden")
         location_id = location_id or str(building["location_id"])
         room = fetch_one(
             "SELECT * FROM rooms WHERE building_id = %s AND lower(name) = lower(%s)",
