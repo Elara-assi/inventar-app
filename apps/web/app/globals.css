@@ -302,6 +302,14 @@ textarea {
   padding: 0 12px;
 }
 
+.icon-btn {
+  min-height: 36px;
+  width: 38px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
 .room-list {
   display: grid;
   gap: 8px;
@@ -336,6 +344,12 @@ textarea {
 .room-summary span {
   color: var(--muted);
   font-size: 14px;
+}
+
+.room-summary-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .room-edit-panel {
@@ -471,6 +485,14 @@ textarea {
   .room-summary {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .room-summary-actions {
+    width: 100%;
+  }
+
+  .room-summary-actions .compact-btn {
+    flex: 1;
   }
 
   .room-edit-panel {

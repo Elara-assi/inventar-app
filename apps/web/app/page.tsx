@@ -150,6 +150,23 @@ export default function DashboardPage() {
     }
   }
 
+  async function deleteRoom(roomId: string) {
+    const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
+    if (!room) return;
+    const confirmed = window.confirm(`Raum "${room.name}" wirklich löschen? Das geht nur, wenn noch keine Session oder kein Objekt daran hängt.`);
+    if (!confirmed) return;
+    try {
+      setError("");
+      await api(`/rooms/${roomId}`, { method: "DELETE" });
+      setMessage("Raum gelöscht");
+      setEditingRoomId((current) => (current === roomId ? null : current));
+      setSelectedRoom((current) => (current === roomId ? "" : current));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Raum konnte nicht gelöscht werden");
+    }
+  }
+
   function startRoomEdit(roomId: string) {
     const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
     if (!room) return;
@@ -258,7 +275,17 @@ export default function DashboardPage() {
                     <strong>{room.name}</strong>
                     <span>{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
                   </div>
-                  <button className="btn secondary compact-btn" onClick={() => startRoomEdit(room.id)}>Bearbeiten</button>
+                  <div className="room-summary-actions">
+                    <button className="btn secondary compact-btn" onClick={() => startRoomEdit(room.id)}>Bearbeiten</button>
+                    <button
+                      className="btn danger icon-btn"
+                      onClick={() => deleteRoom(room.id)}
+                      title="Raum löschen"
+                      aria-label={`Raum ${room.name} löschen`}
+                    >
+                      🗑
+                    </button>
+                  </div>
                 </div>
                 {isEditing ? (
                   <div className="room-edit-panel">

@@ -206,6 +206,29 @@ def update_room(room_id: str, body: RoomPatch) -> dict[str, Any]:
     return row
 
 
+@app.delete("/rooms/{room_id}")
+def delete_room(room_id: str) -> dict[str, Any]:
+    current = fetch_one("SELECT * FROM rooms WHERE id = %s", (room_id,))
+    if not current:
+        raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    usage = fetch_one(
+        """
+        SELECT
+          (SELECT count(*) FROM inventory_sessions WHERE room_id = %s) AS session_count,
+          (SELECT count(*) FROM inventory_items WHERE room_id = %s) AS item_count
+        """,
+        (room_id, room_id),
+    )
+    if usage and (usage["session_count"] or usage["item_count"]):
+        raise HTTPException(
+            status_code=409,
+            detail="Raum kann nicht gelöscht werden, weil bereits Sessions oder Objekte daran hängen.",
+        )
+    row = execute("DELETE FROM rooms WHERE id = %s RETURNING *", (room_id,))
+    audit("room_deleted", "room", room_id, row)
+    return {"deleted": True, "room": row}
+
+
 @app.post("/sessions")
 def create_session(body: SessionIn) -> dict[str, Any]:
     token = secrets.token_urlsafe(18)
