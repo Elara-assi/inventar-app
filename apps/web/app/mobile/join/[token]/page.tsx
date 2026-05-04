@@ -147,7 +147,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       const item = await ensureItem();
       await uploadPhoto(item.id, type, file);
       await runAi(item);
-      setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
+      setMessage(`${photoLabels[type]} gespeichert. Bei Bedarf Sprache oder Nachweis ergänzen, dann Objekt speichern.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
     } finally {
@@ -175,7 +175,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         body: undefined,
       });
       await runAi(item);
-      setMessage(`Sprachnotiz und KI-Vorschlag gespeichert: ${item.inventory_id}`);
+      setMessage("Sprachnotiz gespeichert. Objekt speichern, wenn die Erfassung fertig ist.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sprache fehlgeschlagen");
     } finally {
@@ -195,7 +195,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       const item = await ensureItem();
       await uploadPhoto(item.id, type, selected);
       await runAi(item);
-      setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
+      setMessage(`${photoLabels[type]} gespeichert. Objekt speichern, wenn die Erfassung fertig ist.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
     } finally {
@@ -203,13 +203,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
   }
 
-  function resetItem() {
+  function saveCurrentItem() {
     if (busy) return;
+    const savedLabel = activeItem?.inventory_id || activeItem?.temporary_id || "Objekt";
     setActiveItem(null);
     setTranscript("");
     setPhotos({});
     setAiSummary("");
-    setMessage("Bereit für nächstes Objekt");
+    setMessage(`${savedLabel} gespeichert. Bereit für nächstes Objekt.`);
   }
 
   return (
@@ -290,11 +291,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         <button className="btn secondary" disabled={busy} onClick={() => addEvidence("condition")}>Zustandsfoto</button>
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
+        {activeItem ? (
+          <div className="mobile-save-bar">
+            <button className="btn accent" disabled={busy} onClick={saveCurrentItem}>Objekt speichern</button>
+          </div>
+        ) : null}
         <p className="status pruefen">{message}</p>
         {joined ? (
           <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a>
         ) : null}
-        <button className="btn" disabled={busy} onClick={resetItem}>Nächstes Objekt</button>
       </section>
     </main>
   );
