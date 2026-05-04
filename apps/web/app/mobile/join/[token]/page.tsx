@@ -20,6 +20,17 @@ type Item = {
   temporary_id: string;
 };
 
+type AiResult = {
+  model_used: string;
+  result_json: {
+    object_type?: string;
+    object_class?: string;
+    brand?: string;
+    condition?: string;
+    recommended_status?: string;
+  };
+};
+
 type PhotoType = "object" | "dot" | "nameplate" | "condition";
 
 const photoLabels: Record<PhotoType, string> = {
@@ -38,6 +49,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [activeItem, setActiveItem] = useState<Item | null>(null);
   const [photos, setPhotos] = useState<Partial<Record<PhotoType, File>>>({});
   const [message, setMessage] = useState("Bereit");
+  const [aiSummary, setAiSummary] = useState("");
 
   const objectPhotoInputRef = useRef<HTMLInputElement>(null);
   const nameplatePhotoInputRef = useRef<HTMLInputElement>(null);
@@ -111,6 +123,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     });
   }
 
+  async function runAi(item: Item) {
+    setMessage("KI-Auswertung läuft...");
+    const result = await api<AiResult>(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+    const suggestion = result.result_json;
+    const title = [suggestion.object_type, suggestion.brand].filter(Boolean).join(" / ");
+    const status = suggestion.recommended_status?.replaceAll("_", " ") ?? "prüfen";
+    setAiSummary(`${title || "Objekt erkannt"} - ${suggestion.object_class || "Objektklasse offen"} - ${status}`);
+  }
+
   async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     if (!file) {
@@ -122,7 +143,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     try {
       const item = await ensureItem();
       await uploadPhoto(item.id, type, file);
-      await api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+      await runAi(item);
       setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
@@ -145,7 +166,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         method: "POST",
         body: undefined,
       });
-      await api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+      await runAi(item);
       setMessage(`Sprachnotiz und KI-Vorschlag gespeichert: ${item.inventory_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sprache fehlgeschlagen");
@@ -161,7 +182,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     try {
       const item = await ensureItem();
       await uploadPhoto(item.id, type, selected);
-      await api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+      await runAi(item);
       setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
@@ -172,6 +193,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setActiveItem(null);
     setTranscript("");
     setPhotos({});
+    setAiSummary("");
     setMessage("Bereit für nächstes Objekt");
   }
 
@@ -248,6 +270,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         <button className="btn secondary" onClick={() => addEvidence("condition")}>Zustandsfoto</button>
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
+        {aiSummary ? (
+          <div className="status ki_vorgefuellt">
+            KI-Vorschlag: {aiSummary}
+          </div>
+        ) : null}
         <p className="status pruefen">{message}</p>
         <button className="btn" onClick={resetItem}>Nächstes Objekt</button>
       </section>
