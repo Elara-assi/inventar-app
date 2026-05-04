@@ -91,16 +91,6 @@ export function ItemReviewList({
     <PhotoPreviewProvider>
       {(openPhoto) => (
         <div className="item-list">
-          <div className="item-list-head">
-            <span>Foto</span>
-            <span>ID</span>
-            <span>Objekt</span>
-            <span>Details</span>
-            <span>Klasse</span>
-            <span>Zustand</span>
-            <span>Status</span>
-            <span>Aktion</span>
-          </div>
           {items.map((item) => (
             <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} />
           ))}
@@ -237,44 +227,65 @@ function ItemReviewRow({
         {photoUrl ? <img src={photoUrl} alt={photoLabel} /> : <span>Kein Foto</span>}
       </button>
 
-      <div className="item-id">
-        <strong>{item.inventory_id || item.temporary_id}</strong>
-        <StatusBadge value={item.review_status} />
-        <div className="evidence-row">
+      <div className="item-main">
+        <div className="item-title-line">
+          <strong>{item.inventory_id || item.temporary_id}</strong>
+          <StatusBadge value={item.review_status} />
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>Foto</span>
-          {item.has_nameplate_photo ? <span className="status geprueft">Typ</span> : null}
+          {item.has_nameplate_photo ? <span className="status geprueft">Typenschild</span> : null}
           {item.has_dot_photo ? <span className="status geprueft">DOT</span> : null}
         </div>
+
+        <div className="item-main-fields">
+          <input value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
+          <input value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
+          <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
+          <input value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
+        </div>
+
+        <div className="item-review-selects">
+          <label>
+            <span>Klasse</span>
+            <select value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
+              <option value="">Offen</option>
+              {objectClasses.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Zustand</span>
+            <select value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
+              {conditions.map((entry) => (
+                <option key={entry} value={entry}>{entry}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Prüfstatus</span>
+            <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
+              {reviewStatuses.map((entry) => (
+                <option key={entry} value={entry}>{entry}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
+          <div className="item-row-notes">
+            {hints.map((hint) => <span className={`hint-badge ${hint.severity}`} key={hint.kind}>{hint.label}</span>)}
+            {firstSpecial ? (
+              <span className="hint-badge info">Referenz: {firstSpecial.designation_de || firstSpecial.vag_no || firstSpecial.source_file}</span>
+            ) : null}
+            {firstHistory ? (
+              <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
+            ) : null}
+            {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
+            {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role}: {task.missing_field}</span>)}
+            {message ? <span className="status pruefen">{message}</span> : null}
+          </div>
+        ) : null}
       </div>
-
-      <div className="field compact-field">
-        <input value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
-      </div>
-
-      <div className="detail-fields">
-        <input value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
-        <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
-        <input value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
-      </div>
-
-      <select value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
-        <option value="">Offen</option>
-        {objectClasses.map((entry) => (
-          <option key={entry.id} value={entry.id}>{entry.name}</option>
-        ))}
-      </select>
-
-      <select value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
-        {conditions.map((entry) => (
-          <option key={entry} value={entry}>{entry}</option>
-        ))}
-      </select>
-
-      <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
-        {reviewStatuses.map((entry) => (
-          <option key={entry} value={entry}>{entry}</option>
-        ))}
-      </select>
 
       <div className="row-actions">
         <button className="btn accent" onClick={save}>Speichern</button>
@@ -284,21 +295,6 @@ function ItemReviewRow({
         <button className="btn" onClick={finalize}>Finalisieren</button>
         <button className="btn danger" onClick={removeItem}>Löschen</button>
       </div>
-
-      {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
-        <div className="item-row-notes">
-          {hints.map((hint) => <span className={`hint-badge ${hint.severity}`} key={hint.kind}>{hint.label}</span>)}
-          {firstSpecial ? (
-            <span className="hint-badge info">Referenz: {firstSpecial.designation_de || firstSpecial.vag_no || firstSpecial.source_file}</span>
-          ) : null}
-          {firstHistory ? (
-            <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
-          ) : null}
-          {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
-          {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role}: {task.missing_field}</span>)}
-          {message ? <span className="status pruefen">{message}</span> : null}
-        </div>
-      ) : null}
     </div>
   );
 }

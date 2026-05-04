@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import json
@@ -39,6 +39,53 @@ def json_dumps(value: Any) -> str:
     import json
 
     return json.dumps(value or {}, default=str)
+
+
+def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[str, dict[str, Any]] | None:
+    haystack = f"{text} {object_type or ''}".lower()
+    if any(term in haystack for term in ["computermaus", "maus", "mouse", "hyperx", "logitech", "razer"]):
+        return (
+            "eingabegeraet",
+            {
+                "object_type": "Computermaus",
+                "object_class": "Eingabegerät",
+                "commercial_category": "it_ausstattung",
+                "requires_accounting_review": False,
+                "missing_fields": [],
+                "recommended_tasks": [],
+                "recommended_status": "pruefen",
+                "confidence": 0.78,
+            },
+        )
+    if any(term in haystack for term in ["tastatur", "keyboard", "keychron", "cherry", "logitech mx keys"]):
+        return (
+            "eingabegeraet",
+            {
+                "object_type": "Tastatur",
+                "object_class": "Eingabegerät",
+                "commercial_category": "it_ausstattung",
+                "requires_accounting_review": False,
+                "missing_fields": [],
+                "recommended_tasks": [],
+                "recommended_status": "pruefen",
+                "confidence": 0.78,
+            },
+        )
+    if any(term in haystack for term in ["laptop", "notebook", "elitebook", "thinkpad", "probook", "macbook"]):
+        return (
+            "notebook",
+            {
+                "object_type": "Notebook",
+                "object_class": "Notebook",
+                "commercial_category": "it_ausstattung",
+                "requires_accounting_review": True,
+                "missing_fields": ["Seriennummer", "Anschaffungsdatum", "Buchwert"],
+                "recommended_tasks": [{"role": "Buchhaltung", "task": "Anlagenummer, Anschaffungsdatum und Buchwert prüfen"}],
+                "recommended_status": "nacharbeit_buchhaltung",
+                "confidence": 0.76,
+            },
+        )
+    return None
 
 
 WORKSHOP_REFERENCE_CATALOG: list[dict[str, Any]] = [
@@ -248,7 +295,11 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         "notes": "Phase-1-Auswertung. Ollama/Vision läuft im Hintergrund.",
     }
 
-    if object_class == "reifen" or "reifen" in text or "dot" in text or "michelin" in text:
+    quick_it = classify_it_peripheral(text, object_type)
+    if quick_it:
+        object_class, update = quick_it
+        result.update(update)
+    elif object_class == "reifen" or "reifen" in text or "dot" in text or "michelin" in text:
         dot = re.search(r"\b(\d{4})\b", text)
         dot_number = dot.group(1) if dot else None
         result.update(
@@ -471,6 +522,9 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "inventory_history_matches": inventory_history_matches,
         "classification_rules": [
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
+            "Verwechsle IT-Peripherie nicht mit Monitor: Computermaus, Maus, Mouse, Tastatur, Keyboard und Trackpad sind immer Eingabegerät.",
+            "Laptop, Notebook, ThinkPad, EliteBook, ProBook und MacBook sind Notebook, nicht Monitor.",
+            "Nur ein sichtbarer einzelner Bildschirm ohne Tastatur-Unterteil ist Monitor. Ein aufgeklappter Laptop ist Notebook.",
             "Nutze special_tool_matches für exakte VAS-/V.A.G-/ASE-Nummern, Spezialwerkzeugnamen und bekannte Werkzeugbezeichnungen.",
             "Nutze inventory_history_matches für frühere Bestands-, Mängel-, UVV-, Wartungs- und Soll-Hinweise. Diese Hinweise sind prüfpflichtig und dürfen die schnelle Erfassung nicht blockieren.",
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
@@ -515,6 +569,10 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     content = response.json().get("message", {}).get("content", "{}")
     parsed = normalize_ollama_result(parse_ollama_json(content), fallback)
     result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
+    quick_it = classify_it_peripheral(" ".join(transcripts), str(result.get("object_type") or ""))
+    if quick_it:
+        _, update = quick_it
+        result.update(update)
     if special_tool_matches:
         result["special_tool_matches"] = special_tool_matches[:5]
     if inventory_history_matches:
@@ -630,6 +688,10 @@ def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug:
         object_class = "diagnosegeraet"
     elif "kompressor" in object_class_text or "kompressor" in object_type_text or "druckluft" in object_type_text:
         object_class = "kompressor"
+    elif any(term in object_class_text or term in object_type_text for term in ["eingabegerät", "eingabegeraet", "maus", "mouse", "tastatur", "keyboard", "trackpad"]):
+        object_class = "eingabegeraet"
+    elif any(term in object_class_text or term in object_type_text for term in ["notebook", "laptop", "thinkpad", "elitebook", "probook", "macbook"]):
+        object_class = "notebook"
     elif "it" in object_class_text and "gerät" in object_class_text:
         object_class = "it_geraet"
     elif "werkzeugwagen" in object_class_text:
@@ -749,3 +811,4 @@ def finalization_blockers(item_id: str) -> list[str]:
         if missing_field:
             blockers.append(f"Offene Nacharbeit: {missing_field}")
     return blockers
+
