@@ -22,15 +22,32 @@ type RoomDraft = {
   code: string;
 };
 
+function cleanText(value?: string | null) {
+  return (value || "")
+    .replace(/Hauptgeb.ude/g, "Hauptgebäude")
+    .replace(/Geb.ude/g, "Gebäude")
+    .replace(/Pr.fer/g, "Prüfer")
+    .replace(/R.ume/g, "Räume")
+    .replace(/f.r/g, "für")
+    .replace(/l.schen/g, "löschen")
+    .replace(/gel.scht/g, "gelöscht")
+    .replace(/.ffnen/g, "öffnen")
+    .replace(/B.ro/g, "Büro");
+}
+
+function sameName(left?: string | null, right?: string | null) {
+  return cleanText(left).trim().toLowerCase() === cleanText(right).trim().toLowerCase();
+}
+
 export default function DashboardPage() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedLocation, setSelectedLocation] = useState("");
-  const [freeLocationName, setFreeLocationName] = useState("");
-  const [selectedRoom, setSelectedRoom] = useState("");
-  const [freeRoomName, setFreeRoomName] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
+  const [selectedRoom, setSelectedRoom] = useState("");
+  const [freeLocationName, setFreeLocationName] = useState("");
   const [freeBuildingName, setFreeBuildingName] = useState("");
+  const [freeRoomName, setFreeRoomName] = useState("");
   const [newLocationName, setNewLocationName] = useState("");
   const [newBuildingName, setNewBuildingName] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
@@ -48,13 +65,12 @@ export default function DashboardPage() {
       setBootstrap(boot);
       setSessions(list);
       setSelectedLocation((current) => current || boot.locations[0]?.id || "");
-      setSelectedRoom((current) => current || boot.rooms[0]?.id || "");
       setSelectedBuilding((current) => current || boot.buildings[0]?.id || "");
       setRoomDrafts((current) => {
         const next = { ...current };
         for (const room of boot.rooms) {
           next[room.id] = next[room.id] ?? {
-            name: room.name,
+            name: cleanText(room.name),
             building_id: room.building_id,
             code: room.code ?? "",
           };
@@ -73,38 +89,49 @@ export default function DashboardPage() {
   async function startSession() {
     setError("");
     setMessage("Session wird gestartet...");
-    const trimmedLocationName = freeLocationName.trim();
-    const trimmedRoomName = freeRoomName.trim();
-    const trimmedBuildingName = freeBuildingName.trim();
-    const room = bootstrap?.rooms.find((entry) => entry.id === selectedRoom);
-    const building = bootstrap?.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
-    const location = bootstrap?.locations.find((entry) => entry.id === (building?.location_id || selectedLocation));
-    if (!trimmedRoomName && !room) {
-      setError("Bitte Raum auswählen oder freien Raum eingeben.");
+    const locationName = freeLocationName.trim();
+    const buildingName = freeBuildingName.trim();
+    const roomName = freeRoomName.trim();
+    const exactLocation = bootstrap?.locations.find((entry) => sameName(entry.name, locationName));
+    const location = exactLocation || bootstrap?.locations.find((entry) => entry.id === selectedLocation);
+    const exactBuilding = bootstrap?.buildings.find((entry) =>
+      sameName(entry.name, buildingName) && (!location?.id || entry.location_id === location.id),
+    );
+    const building = exactBuilding || bootstrap?.buildings.find((entry) => entry.id === selectedBuilding && (!location?.id || entry.location_id === location.id));
+    const exactRoom = bootstrap?.rooms.find((entry) => {
+      const candidateBuilding = bootstrap.buildings.find((buildingEntry) => buildingEntry.id === entry.building_id);
+      return sameName(entry.name, roomName) && (!location?.id || candidateBuilding?.location_id === location.id);
+    });
+    const room = exactRoom || bootstrap?.rooms.find((entry) => entry.id === selectedRoom);
+
+    if (!roomName && !room) {
+      setError("Bitte Raum aus den Vorschlägen wählen oder frei eingeben.");
       setMessage("");
       return;
     }
-    if (!trimmedRoomName && (!building || !location)) {
-      setError("Kein Gebäude/Standort für den Raum gefunden.");
+    if (!roomName && (!building || !location)) {
+      setError("Kein Gebäude/Betrieb für den Raum gefunden.");
       setMessage("");
       return;
     }
+
     try {
       const session = await api<Session>("/sessions", {
         method: "POST",
         body: JSON.stringify({
-          location_id: trimmedLocationName ? undefined : location?.id,
-          location_name: trimmedLocationName || undefined,
-          building_id: trimmedBuildingName ? undefined : building?.id,
-          building_name: trimmedBuildingName || undefined,
-          room_id: trimmedRoomName ? undefined : room?.id,
-          room_name: trimmedRoomName || undefined,
+          location_id: locationName && !exactLocation ? undefined : location?.id,
+          location_name: locationName && !exactLocation ? locationName : undefined,
+          building_id: buildingName && !exactBuilding ? undefined : building?.id,
+          building_name: buildingName && !exactBuilding ? buildingName : undefined,
+          room_id: exactRoom ? exactRoom.id : roomName ? undefined : room?.id,
+          room_name: exactRoom ? undefined : roomName || undefined,
         }),
       });
       setActiveSession(session);
       setFreeLocationName("");
-      setFreeRoomName("");
       setFreeBuildingName("");
+      setFreeRoomName("");
+      setSelectedRoom("");
       setMessage("Session gestartet");
       await load();
     } catch (err) {
@@ -153,11 +180,8 @@ export default function DashboardPage() {
         method: "POST",
         body: JSON.stringify({ name }),
       });
-      if (nameOverride !== undefined) {
-        setFreeLocationName("");
-      } else {
-        setNewLocationName("");
-      }
+      if (nameOverride !== undefined) setFreeLocationName("");
+      else setNewLocationName("");
       setSelectedLocation(location.id);
       setSelectedBuilding("");
       setSelectedRoom("");
@@ -199,7 +223,7 @@ export default function DashboardPage() {
     const relatedSessions = sessions.filter((session) => session.room_id === roomId);
     const itemCount = relatedSessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0);
     const confirmed = window.confirm(
-      `Raum "${room.name}" wirklich löschen?\n\nDabei werden ${relatedSessions.length} Session(s) und ${itemCount} Gegenstand/Gegenstände dieses Raums aus der Datenbank entfernt.`
+      `Raum "${cleanText(room.name)}" wirklich löschen?\n\nDabei werden ${relatedSessions.length} Session(s) und ${itemCount} Gegenstand/Gegenstände dieses Raums aus der Datenbank entfernt.`,
     );
     if (!confirmed) return;
     try {
@@ -216,7 +240,7 @@ export default function DashboardPage() {
   }
 
   async function deleteSession(session: Session) {
-    const label = session.room_name || "Raum";
+    const label = cleanText(session.room_name) || "Raum";
     const confirmed = window.confirm(`Session "${label}" wirklich löschen? Dabei werden die erfassten Gegenstände dieser Test-Session aus der Datenbank entfernt.`);
     if (!confirmed) return;
     try {
@@ -236,7 +260,7 @@ export default function DashboardPage() {
     setRoomDrafts((current) => ({
       ...current,
       [roomId]: {
-        name: room.name,
+        name: cleanText(room.name),
         building_id: room.building_id,
         code: room.code ?? "",
       },
@@ -254,75 +278,80 @@ export default function DashboardPage() {
 
   return (
     <main className="page grid">
+      <datalist id="location-suggestions">
+        {bootstrap?.locations.map((location) => <option key={location.id} value={cleanText(location.name)} />)}
+      </datalist>
+      <datalist id="building-suggestions">
+        {buildingOptions.map((building) => <option key={building.id} value={cleanText(building.name)} />)}
+      </datalist>
+      <datalist id="room-suggestions">
+        {roomOptions.map((room) => <option key={room.id} value={cleanText(room.name)} />)}
+      </datalist>
+
       <section className="panel grid grid-2">
         <div className="grid">
           <h1>Raum-Session starten</h1>
           <p className="muted">Prüfer startet den Raum, Erfasser koppeln ihr Handy per QR-Link.</p>
           {error ? <p className="status upload_fehler">{error}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
+
           <label className="field">
-            <span>Betrieb aus Liste</span>
-            <select
-              value={selectedLocation}
-              onChange={(event) => {
-                const locationId = event.target.value;
-                setSelectedLocation(locationId);
-                const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === locationId);
-                setSelectedBuilding(firstBuilding?.id || "");
-                setSelectedRoom("");
-              }}
-            >
-              <option value="">Kein Betrieb aus Liste</option>
-              {bootstrap?.locations.map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Freier Betrieb / neuer Betrieb</span>
+            <span>Betriebsvorschlag oder freier Betrieb</span>
             <input
+              list="location-suggestions"
               value={freeLocationName}
-              onChange={(event) => setFreeLocationName(event.target.value)}
-              placeholder="z. B. Betrieb XYZ"
+              onChange={(event) => {
+                const name = event.target.value;
+                setFreeLocationName(name);
+                const exact = bootstrap?.locations.find((location) => sameName(location.name, name));
+                if (exact) {
+                  setSelectedLocation(exact.id);
+                  const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === exact.id);
+                  setSelectedBuilding(firstBuilding?.id || "");
+                }
+              }}
+              placeholder="z. B. Betrieb Muster oder neuer Betrieb"
             />
           </label>
           <button className="btn secondary compact-btn" onClick={() => createLocation(freeLocationName)}>
             Betrieb speichern
           </button>
+
           <label className="field">
-            <span>Raum aus Liste</span>
-            <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)}>
-              <option value="">Kein Raum aus Liste</option>
-              {roomOptions.map((room) => (
-                <option key={room.id} value={room.id}>{room.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Freier Raum / neuer Raum</span>
+            <span>Raumvorschlag oder freier Raum</span>
             <input
+              list="room-suggestions"
               value={freeRoomName}
-              onChange={(event) => setFreeRoomName(event.target.value)}
-              placeholder="z. B. Werkstattplatz 4 oder Serviceannahme"
+              onChange={(event) => {
+                const name = event.target.value;
+                setFreeRoomName(name);
+                const exact = roomOptions.find((room) => sameName(room.name, name));
+                if (exact) {
+                  setSelectedRoom(exact.id);
+                  setSelectedBuilding(exact.building_id);
+                } else {
+                  setSelectedRoom("");
+                }
+              }}
+              placeholder="z. B. Reifenlager, Werkstattplatz 4 oder Serviceannahme"
             />
           </label>
+
           <label className="field">
-            <span>Gebäude aus Liste</span>
-            <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
-              <option value="">Standard-Gebäude verwenden</option>
-              {buildingOptions.map((building) => (
-                <option key={building.id} value={building.id}>{building.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Freies Gebäude / neues Gebäude</span>
+            <span>Gebäudevorschlag oder freies Gebäude</span>
             <input
+              list="building-suggestions"
               value={freeBuildingName}
-              onChange={(event) => setFreeBuildingName(event.target.value)}
-              placeholder="z. B. Werkstatt, Lagerhalle oder Büro"
+              onChange={(event) => {
+                const name = event.target.value;
+                setFreeBuildingName(name);
+                const exact = buildingOptions.find((building) => sameName(building.name, name));
+                if (exact) setSelectedBuilding(exact.id);
+              }}
+              placeholder="z. B. Hauptgebäude, Werkstatt, Lagerhalle oder Büro"
             />
           </label>
+
           <button className="btn accent" onClick={startSession}>Session starten</button>
         </div>
         <div className="grid">
@@ -347,11 +376,7 @@ export default function DashboardPage() {
         <div className="grid grid-2">
           <label className="field">
             <span>Neuer Betrieb</span>
-            <input
-              value={newLocationName}
-              onChange={(event) => setNewLocationName(event.target.value)}
-              placeholder="z. B. Betrieb XYZ"
-            />
+            <input value={newLocationName} onChange={(event) => setNewLocationName(event.target.value)} placeholder="z. B. Betrieb XYZ" />
           </label>
           <label className="field">
             <span>Aktiver Betrieb</span>
@@ -366,9 +391,7 @@ export default function DashboardPage() {
               }}
             >
               <option value="">Betrieb auswählen</option>
-              {bootstrap?.locations.map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
-              ))}
+              {bootstrap?.locations.map((location) => <option key={location.id} value={location.id}>{cleanText(location.name)}</option>)}
             </select>
           </label>
         </div>
@@ -378,7 +401,7 @@ export default function DashboardPage() {
       <section className="panel grid">
         <div>
           <h2>Räume bearbeiten</h2>
-          <p className="muted">Räume können hier für die Auswahl vorbereitet oder umbenannt werden.</p>
+          <p className="muted">Räume können hier für die Vorschlagsliste vorbereitet oder umbenannt werden.</p>
         </div>
         <div className="grid grid-2">
           <label className="field">
@@ -393,35 +416,23 @@ export default function DashboardPage() {
                 setSelectedRoom("");
               }}
             >
-              {bootstrap?.locations.map((location) => (
-                <option key={location.id} value={location.id}>{location.name}</option>
-              ))}
+              {bootstrap?.locations.map((location) => <option key={location.id} value={location.id}>{cleanText(location.name)}</option>)}
             </select>
           </label>
           <label className="field">
             <span>Gebäude für neuen Raum</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
               <option value="">Gebäude auswählen</option>
-              {buildingOptions.map((building) => (
-                <option key={building.id} value={building.id}>{building.name}</option>
-              ))}
+              {buildingOptions.map((building) => <option key={building.id} value={building.id}>{cleanText(building.name)}</option>)}
             </select>
           </label>
           <label className="field">
             <span>Neues Gebäude für neuen Raum</span>
-            <input
-              value={newBuildingName}
-              onChange={(event) => setNewBuildingName(event.target.value)}
-              placeholder="z. B. Gebäude XYZ, Werkstatt oder Lager"
-            />
+            <input value={newBuildingName} onChange={(event) => setNewBuildingName(event.target.value)} placeholder="z. B. Gebäude XYZ, Werkstatt oder Lager" />
           </label>
           <label className="field">
             <span>Neuer Raum</span>
-            <input
-              value={newRoomName}
-              onChange={(event) => setNewRoomName(event.target.value)}
-              placeholder="z. B. Reifenlager, Werkstattplatz 4"
-            />
+            <input value={newRoomName} onChange={(event) => setNewRoomName(event.target.value)} placeholder="z. B. Reifenlager, Werkstattplatz 4" />
           </label>
         </div>
         <button className="btn accent room-action" onClick={createRoom}>Raum anlegen</button>
@@ -429,28 +440,21 @@ export default function DashboardPage() {
           {bootstrap?.rooms.map((room) => {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
             const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
-            const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
+            const draft = roomDrafts[room.id] ?? { name: cleanText(room.name), building_id: room.building_id, code: room.code ?? "" };
             const isEditing = editingRoomId === room.id;
             const roomSession = sessions.find((session) => session.room_id === room.id);
             return (
               <div className={`room-row ${isEditing ? "is-editing" : ""}`} key={room.id}>
                 <div className="room-summary">
                   <div>
-                    <strong>{room.name}</strong>
-                    <span>{location?.name || "Betrieb"} / {building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
+                    <strong>{cleanText(room.name)}</strong>
+                    <span>{cleanText(location?.name) || "Betrieb"} / {cleanText(building?.name) || "Gebäude"} / {room.code || "ohne Code"}</span>
                   </div>
                   <div className="room-summary-actions">
-                    {roomSession ? (
-                      <a className="btn accent compact-btn" href={`/session/${roomSession.id}`}>Inventarliste</a>
-                    ) : null}
+                    {roomSession ? <a className="btn accent compact-btn" href={`/session/${roomSession.id}`}>Inventarliste</a> : null}
                     <button className="btn secondary compact-btn" onClick={() => startRoomEdit(room.id)}>Bearbeiten</button>
-                    <button
-                      className="btn danger icon-btn"
-                      onClick={() => deleteRoom(room.id)}
-                      title="Raum löschen"
-                      aria-label={`Raum ${room.name} löschen`}
-                    >
-                      🗑
+                    <button className="btn danger icon-btn" onClick={() => deleteRoom(room.id)} title="Raum löschen" aria-label={`Raum ${cleanText(room.name)} löschen`}>
+                      ×
                     </button>
                   </div>
                 </div>
@@ -458,38 +462,17 @@ export default function DashboardPage() {
                   <div className="room-edit-panel">
                     <label className="field">
                       <span>Raumname</span>
-                      <input
-                        value={draft.name}
-                        onChange={(event) => setRoomDrafts((current) => ({
-                          ...current,
-                          [room.id]: { ...draft, name: event.target.value },
-                        }))}
-                      />
+                      <input value={draft.name} onChange={(event) => setRoomDrafts((current) => ({ ...current, [room.id]: { ...draft, name: event.target.value } }))} />
                     </label>
                     <label className="field">
                       <span>Gebäude</span>
-                      <select
-                        value={draft.building_id}
-                        onChange={(event) => setRoomDrafts((current) => ({
-                          ...current,
-                          [room.id]: { ...draft, building_id: event.target.value },
-                        }))}
-                      >
-                        {bootstrap.buildings.map((entry) => (
-                          <option key={entry.id} value={entry.id}>{entry.name}</option>
-                        ))}
+                      <select value={draft.building_id} onChange={(event) => setRoomDrafts((current) => ({ ...current, [room.id]: { ...draft, building_id: event.target.value } }))}>
+                        {bootstrap.buildings.map((entry) => <option key={entry.id} value={entry.id}>{cleanText(entry.name)}</option>)}
                       </select>
                     </label>
                     <label className="field">
                       <span>Code</span>
-                      <input
-                        value={draft.code}
-                        onChange={(event) => setRoomDrafts((current) => ({
-                          ...current,
-                          [room.id]: { ...draft, code: event.target.value },
-                        }))}
-                        placeholder="optional"
-                      />
+                      <input value={draft.code} onChange={(event) => setRoomDrafts((current) => ({ ...current, [room.id]: { ...draft, code: event.target.value } }))} placeholder="optional" />
                     </label>
                     <div className="room-edit-actions">
                       <button className="btn accent compact-btn" onClick={() => updateRoom(room.id)}>Speichern</button>
@@ -506,19 +489,15 @@ export default function DashboardPage() {
       <section className="grid">
         <div>
           <h2>Raum-Sessions</h2>
-          <p className="muted">Hier stehen gestartete Räume. Test-Sessions bleiben sichtbar, bis sie abgeschlossen oder später bereinigt werden.</p>
+          <p className="muted">Hier stehen gestartete Räume. Test-Sessions bleiben sichtbar, bis sie abgeschlossen oder bereinigt werden.</p>
         </div>
         <div className="grid grid-3">
           {sessions.map((session) => (
-            <article
-              className="card clickable-card"
-              key={session.id}
-              onClick={() => { window.location.href = `/session/${session.id}`; }}
-            >
+            <article className="card clickable-card" key={session.id} onClick={() => { window.location.href = `/session/${session.id}`; }}>
               <div className="card-body grid">
                 <StatusBadgeShim value={session.status} />
-                <strong>{session.room_name || "Raum"}</strong>
-                <span className="muted">{session.location_name || "Betrieb"} / {session.building_name || "Gebäude"}</span>
+                <strong>{cleanText(session.room_name) || "Raum"}</strong>
+                <span className="muted">{cleanText(session.location_name) || "Betrieb"} / {cleanText(session.building_name) || "Gebäude"}</span>
                 <div className="session-meta">
                   <span>{session.item_count ?? 0} Objekte</span>
                   <span>{formatDateTime(session.created_at)}</span>
@@ -532,9 +511,9 @@ export default function DashboardPage() {
                       deleteSession(session);
                     }}
                     title="Session löschen"
-                    aria-label={`Session ${session.room_name || "Raum"} löschen`}
+                    aria-label={`Session ${cleanText(session.room_name) || "Raum"} löschen`}
                   >
-                    🗑
+                    ×
                   </button>
                 </div>
               </div>

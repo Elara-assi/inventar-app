@@ -1,4 +1,4 @@
-INSERT INTO roles (name, slug, description) VALUES
+﻿INSERT INTO roles (name, slug, description) VALUES
   ('Erfasser', 'erfasser', 'Mobile Schnellerfassung im Raum'),
   ('Prüfer', 'pruefer', 'Live-Prüfung, Korrektur und Finalisierung'),
   ('Standortverantwortlicher', 'standortverantwortlicher', 'Raumfreigabe und Export'),
@@ -129,3 +129,4 @@ ON CONFLICT (object_class_id, field_name) DO UPDATE SET
   rework_allowed = EXCLUDED.rework_allowed,
   responsible_role = EXCLUDED.responsible_role,
   sort_order = EXCLUDED.sort_order;
+
