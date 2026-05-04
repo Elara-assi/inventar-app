@@ -15,6 +15,12 @@ type Session = {
   item_count?: number;
 };
 
+type RoomDraft = {
+  name: string;
+  building_id: string;
+  code: string;
+};
+
 export default function DashboardPage() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -23,7 +29,7 @@ export default function DashboardPage() {
   const [selectedBuilding, setSelectedBuilding] = useState("");
   const [freeBuildingName, setFreeBuildingName] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
-  const [roomDrafts, setRoomDrafts] = useState<Record<string, string>>({});
+  const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -39,7 +45,13 @@ export default function DashboardPage() {
       setSelectedBuilding((current) => current || boot.buildings[0]?.id || "");
       setRoomDrafts((current) => {
         const next = { ...current };
-        for (const room of boot.rooms) next[room.id] = next[room.id] ?? room.name;
+        for (const room of boot.rooms) {
+          next[room.id] = next[room.id] ?? {
+            name: room.name,
+            building_id: room.building_id,
+            code: room.code ?? "",
+          };
+        }
         return next;
       });
     } catch (err) {
@@ -113,8 +125,9 @@ export default function DashboardPage() {
   }
 
   async function updateRoom(roomId: string) {
-    const name = roomDrafts[roomId]?.trim();
-    if (!name) {
+    const draft = roomDrafts[roomId];
+    const name = draft?.name.trim();
+    if (!draft || !name) {
       setError("Raumname darf nicht leer sein.");
       return;
     }
@@ -122,7 +135,11 @@ export default function DashboardPage() {
       setError("");
       await api(`/rooms/${roomId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({
+          name,
+          building_id: draft.building_id,
+          code: draft.code.trim() || undefined,
+        }),
       });
       setMessage("Raum gespeichert");
       await load();
@@ -216,17 +233,49 @@ export default function DashboardPage() {
         <div className="room-list">
           {bootstrap?.rooms.map((room) => {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
+            const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
             return (
               <div className="room-row" key={room.id}>
                 <div>
-                  <strong>{building?.name || "Gebäude"}</strong>
-                  <span className="muted">{room.code || "ohne Code"}</span>
+                  <strong>{room.name}</strong>
+                  <span className="muted">{building?.name || "Gebäude"} / {room.code || "ohne Code"}</span>
                 </div>
-                <input
-                  value={roomDrafts[room.id] ?? room.name}
-                  onChange={(event) => setRoomDrafts((current) => ({ ...current, [room.id]: event.target.value }))}
-                />
-                <button className="btn secondary" onClick={() => updateRoom(room.id)}>Speichern</button>
+                <label className="field">
+                  <span>Raumname</span>
+                  <input
+                    value={draft.name}
+                    onChange={(event) => setRoomDrafts((current) => ({
+                      ...current,
+                      [room.id]: { ...draft, name: event.target.value },
+                    }))}
+                  />
+                </label>
+                <label className="field">
+                  <span>Gebäude</span>
+                  <select
+                    value={draft.building_id}
+                    onChange={(event) => setRoomDrafts((current) => ({
+                      ...current,
+                      [room.id]: { ...draft, building_id: event.target.value },
+                    }))}
+                  >
+                    {bootstrap.buildings.map((entry) => (
+                      <option key={entry.id} value={entry.id}>{entry.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Code</span>
+                  <input
+                    value={draft.code}
+                    onChange={(event) => setRoomDrafts((current) => ({
+                      ...current,
+                      [room.id]: { ...draft, code: event.target.value },
+                    }))}
+                    placeholder="optional"
+                  />
+                </label>
+                <button className="btn secondary" onClick={() => updateRoom(room.id)}>Änderungen speichern</button>
               </div>
             );
           })}
@@ -239,20 +288,20 @@ export default function DashboardPage() {
           <p className="muted">Hier stehen gestartete Räume. Test-Sessions bleiben sichtbar, bis sie abgeschlossen oder später bereinigt werden.</p>
         </div>
         <div className="grid grid-3">
-        {sessions.map((session) => (
-          <article className="card" key={session.id}>
-            <div className="card-body grid">
-              <StatusBadgeShim value={session.status} />
-              <strong>{session.room_name || "Raum"}</strong>
-              <span className="muted">{session.location_name} / {session.building_name}</span>
-              <div className="session-meta">
-                <span>{session.item_count ?? 0} Objekte</span>
-                <span>{formatDateTime(session.created_at)}</span>
+          {sessions.map((session) => (
+            <article className="card" key={session.id}>
+              <div className="card-body grid">
+                <StatusBadgeShim value={session.status} />
+                <strong>{session.room_name || "Raum"}</strong>
+                <span className="muted">{session.location_name} / {session.building_name}</span>
+                <div className="session-meta">
+                  <span>{session.item_count ?? 0} Objekte</span>
+                  <span>{formatDateTime(session.created_at)}</span>
+                </div>
+                <a className="btn secondary" href={`/session/${session.id}`}>Prüfung öffnen</a>
               </div>
-              <a className="btn secondary" href={`/session/${session.id}`}>Prüfung öffnen</a>
-            </div>
-          </article>
-        ))}
+            </article>
+          ))}
         </div>
       </section>
     </main>

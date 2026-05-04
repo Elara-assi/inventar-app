@@ -304,7 +304,7 @@ textarea {
 
 .room-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.4fr) auto;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.2fr) minmax(150px, 1fr) minmax(120px, 0.8fr) auto;
   gap: 10px;
   align-items: center;
   border: 1px solid var(--line);

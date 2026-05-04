@@ -54,6 +54,7 @@ class RoomIn(BaseModel):
 
 
 class RoomPatch(BaseModel):
+    building_id: str | None = None
     name: str | None = None
     code: str | None = None
     room_type: str | None = None
@@ -184,6 +185,9 @@ def update_room(room_id: str, body: RoomPatch) -> dict[str, Any]:
     current = fetch_one("SELECT * FROM rooms WHERE id = %s", (room_id,))
     if not current:
         raise HTTPException(status_code=404, detail="Raum nicht gefunden")
+    building_id = body.building_id if body.building_id is not None else current["building_id"]
+    if not fetch_one("SELECT id FROM buildings WHERE id = %s", (building_id,)):
+        raise HTTPException(status_code=400, detail="Gebäude nicht gefunden")
     name = body.name.strip() if body.name is not None else current["name"]
     code = body.code.strip() if body.code is not None else current["code"]
     room_type = body.room_type.strip() if body.room_type is not None else current["room_type"]
@@ -192,13 +196,13 @@ def update_room(room_id: str, body: RoomPatch) -> dict[str, Any]:
     row = execute(
         """
         UPDATE rooms
-        SET name = %s, code = %s, room_type = %s
+        SET building_id = %s, name = %s, code = %s, room_type = %s
         WHERE id = %s
         RETURNING *
         """,
-        (name, code, room_type, room_id),
+        (building_id, name, code, room_type, room_id),
     )
-    audit("room_changed", "room", room_id, {"name": name, "code": code, "room_type": room_type})
+    audit("room_changed", "room", room_id, {"building_id": building_id, "name": name, "code": code, "room_type": room_type})
     return row
 
 
