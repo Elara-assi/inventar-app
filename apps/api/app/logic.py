@@ -101,6 +101,17 @@ def load_special_tool_references() -> list[dict[str, Any]]:
     return records if isinstance(records, list) else []
 
 
+@lru_cache(maxsize=1)
+def load_inventory_history_references() -> list[dict[str, Any]]:
+    path = Path(__file__).parent / "knowledge" / "inventory_history_reference.json"
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig") as handle:
+        payload = json.load(handle)
+    records = payload.get("records", [])
+    return records if isinstance(records, list) else []
+
+
 def tokenize_reference_text(value: str) -> set[str]:
     stopwords = {"vas", "vag", "ase", "und", "oder", "and", "or", "mit", "für", "the", "set"}
     tokens = re.findall(r"[a-zA-ZÄÖÜäöüß0-9/.-]{3,}", value.lower())
@@ -142,6 +153,41 @@ def select_special_tool_references(transcripts: list[str], object_class_name: st
             "order_no": record.get("order_no"),
             "vag_no": record.get("vag_no"),
             "category_hint": record.get("category_hint"),
+            "source_file": record.get("source_file"),
+        }
+        for _, record in scored[:limit]
+    ]
+
+
+def select_inventory_history_references(transcripts: list[str], object_class_name: str | None, limit: int = 15) -> list[dict[str, Any]]:
+    query = " ".join([object_class_name or "", *transcripts]).lower()
+    query_tokens = tokenize_reference_text(query)
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for record in load_inventory_history_references():
+        tool_no = str(record.get("tool_no") or "")
+        haystack = " ".join(
+            str(record.get(key) or "")
+            for key in ["designation_de", "tool_no", "action", "note", "list_name", "record_type"]
+        )
+        record_tokens = tokenize_reference_text(haystack)
+        score = len(query_tokens & record_tokens)
+        if tool_no and len(tool_no) <= 40 and tool_no.lower() in query:
+            score += 10
+        if score > 0:
+            scored.append((score, record))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [
+        {
+            "record_type": record.get("record_type"),
+            "designation_de": record.get("designation_de"),
+            "tool_no": record.get("tool_no"),
+            "action": record.get("action"),
+            "note": record.get("note"),
+            "missing": record.get("missing"),
+            "defective": record.get("defective"),
+            "uvv_due": record.get("uvv_due"),
+            "maintenance_due": record.get("maintenance_due"),
+            "inspection_book_missing": record.get("inspection_book_missing"),
             "source_file": record.get("source_file"),
         }
         for _, record in scored[:limit]
@@ -315,6 +361,32 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
                 "notes": f"Referenztreffer aus Spezialwerkzeug-Wissensbasis: {match.get('source_file')}",
             }
         )
+    history_matches = select_inventory_history_references(transcripts, object_class_name, limit=1)
+    if history_matches and text:
+        match = history_matches[0]
+        notes = [str(match.get("source_file") or "Bestandsunterlage")]
+        if match.get("action"):
+            notes.append(f"Maßnahme: {match.get('action')}")
+        if match.get("note"):
+            notes.append(f"Hinweis: {match.get('note')}")
+        result.update(
+            {
+                "object_type": match.get("designation_de") or result["object_type"],
+                "model": match.get("tool_no") or result.get("model"),
+                "recommended_status": "nacharbeit_pruefer",
+                "requires_review": True,
+                "confidence": max(float(result.get("confidence") or 0), 0.72),
+                "notes": " | ".join(notes),
+            }
+        )
+        missing_fields = list(result.get("missing_fields") or [])
+        if match.get("uvv_due") or match.get("maintenance_due") or match.get("inspection_book_missing"):
+            missing_fields.append("Wartung/UVV prüfen")
+        if match.get("missing"):
+            missing_fields.append("Sollbestand prüfen")
+        if match.get("defective"):
+            missing_fields.append("Defekt prüfen")
+        result["missing_fields"] = sorted(set(missing_fields))
 
     oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
     if oc:
@@ -370,6 +442,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     transcripts = [str(note.get("transcript") or "") for note in notes if note.get("transcript")]
     photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
     special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
+    inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
     images = []
     for photo in photos:
         path = photo.get("original_path")
@@ -391,9 +464,11 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "transcripts": transcripts,
         "reference_catalog": WORKSHOP_REFERENCE_CATALOG,
         "special_tool_matches": special_tool_matches,
+        "inventory_history_matches": inventory_history_matches,
         "classification_rules": [
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
             "Nutze special_tool_matches für exakte VAS-/V.A.G-/ASE-Nummern, Spezialwerkzeugnamen und bekannte Werkzeugbezeichnungen.",
+            "Nutze inventory_history_matches für frühere Bestands-, Mängel-, UVV-, Wartungs- und Soll-Hinweise. Diese Hinweise sind prüfpflichtig und dürfen die schnelle Erfassung nicht blockieren.",
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
             "Reifenmontiermaschine: Montageteller, Montagearm, Abdrückschaufel und Pedale sprechen klar für Reifenmontiermaschine.",

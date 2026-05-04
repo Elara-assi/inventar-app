@@ -19,6 +19,7 @@ Folgeaufgaben sollen zuerst diese Dateien lesen:
 - [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md): UI-Regeln für mobile Erfassung und Prüfung.
 - [docs/ROOM_TEST_V01.md](docs/ROOM_TEST_V01.md): Raumtest und Akzeptanzkriterien.
 - [docs/SPECIAL_TOOL_KNOWLEDGE.md](docs/SPECIAL_TOOL_KNOWLEDGE.md): Spezialwerkzeug-Wissensbasis aus alten Inventar-/Werkzeuglisten.
+- [docs/INVENTORY_HISTORY_KNOWLEDGE.md](docs/INVENTORY_HISTORY_KNOWLEDGE.md): Inventarhistorie, Mängel- und Soll-/Ist-Hinweise aus MAV-Unterlagen.
 
 ## Umgesetzter Scope
 
