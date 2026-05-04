@@ -19,11 +19,14 @@ export default function DashboardPage() {
   const [selectedRoom, setSelectedRoom] = useState("");
   const [freeRoomName, setFreeRoomName] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
+  const [freeBuildingName, setFreeBuildingName] = useState("");
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   async function load() {
     try {
+      setError("");
       const boot = await api<Bootstrap>("/meta/bootstrap");
       const list = await api<Session[]>("/sessions");
       setBootstrap(boot);
@@ -40,35 +43,42 @@ export default function DashboardPage() {
   }, []);
 
   async function startSession() {
-    if (!bootstrap) return;
     setError("");
+    setMessage("Session wird gestartet...");
     const trimmedRoomName = freeRoomName.trim();
-    const room = bootstrap.rooms.find((entry) => entry.id === selectedRoom);
-    const building = bootstrap.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
-    const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
+    const trimmedBuildingName = freeBuildingName.trim();
+    const room = bootstrap?.rooms.find((entry) => entry.id === selectedRoom);
+    const building = bootstrap?.buildings.find((entry) => entry.id === (trimmedRoomName ? selectedBuilding : room?.building_id));
+    const location = bootstrap?.locations.find((entry) => entry.id === building?.location_id);
     if (!trimmedRoomName && !room) {
       setError("Bitte Raum auswaehlen oder freien Raum eingeben.");
+      setMessage("");
       return;
     }
-    if (!building || !location) {
+    if (!trimmedRoomName && (!building || !location)) {
       setError("Kein Gebaeude/Standort fuer den Raum gefunden.");
+      setMessage("");
       return;
     }
     try {
       const session = await api<Session>("/sessions", {
         method: "POST",
         body: JSON.stringify({
-          location_id: location.id,
-          building_id: building.id,
+          location_id: location?.id,
+          building_id: building?.id,
+          building_name: trimmedBuildingName || undefined,
           room_id: trimmedRoomName ? undefined : room?.id,
           room_name: trimmedRoomName || undefined,
         }),
       });
       setActiveSession(session);
       setFreeRoomName("");
+      setFreeBuildingName("");
+      setMessage("Session gestartet");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Session konnte nicht gestartet werden");
+      setMessage("");
     }
   }
 
@@ -79,6 +89,7 @@ export default function DashboardPage() {
           <h1>Raum-Session starten</h1>
           <p className="muted">Pruefer startet den Raum, Erfasser koppeln ihr Handy per QR-Link.</p>
           {error ? <p className="status upload_fehler">{error}</p> : null}
+          {message ? <p className="muted">{message}</p> : null}
           <label className="field">
             <span>Raum aus Liste</span>
             <select value={selectedRoom} onChange={(event) => setSelectedRoom(event.target.value)}>
@@ -97,12 +108,21 @@ export default function DashboardPage() {
             />
           </label>
           <label className="field">
-            <span>Gebaeude fuer neuen Raum</span>
+            <span>Gebaeude aus Liste</span>
             <select value={selectedBuilding} onChange={(event) => setSelectedBuilding(event.target.value)}>
+              <option value="">Standard-Gebaeude verwenden</option>
               {bootstrap?.buildings.map((building) => (
                 <option key={building.id} value={building.id}>{building.name}</option>
               ))}
             </select>
+          </label>
+          <label className="field">
+            <span>Freies Gebaeude / neues Gebaeude</span>
+            <input
+              value={freeBuildingName}
+              onChange={(event) => setFreeBuildingName(event.target.value)}
+              placeholder="z. B. Werkstatt, Lagerhalle oder Buero"
+            />
           </label>
           <button className="btn accent" onClick={startSession}>Session starten</button>
         </div>

@@ -34,6 +34,7 @@ class LoginIn(BaseModel):
 class SessionIn(BaseModel):
     location_id: str | None = None
     building_id: str | None = None
+    building_name: str | None = None
     room_id: str | None = None
     room_name: str | None = None
     started_by: str | None = None
@@ -134,15 +135,64 @@ def create_session(body: SessionIn) -> dict[str, Any]:
     room_id = body.room_id
     building_id = body.building_id
     location_id = body.location_id
+    building_name = body.building_name.strip() if body.building_name else None
 
     if body.room_name and not room_id:
         room_name = body.room_name.strip()
         if not room_name:
             raise HTTPException(status_code=400, detail="Raumname fehlt")
-        if not building_id:
+        if building_name:
+            if not location_id:
+                location = fetch_one("SELECT * FROM locations ORDER BY created_at LIMIT 1")
+                if not location:
+                    location = execute(
+                        """
+                        INSERT INTO locations (name, code)
+                        VALUES ('Autohaus', %s)
+                        RETURNING *
+                        """,
+                        (f"LOC-{secrets.token_hex(2).upper()}",),
+                    )
+                    audit("location_created", "location", str(location["id"]), location)
+                location_id = str(location["id"])
+            building = fetch_one(
+                "SELECT * FROM buildings WHERE location_id = %s AND lower(name) = lower(%s)",
+                (location_id, building_name),
+            )
+            if not building:
+                building = execute(
+                    """
+                    INSERT INTO buildings (location_id, name, code)
+                    VALUES (%s, %s, %s)
+                    RETURNING *
+                    """,
+                    (location_id, building_name, f"FREI-{secrets.token_hex(3).upper()}"),
+                )
+                audit("building_created", "building", str(building["id"]), building)
+            building_id = str(building["id"])
+        elif not building_id:
             building = fetch_one("SELECT * FROM buildings ORDER BY created_at LIMIT 1")
             if not building:
-                raise HTTPException(status_code=400, detail="Kein Gebaeude vorhanden")
+                location = fetch_one("SELECT * FROM locations ORDER BY created_at LIMIT 1")
+                if not location:
+                    location = execute(
+                        """
+                        INSERT INTO locations (name, code)
+                        VALUES ('Autohaus', %s)
+                        RETURNING *
+                        """,
+                        (f"LOC-{secrets.token_hex(2).upper()}",),
+                    )
+                    audit("location_created", "location", str(location["id"]), location)
+                building = execute(
+                    """
+                    INSERT INTO buildings (location_id, name, code)
+                    VALUES (%s, 'Hauptgebaeude', %s)
+                    RETURNING *
+                    """,
+                    (location["id"], f"HG-{secrets.token_hex(2).upper()}"),
+                )
+                audit("building_created", "building", str(building["id"]), building)
             building_id = str(building["id"])
         else:
             building = fetch_one("SELECT * FROM buildings WHERE id = %s", (building_id,))
