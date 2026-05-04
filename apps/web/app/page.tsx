@@ -294,6 +294,10 @@ export default function DashboardPage() {
   }) ?? [];
   const roomOptions = selectedLocation ? selectedLocationRooms : (bootstrap?.rooms ?? []);
   const erfasserOptions = bootstrap?.users.filter((user) => user.roles?.includes("erfasser")) ?? [];
+  const selectedUserLabel = freeUserName || erfasserOptions.find((user) => user.id === selectedUser)?.display_name || "Erfasser offen";
+  const selectedLocationLabel = freeLocationName || bootstrap?.locations.find((location) => location.id === selectedLocation)?.name || "Betrieb offen";
+  const selectedBuildingLabel = freeBuildingName || bootstrap?.buildings.find((building) => building.id === selectedBuilding)?.name || "Gebäude offen";
+  const selectedRoomLabel = freeRoomName || roomOptions.find((room) => room.id === selectedRoom)?.name || "Raum offen";
 
   return (
     <main className="page grid">
@@ -310,96 +314,116 @@ export default function DashboardPage() {
         {roomOptions.map((room) => <option key={room.id} value={room.name} />)}
       </datalist>
 
-      <section className="panel grid grid-2">
-        <div className="grid">
-          <h1>Raum-Session starten</h1>
-          <p className="muted">Workflow: Erfasser festlegen, Betrieb wählen, Raum starten, Handy per QR koppeln.</p>
+      <section className="start-shell">
+        <div className="start-card">
+          <div className="section-title">
+            <div>
+              <h1>Inventur vorbereiten</h1>
+              <p className="muted">Erfasser, Betrieb, Gebäude und Raum festlegen. Danach koppelt das Handy per QR-Code.</p>
+            </div>
+            <span className="status erfasst">Raumtest v0.1</span>
+          </div>
           {error ? <p className="status upload_fehler">{error}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
 
-          <label className="field">
-            <span>1. Erfasser</span>
-            <input
-              list="user-suggestions"
-              value={freeUserName}
-              onChange={(event) => {
-                const name = event.target.value;
-                setFreeUserName(name);
-                const exact = erfasserOptions.find((user) => sameName(user.display_name, name));
-                if (exact) setSelectedUser(exact.id);
-              }}
-              placeholder="z. B. Markus oder neuer Erfasser"
-            />
-          </label>
+          <div className="flow-grid">
+            <label className="field flow-field">
+              <span><b>1</b> Erfasser</span>
+              <input
+                list="user-suggestions"
+                value={freeUserName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setFreeUserName(name);
+                  const exact = erfasserOptions.find((user) => sameName(user.display_name, name));
+                  if (exact) setSelectedUser(exact.id);
+                }}
+                placeholder="z. B. Markus oder neuer Erfasser"
+              />
+            </label>
 
-          <label className="field">
-            <span>2. Betrieb</span>
-            <input
-              list="location-suggestions"
-              value={freeLocationName}
-              onChange={(event) => {
-                const name = event.target.value;
-                setFreeLocationName(name);
-                const exact = bootstrap?.locations.find((location) => sameName(location.name, name));
-                if (exact) {
-                  setSelectedLocation(exact.id);
-                  const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === exact.id);
-                  setSelectedBuilding(firstBuilding?.id || "");
-                }
-              }}
-              placeholder="z. B. Betrieb Muster oder neuer Betrieb"
-            />
-          </label>
+            <label className="field flow-field">
+              <span><b>2</b> Betrieb</span>
+              <input
+                list="location-suggestions"
+                value={freeLocationName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setFreeLocationName(name);
+                  const exact = bootstrap?.locations.find((location) => sameName(location.name, name));
+                  if (exact) {
+                    setSelectedLocation(exact.id);
+                    const firstBuilding = bootstrap?.buildings.find((building) => building.location_id === exact.id);
+                    setSelectedBuilding(firstBuilding?.id || "");
+                  }
+                }}
+                placeholder="z. B. Betrieb Muster oder neuer Betrieb"
+              />
+            </label>
 
-          <label className="field">
-            <span>3. Gebäude</span>
-            <input
-              list="building-suggestions"
-              value={freeBuildingName}
-              onChange={(event) => {
-                const name = event.target.value;
-                setFreeBuildingName(name);
-                const exact = buildingOptions.find((building) => sameName(building.name, name));
-                if (exact) setSelectedBuilding(exact.id);
-              }}
-              placeholder="z. B. Hauptgebäude, Werkstatt, Lagerhalle oder Büro"
-            />
-          </label>
+            <label className="field flow-field">
+              <span><b>3</b> Gebäude</span>
+              <input
+                list="building-suggestions"
+                value={freeBuildingName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setFreeBuildingName(name);
+                  const exact = buildingOptions.find((building) => sameName(building.name, name));
+                  if (exact) setSelectedBuilding(exact.id);
+                }}
+                placeholder="z. B. Hauptgebäude, Werkstatt, Lagerhalle oder Büro"
+              />
+            </label>
 
-          <label className="field">
-            <span>4. Raum</span>
-            <input
-              list="room-suggestions"
-              value={freeRoomName}
-              onChange={(event) => {
-                const name = event.target.value;
-                setFreeRoomName(name);
-                const exact = roomOptions.find((room) => sameName(room.name, name));
-                if (exact) {
-                  setSelectedRoom(exact.id);
-                  setSelectedBuilding(exact.building_id);
-                } else {
-                  setSelectedRoom("");
-                }
-              }}
-              placeholder="z. B. Reifenlager, Werkstattplatz 4 oder Serviceannahme"
-            />
-          </label>
+            <label className="field flow-field">
+              <span><b>4</b> Raum</span>
+              <input
+                list="room-suggestions"
+                value={freeRoomName}
+                onChange={(event) => {
+                  const name = event.target.value;
+                  setFreeRoomName(name);
+                  const exact = roomOptions.find((room) => sameName(room.name, name));
+                  if (exact) {
+                    setSelectedRoom(exact.id);
+                    setSelectedBuilding(exact.building_id);
+                  } else {
+                    setSelectedRoom("");
+                  }
+                }}
+                placeholder="z. B. Reifenlager, Werkstattplatz 4 oder Serviceannahme"
+              />
+            </label>
+          </div>
 
-          <button className="btn accent" onClick={startSession}>Session starten</button>
+          <div className="start-footer">
+            <button className="btn accent" onClick={startSession}>Session starten</button>
+            <span>Freie Eingaben werden beim Start automatisch als Vorschlag gespeichert.</span>
+          </div>
         </div>
-        <div className="grid">
+        <aside className="qr-panel">
+          <div className="session-preview">
+            <strong>Aktuelle Vorbereitung</strong>
+            <span>{selectedUserLabel}</span>
+            <span>{selectedLocationLabel}</span>
+            <span>{selectedBuildingLabel}</span>
+            <span>{selectedRoomLabel}</span>
+          </div>
           <div className="qr-box">
             {activeSession ? <QRCodeSVG value={joinUrl(activeSession.join_token)} size={220} /> : <strong>QR erscheint nach Session-Start</strong>}
           </div>
           {activeSession ? <a className="btn secondary" href={`/session/${activeSession.id}`}>Live-Prüfung öffnen</a> : null}
-        </div>
+        </aside>
       </section>
 
-      <section className="panel grid">
-        <div>
-          <h2>Einstellungen / Stammdaten</h2>
-          <p className="muted">Hier füllst du die Vorschlagslisten für den Start vor: Erfasser, Betriebe, Gebäude und Räume.</p>
+      <section className="panel setup-panel">
+        <div className="section-title">
+          <div>
+            <h2>Einstellungen</h2>
+            <p className="muted">Vorschlagslisten pflegen, damit der Start im Raum schnell bleibt.</p>
+          </div>
+          <span className="status finalisierbar">{(bootstrap?.users.length ?? 0) + (bootstrap?.rooms.length ?? 0)} Einträge</span>
         </div>
         <div className="grid grid-3">
           <label className="field">
