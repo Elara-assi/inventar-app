@@ -34,3 +34,4 @@ apps/api/storage/
 *.njsproj
 *.sln
 *.sw?
+.codex/
