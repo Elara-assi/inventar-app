@@ -501,6 +501,27 @@ textarea {
   gap: 8px;
 }
 
+.suggestion-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f4f7f8;
+  padding: 14px;
+}
+
+.suggestion-note div {
+  display: grid;
+  gap: 3px;
+}
+
+.suggestion-note span {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .room-row {
   display: grid;
   border: 1px solid var(--line);

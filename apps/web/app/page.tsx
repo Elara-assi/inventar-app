@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [newRoomName, setNewRoomName] = useState("");
   const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -496,8 +497,19 @@ export default function DashboardPage() {
         </div>
         <button className="btn accent room-action" onClick={createRoom}>Raum anlegen</button>
 
-        <div className="room-list">
-          {bootstrap?.rooms.map((room) => {
+        <div className="suggestion-note">
+          <div>
+            <strong>{bootstrap?.rooms.length ?? 0} Raumvorschläge hinterlegt</strong>
+            <span>Räume aus alter Aufnahme oder Stammdaten werden nur als Vorschläge beim Start verwendet.</span>
+          </div>
+          <button className="btn secondary compact-btn" onClick={() => setShowRoomSuggestions((current) => !current)}>
+            {showRoomSuggestions ? "Vorschläge ausblenden" : "Vorschläge bearbeiten"}
+          </button>
+        </div>
+
+        {showRoomSuggestions ? (
+          <div className="room-list">
+            {bootstrap?.rooms.map((room) => {
             const building = bootstrap.buildings.find((entry) => entry.id === room.building_id);
             const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
             const draft = roomDrafts[room.id] ?? { name: room.name, building_id: room.building_id, code: room.code ?? "" };
@@ -542,8 +554,9 @@ export default function DashboardPage() {
                 ) : null}
               </div>
             );
-          })}
-        </div>
+            })}
+          </div>
+        ) : null}
       </section>
 
       <section className="grid">
