@@ -700,6 +700,26 @@ textarea {
   padding: 0 10px;
 }
 
+.rework-action {
+  display: grid;
+  gap: 6px;
+}
+
+.rework-action select {
+  min-height: 40px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  padding: 8px 10px;
+}
+
+.final-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
 .evidence-row,
 .item-row-notes {
   display: flex;

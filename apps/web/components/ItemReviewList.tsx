@@ -83,6 +83,12 @@ const reviewStatusLabels: Record<string, string> = {
   abweichung: "Abweichung",
 };
 
+const reworkOptions = [
+  { role: "Erfasser", label: "Erfasser: Foto/Nachweis", missingField: "Foto/Nachweis" },
+  { role: "Technik", label: "Technik: UVV/Wartung/Prüfbuch", missingField: "UVV/Wartung/Prüfbuch" },
+  { role: "Buchhaltung", label: "Buchhaltung: Anlagenummer/Buchwert", missingField: "Anlagenummer/Buchwert" },
+] as const;
+
 export function ItemReviewList({
   items,
   objectClasses,
@@ -156,6 +162,7 @@ function ItemReviewRow({
     review_status: item.review_status ?? "erfasst",
   });
   const [message, setMessage] = useState("");
+  const [selectedRework, setSelectedRework] = useState<(typeof reworkOptions)[number]["label"]>(reworkOptions[0].label);
 
   useEffect(() => {
     setDraft({
@@ -199,6 +206,11 @@ function ItemReviewRow({
     });
     setMessage(`Nacharbeit ${role}`);
     onChanged();
+  }
+
+  async function requestSelectedRework() {
+    const option = reworkOptions.find((entry) => entry.label === selectedRework) ?? reworkOptions[0];
+    await requestRework(option.role, option.missingField);
   }
 
   async function finalize() {
@@ -285,7 +297,7 @@ function ItemReviewRow({
             </select>
           </label>
           <label>
-            <span>Prüfstatus</span>
+            <span>Bearbeitung</span>
             <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
               {reviewStatuses.map((entry) => (
                 <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
@@ -312,11 +324,18 @@ function ItemReviewRow({
 
       <div className="row-actions">
         <button className="btn accent" onClick={save}>Speichern</button>
-        <button className="btn secondary" onClick={() => requestRework("Erfasser", "Foto/Nachweis")}>Erfasser</button>
-        <button className="btn secondary" onClick={() => requestRework("Technik", "UVV/Wartung/Prüfbuch")}>Technik</button>
-        <button className="btn secondary" onClick={() => requestRework("Buchhaltung", "Anlagenummer/Buchwert")}>Buchhaltung</button>
-        <button className="btn" onClick={finalize}>Finalisieren</button>
-        <button className="btn danger" onClick={removeItem}>Löschen</button>
+        <div className="rework-action">
+          <select value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
+            {reworkOptions.map((option) => (
+              <option key={option.label} value={option.label}>{option.label}</option>
+            ))}
+          </select>
+          <button className="btn secondary" onClick={requestSelectedRework}>Nacharbeit</button>
+        </div>
+        <div className="final-actions">
+          <button className="btn" onClick={finalize}>Finalisieren</button>
+          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
+        </div>
       </div>
     </div>
   );
