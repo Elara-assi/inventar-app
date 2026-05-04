@@ -8,7 +8,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+      - ./db/migrations/002_export_scope.sql:/docker-entrypoint-initdb.d/002_export_scope.sql:ro
+      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/003_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U inventar -d inventar"]
       interval: 5s

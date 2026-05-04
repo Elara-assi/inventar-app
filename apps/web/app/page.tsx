@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Bootstrap, api, joinUrl } from "@/lib/api";
+import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -279,6 +279,28 @@ export default function DashboardPage() {
     }
   }
 
+  async function exportAll() {
+    try {
+      setError("");
+      const result = await api<{ id: string }>("/exports/excel", { method: "POST", body: "{}" });
+      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      setMessage("Gesamtaufstellung als Excel erstellt");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gesamtaufstellung konnte nicht exportiert werden");
+    }
+  }
+
+  async function exportSession(session: Session) {
+    try {
+      setError("");
+      const result = await api<{ id: string }>(`/sessions/${session.id}/export/excel`, { method: "POST", body: "{}" });
+      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      setMessage("Raumaufnahme als Excel erstellt");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Raumaufnahme konnte nicht exportiert werden");
+    }
+  }
+
   function startRoomEdit(roomId: string) {
     const room = bootstrap?.rooms.find((entry) => entry.id === roomId);
     if (!room) return;
@@ -528,6 +550,7 @@ export default function DashboardPage() {
         <div>
           <h2>Raum-Sessions</h2>
           <p className="muted">Gestartete Räume bleiben sichtbar, bis sie abgeschlossen oder bereinigt werden.</p>
+          <button className="btn accent compact-btn" onClick={exportAll}>Gesamtaufstellung Excel</button>
         </div>
         <div className="grid grid-3">
           {sessions.map((session) => (

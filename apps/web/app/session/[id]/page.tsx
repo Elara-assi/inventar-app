@@ -50,7 +50,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
   async function exportExcel() {
     const result = await api<{ id: string }>(`/sessions/${sessionId}/export/excel`, { method: "POST", body: "{}" });
-    setMessage(`Export bereit: ${API_BASE}/exports/${result.id}/download`);
+    window.location.href = `${API_BASE}/exports/${result.id}/download`;
+    setMessage("Raumaufnahme als Excel erstellt");
   }
 
   async function closeRoom() {

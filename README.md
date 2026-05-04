@@ -49,7 +49,7 @@ Phase 1:
 - Buchhaltungs-Vorprofil.
 - Korrektur, Statuswechsel, Finalisierung mit Sperre.
 - Raumabschluss mit Blocker-PrÃ¼fung.
-- Excel-Export.
+- Excel-Export je Gegenstand, je Raumaufnahme und als Gesamtaufstellung.
 - Audit-Log fÃ¼r Kernaktionen.
 
 Nicht gebaut:
@@ -192,6 +192,8 @@ Die Weboberflaeche verwendet aktuell noch keinen echten Token-Schutz. Die API st
 - `POST /items/{id}/finalize`
 - `POST /sessions/{id}/close`
 - `POST /sessions/{id}/export/excel`
+- `POST /items/{id}/export/excel`
+- `POST /exports/excel`
 - `GET /sessions/{id}/events`
 
 ## Checks

@@ -11,6 +11,8 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 
 from .db import execute, fetch_all, fetch_one
@@ -917,6 +919,180 @@ def excel_value(value: Any) -> Any:
     return value
 
 
+def filename_part(value: str | None, fallback: str) -> str:
+    raw = (value or fallback).strip().lower()
+    cleaned = "".join(ch if ch.isalnum() else "-" for ch in raw)
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-") or fallback
+
+
+EXPORT_COLUMNS = [
+    ("Betrieb", "location_name"),
+    ("Gebäude", "building_name"),
+    ("Raum", "room_name"),
+    ("Session-Status", "session_status"),
+    ("Session-Start", "session_created_at"),
+    ("Inventar-ID", "inventory_id"),
+    ("Temporäre ID", "temporary_id"),
+    ("Objektart", "object_type"),
+    ("Objektklasse", "object_class_name"),
+    ("Kategorie", "category"),
+    ("Marke", "brand"),
+    ("Modell", "model"),
+    ("Seriennummer", "serial_number"),
+    ("Zustand", "condition"),
+    ("Bemerkung", "condition_note"),
+    ("Schätzwert", "value_estimate"),
+    ("Altersquelle", "age_source"),
+    ("Altersprüfung", "age_verification_status"),
+    ("Geschätztes Alter", "estimated_age_years"),
+    ("Herstellungsdatum", "manufacturing_date"),
+    ("Anschaffungsdatum", "acquisition_date"),
+    ("Inbetriebnahme", "commissioning_date"),
+    ("Kostenstelle", "cost_center"),
+    ("Kaufmännische Kategorie", "commercial_category"),
+    ("Buchhaltungsrelevanz", "accounting_relevance"),
+    ("Buchhaltungsstatus", "accounting_status"),
+    ("Buchhaltung prüfen", "requires_accounting_review"),
+    ("Status", "status"),
+    ("Bearbeitung", "review_status"),
+    ("Lebenszyklus", "lifecycle_status"),
+    ("KI-Konfidenz", "confidence_score"),
+    ("Objektfoto", "has_object_photo"),
+    ("Typenschildfoto", "has_nameplate_photo"),
+    ("DOT-Foto", "has_dot_photo"),
+    ("Weitere Fotos", "photo_count"),
+    ("Sprachnotizen", "audio_count"),
+    ("Offene Nacharbeiten", "open_task_count"),
+    ("Nacharbeit Rollen", "open_task_roles"),
+    ("Nacharbeit Felder", "open_task_fields"),
+    ("Erfasst von", "created_by_name"),
+    ("Geprüft von", "reviewed_by_name"),
+    ("Finalisiert von", "finalized_by_name"),
+    ("Erfasst am", "created_at"),
+    ("Aktualisiert am", "updated_at"),
+    ("Finalisiert am", "finalized_at"),
+]
+
+
+def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    return fetch_all(
+        f"""
+        SELECT i.*, oc.name AS object_class_name,
+          s.status AS session_status, s.created_at AS session_created_at,
+          l.name AS location_name, b.name AS building_name, r.name AS room_name,
+          creator.display_name AS created_by_name,
+          reviewer.display_name AS reviewed_by_name,
+          finalizer.display_name AS finalized_by_name,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
+          (SELECT count(*)::int FROM item_photos p WHERE p.item_id = i.id) AS photo_count,
+          (SELECT count(*)::int FROM item_audio_notes a WHERE a.item_id = i.id) AS audio_count,
+          (SELECT count(*)::int FROM accounting_tasks t WHERE t.item_id = i.id AND t.status = 'open') AS open_task_count,
+          (
+            SELECT string_agg(DISTINCT t.assigned_role, ', ' ORDER BY t.assigned_role)
+            FROM accounting_tasks t
+            WHERE t.item_id = i.id AND t.status = 'open'
+          ) AS open_task_roles,
+          (
+            SELECT string_agg(t.missing_field, ', ' ORDER BY t.created_at)
+            FROM accounting_tasks t
+            WHERE t.item_id = i.id AND t.status = 'open'
+          ) AS open_task_fields
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        JOIN locations l ON l.id = i.location_id
+        JOIN buildings b ON b.id = i.building_id
+        JOIN rooms r ON r.id = i.room_id
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        LEFT JOIN users creator ON creator.id = i.created_by
+        LEFT JOIN users reviewer ON reviewer.id = i.reviewed_by
+        LEFT JOIN users finalizer ON finalizer.id = i.finalized_by
+        {where_sql}
+        ORDER BY l.name, b.name, r.name, i.created_at DESC
+        """,
+        params,
+    )
+
+
+def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[str, Any]) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Inventur"
+    ws.append([header for header, _ in EXPORT_COLUMNS])
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="20343D")
+
+    for row in rows:
+        ws.append([excel_value(row.get(key)) for _, key in EXPORT_COLUMNS])
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for index, (header, key) in enumerate(EXPORT_COLUMNS, start=1):
+        max_length = len(header)
+        for row in rows[:200]:
+            max_length = max(max_length, len(str(row.get(key) or "")))
+        ws.column_dimensions[get_column_letter(index)].width = min(max(max_length + 2, 12), 42)
+
+    summary_ws = wb.create_sheet("Übersicht", 0)
+    summary_ws.append(["Export", title])
+    summary_ws.append(["Erzeugt am", excel_value(datetime.now())])
+    for key, value in summary.items():
+        summary_ws.append([key, excel_value(value)])
+    summary_ws["A1"].font = Font(bold=True)
+    summary_ws["B1"].font = Font(bold=True)
+    summary_ws.column_dimensions["A"].width = 24
+    summary_ws.column_dimensions["B"].width = 42
+
+    task_ws = wb.create_sheet("Nacharbeiten")
+    task_ws.append(["Inventar-ID", "Objektart", "Rolle", "Feld / Thema", "Status", "Betrieb", "Gebäude", "Raum"])
+    for row in rows:
+        if not row.get("open_task_count"):
+            continue
+        task_ws.append([
+            row.get("inventory_id"),
+            row.get("object_type"),
+            row.get("open_task_roles"),
+            row.get("open_task_fields"),
+            row.get("review_status"),
+            row.get("location_name"),
+            row.get("building_name"),
+            row.get("room_name"),
+        ])
+    task_ws.freeze_panes = "A2"
+    task_ws.auto_filter.ref = task_ws.dimensions
+    for index in range(1, 9):
+        task_ws.column_dimensions[get_column_letter(index)].width = 24
+
+    return wb
+
+
+def save_export(
+    *,
+    title: str,
+    rows: list[dict[str, Any]],
+    filename: str,
+    session_id: str | None,
+    entity_type: str,
+    entity_id: str | None,
+    export_type: str,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    ensure_upload_dirs()
+    path = Path(settings.upload_root, "exports", filename)
+    wb = build_excel_workbook(title, rows, summary)
+    wb.save(path)
+    export = execute(
+        "INSERT INTO exports (session_id, export_type, file_path) VALUES (%s, %s, %s) RETURNING *",
+        (session_id, export_type, str(path)),
+    )
+    audit("export_created", entity_type, entity_id, {"export": export, "rows": len(rows), "title": title})
+    return export
+
+
 @app.get("/items/{item_id}/ai-results")
 def ai_results(item_id: str) -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM ai_results WHERE item_id = %s ORDER BY created_at DESC", (item_id,))
@@ -1019,6 +1195,24 @@ def patch_item_accounting(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/sessions/{session_id}/export/excel")
 def export_excel(session_id: str) -> dict[str, Any]:
+    session = get_session(session_id)
+    rows = export_query("WHERE i.session_id = %s", (session_id,))
+    return save_export(
+        title=f"Raumaufnahme {session.get('room_name') or session_id}",
+        rows=rows,
+        filename=f"raumaufnahme-{filename_part(session.get('room_name'), 'raum')}-{session_id[:8]}.xlsx",
+        session_id=session_id,
+        entity_type="inventory_session",
+        entity_id=session_id,
+        export_type="session_excel",
+        summary={
+            "Betrieb": session.get("location_name"),
+            "Gebäude": session.get("building_name"),
+            "Raum": session.get("room_name"),
+            "Objekte": len(rows),
+            "Offene Nacharbeiten": sum(int(row.get("open_task_count") or 0) for row in rows),
+        },
+    )
     ensure_upload_dirs()
     rows = session_items(session_id)
     wb = Workbook()
@@ -1056,6 +1250,56 @@ def export_excel(session_id: str) -> dict[str, Any]:
     )
     audit("export_created", "inventory_session", session_id, export)
     return export
+
+
+@app.post("/items/{item_id}/export/excel")
+def export_item_excel(item_id: str) -> dict[str, Any]:
+    item = get_item(item_id)
+    rows = export_query("WHERE i.id = %s", (item_id,))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Gegenstand nicht gefunden")
+    row = rows[0]
+    label = row.get("inventory_id") or row.get("temporary_id") or item_id
+    return save_export(
+        title=f"Aufnahme {label}",
+        rows=rows,
+        filename=f"aufnahme-{filename_part(str(label), 'gegenstand')}.xlsx",
+        session_id=str(item["session_id"]),
+        entity_type="inventory_item",
+        entity_id=item_id,
+        export_type="item_excel",
+        summary={
+            "Inventar-ID": row.get("inventory_id"),
+            "Objektart": row.get("object_type"),
+            "Betrieb": row.get("location_name"),
+            "Raum": row.get("room_name"),
+            "Offene Nacharbeiten": row.get("open_task_count"),
+        },
+    )
+
+
+@app.post("/exports/excel")
+def export_all_excel() -> dict[str, Any]:
+    rows = export_query()
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    locations = len({row.get("location_name") for row in rows if row.get("location_name")})
+    rooms = len({(row.get("location_name"), row.get("building_name"), row.get("room_name")) for row in rows})
+    return save_export(
+        title="Gesamtaufstellung Inventur",
+        rows=rows,
+        filename=f"gesamtaufstellung-inventur-{timestamp}.xlsx",
+        session_id=None,
+        entity_type="inventory_export",
+        entity_id=None,
+        export_type="all_excel",
+        summary={
+            "Betriebe": locations,
+            "Räume": rooms,
+            "Objekte": len(rows),
+            "Offene Nacharbeiten": sum(int(row.get("open_task_count") or 0) for row in rows),
+            "Finalisiert": sum(1 for row in rows if row.get("review_status") == "finalisiert" or row.get("status") == "finalisiert"),
+        },
+    )
 
 
 @app.get("/exports/{export_id}/download")

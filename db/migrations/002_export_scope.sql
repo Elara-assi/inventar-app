@@ -1,0 +1,2 @@
+ALTER TABLE exports
+  ALTER COLUMN session_id DROP NOT NULL;

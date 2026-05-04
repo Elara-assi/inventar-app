@@ -223,6 +223,16 @@ function ItemReviewRow({
     }
   }
 
+  async function exportItem() {
+    try {
+      const result = await api<{ id: string }>(`/items/${item.id}/export/excel`, { method: "POST", body: "{}" });
+      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      setMessage("Excel erstellt");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Export fehlgeschlagen");
+    }
+  }
+
   async function removeItem() {
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
@@ -333,6 +343,7 @@ function ItemReviewRow({
           <button className="btn secondary" onClick={requestSelectedRework}>Nacharbeit</button>
         </div>
         <div className="final-actions">
+          <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
           <button className="btn" onClick={finalize}>Finalisieren</button>
           <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
         </div>

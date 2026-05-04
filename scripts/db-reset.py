@@ -26,7 +26,8 @@ def main() -> None:
             cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
             cur.execute("CREATE SCHEMA public")
             cur.execute("GRANT ALL ON SCHEMA public TO public")
-        run_sql(conn, ROOT / "db" / "migrations" / "001_init.sql")
+        for migration in sorted((ROOT / "db" / "migrations").glob("*.sql")):
+            run_sql(conn, migration)
         run_sql(conn, ROOT / "db" / "seeds" / "001_seed.sql")
 
     print("Database reset complete: migrations and seeds applied.")
