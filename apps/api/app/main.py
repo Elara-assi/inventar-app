@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
@@ -393,7 +393,7 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         room_id = str(room["id"])
 
     if not room_id:
-        raise HTTPException(status_code=400, detail="Raum auswÃ¤hlen oder freien Raum eingeben")
+        raise HTTPException(status_code=400, detail="Raum auswählen oder freien Raum eingeben")
 
     room = fetch_one(
         """
@@ -683,7 +683,7 @@ def finalize_item(item_id: str) -> dict[str, Any]:
 @app.post("/items/{item_id}/request-rework")
 def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
     require_item_session_open(item_id)
-    assigned_role = body.get("assigned_role", "PrÃ¼fer")
+    assigned_role = body.get("assigned_role", "Prüfer")
     row = execute(
         """
         INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)
@@ -767,10 +767,8 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
     return row
 
 
-@app.post("/items/{item_id}/ai/run")
-def run_ai(item_id: str) -> dict[str, Any]:
-    require_item_session_open(item_id)
-    execute("UPDATE inventory_items SET status = 'ki_laeuft' WHERE id = %s RETURNING id", (item_id,))
+def process_ai_item(item_id: str) -> None:
+    execute("UPDATE inventory_items SET status = 'ki_laeuft', updated_at = now() WHERE id = %s RETURNING id", (item_id,))
     suggestion = build_ai_suggestion(item_id)
     model_used = suggestion.pop("_model_used", "phase1-stub")
     row = execute(
@@ -793,7 +791,15 @@ def run_ai(item_id: str) -> dict[str, Any]:
         (suggestion["commercial_category"], suggestion["requires_accounting_review"], item_id),
     )
     audit("ai_result_created", "inventory_item", item_id, suggestion)
-    return row
+
+
+@app.post("/items/{item_id}/ai/run")
+def run_ai(item_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    require_item_session_open(item_id)
+    execute("UPDATE inventory_items SET status = 'ki_wartet', updated_at = now() WHERE id = %s RETURNING id", (item_id,))
+    background_tasks.add_task(process_ai_item, item_id)
+    audit("ai_job_queued", "inventory_item", item_id, {"status": "ki_wartet"})
+    return {"item_id": item_id, "status": "ki_wartet", "message": "KI-Auswertung läuft im Hintergrund"}
 
 
 def json_string(value: Any) -> str:
@@ -918,7 +924,7 @@ def export_excel(session_id: str) -> dict[str, Any]:
     headers = [
         "Inventar-ID", "temporäre ID", "Objektart", "Objektklasse", "Kategorie", "Marke",
         "Modell", "Seriennummer", "Zustand", "Altersquelle", "geschätztes Alter",
-        "Herstellungsdatum", "Anschaffungsdatum", "Betrieb", "GebÃ¤ude", "Raum",
+        "Herstellungsdatum", "Anschaffungsdatum", "Betrieb", "Gebäude", "Raum",
         "Verantwortlicher", "Kostenstelle", "kaufmännische Kategorie",
         "Buchhaltungsstatus", "Buchhaltung prüfen", "Status", "Prüfstatus",
         "KI-Konfidenz", "Foto vorhanden", "Typenschildfoto vorhanden", "DOT-Foto vorhanden",

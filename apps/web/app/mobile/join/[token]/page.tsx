@@ -20,15 +20,9 @@ type Item = {
   temporary_id: string;
 };
 
-type AiResult = {
-  model_used: string;
-  result_json: {
-    object_type?: string;
-    object_class?: string;
-    brand?: string;
-    condition?: string;
-    recommended_status?: string;
-  };
+type AiJob = {
+  status: string;
+  message: string;
 };
 
 type PhotoType = "object" | "dot" | "nameplate" | "condition";
@@ -126,12 +120,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   async function runAi(item: Item) {
-    setMessage("KI-Auswertung läuft...");
-    const result = await api<AiResult>(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
-    const suggestion = result.result_json;
-    const title = [suggestion.object_type, suggestion.brand].filter(Boolean).join(" / ");
-    const status = suggestion.recommended_status?.replaceAll("_", " ") ?? "prüfen";
-    setAiSummary(`${title || "Objekt erkannt"} - ${suggestion.object_class || "Objektklasse offen"} - ${status}`);
+    setMessage("KI-Auswertung wird gestartet...");
+    const job = await api<AiJob>(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
+    setAiSummary(job.message || "KI läuft im Hintergrund");
   }
 
   async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {

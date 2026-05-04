@@ -91,7 +91,7 @@ export function ItemReviewCard({
     onChanged();
   }
 
-  async function requestRework(role: "Buchhaltung" | "Erfasser" | "PrÃ¼fer", missingField: string) {
+  async function requestRework(role: "Buchhaltung" | "Erfasser" | "Prüfer", missingField: string) {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
