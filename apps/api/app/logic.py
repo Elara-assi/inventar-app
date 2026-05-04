@@ -4,6 +4,8 @@ import base64
 import json
 import re
 from datetime import date
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -88,6 +90,64 @@ WORKSHOP_REFERENCE_CATALOG: list[dict[str, Any]] = [
 ]
 
 
+@lru_cache(maxsize=1)
+def load_special_tool_references() -> list[dict[str, Any]]:
+    path = Path(__file__).parent / "knowledge" / "special_tools_reference.json"
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig") as handle:
+        payload = json.load(handle)
+    records = payload.get("records", [])
+    return records if isinstance(records, list) else []
+
+
+def tokenize_reference_text(value: str) -> set[str]:
+    stopwords = {"vas", "vag", "ase", "und", "oder", "and", "or", "mit", "für", "the", "set"}
+    tokens = re.findall(r"[a-zA-ZÄÖÜäöüß0-9/.-]{3,}", value.lower())
+    return {token.strip(".-/") for token in tokens if token.strip(".-/") and token.strip(".-/") not in stopwords}
+
+
+def select_special_tool_references(transcripts: list[str], object_class_name: str | None, limit: int = 25) -> list[dict[str, Any]]:
+    query = " ".join([object_class_name or "", *transcripts]).lower()
+    query_tokens = tokenize_reference_text(query)
+    if not query_tokens:
+        query_tokens = tokenize_reference_text(object_class_name or "")
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for record in load_special_tool_references():
+        has_designation = bool(record.get("designation_de") or record.get("designation_en"))
+        order_no = str(record.get("order_no") or "")
+        vag_no = str(record.get("vag_no") or "")
+        has_identifier = bool(order_no and len(order_no) > 2 and len(order_no) <= 40 and re.search(r"\d", order_no)) or bool(
+            vag_no and len(vag_no) <= 40 and re.search(r"\d", vag_no)
+        )
+        if not has_designation and not has_identifier:
+            continue
+        haystack = " ".join(
+            str(record.get(key) or "")
+            for key in ["designation_de", "designation_en", "order_no", "vag_no", "category_hint"]
+        )
+        record_tokens = tokenize_reference_text(haystack)
+        score = len(query_tokens & record_tokens)
+        if vag_no and len(vag_no) <= 40 and re.search(r"\d", vag_no) and vag_no.lower() in query:
+            score += 8
+        if order_no and len(order_no) <= 40 and re.search(r"\d", order_no) and order_no.lower() in query:
+            score += 8
+        if score > 0:
+            scored.append((score, record))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [
+        {
+            "designation_de": record.get("designation_de"),
+            "designation_en": record.get("designation_en"),
+            "order_no": record.get("order_no"),
+            "vag_no": record.get("vag_no"),
+            "category_hint": record.get("category_hint"),
+            "source_file": record.get("source_file"),
+        }
+        for _, record in scored[:limit]
+    ]
+
+
 def build_ai_suggestion(item_id: str) -> dict[str, Any]:
     fallback = build_stub_suggestion(item_id)
     try:
@@ -109,7 +169,8 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         (item_id,),
     )
     notes = fetch_all("SELECT transcript FROM item_audio_notes WHERE item_id = %s", (item_id,))
-    text = " ".join([str(n.get("transcript") or "") for n in notes]).lower()
+    transcripts = [str(n.get("transcript") or "") for n in notes if n.get("transcript")]
+    text = " ".join(transcripts).lower()
     object_type = (item or {}).get("object_type") or "Unbekanntes Objekt"
     object_class = (item or {}).get("object_class_slug") or "monitor"
     object_class_name = (item or {}).get("object_class_name") or "Monitor"
@@ -239,6 +300,22 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         result["brand"] = "Dell"
         result["object_type"] = "Monitor"
 
+    special_matches = select_special_tool_references(transcripts, object_class_name, limit=1)
+    if special_matches and text:
+        match = special_matches[0]
+        result.update(
+            {
+                "object_type": match.get("designation_de") or result["object_type"],
+                "category": match.get("category_hint"),
+                "model": match.get("vag_no") or result.get("model"),
+                "commercial_category": "werkstattausstattung",
+                "requires_accounting_review": True,
+                "recommended_status": "pruefen",
+                "confidence": max(float(result.get("confidence") or 0), 0.7),
+                "notes": f"Referenztreffer aus Spezialwerkzeug-Wissensbasis: {match.get('source_file')}",
+            }
+        )
+
     oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
     if oc:
         execute(
@@ -292,6 +369,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     )
     transcripts = [str(note.get("transcript") or "") for note in notes if note.get("transcript")]
     photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
+    special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
     images = []
     for photo in photos:
         path = photo.get("original_path")
@@ -312,8 +390,11 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "photo_types": photo_types,
         "transcripts": transcripts,
         "reference_catalog": WORKSHOP_REFERENCE_CATALOG,
+        "special_tool_matches": special_tool_matches,
         "classification_rules": [
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
+            "Nutze special_tool_matches für exakte VAS-/V.A.G-/ASE-Nummern, Spezialwerkzeugnamen und bekannte Werkzeugbezeichnungen.",
+            "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
             "Reifenmontiermaschine: Montageteller, Montagearm, Abdrückschaufel und Pedale sprechen klar für Reifenmontiermaschine.",
             "Hebebühne: Säulen, Scherenhub, Tragarme, Plattform und Traglastschild sprechen klar für Hebebühne.",

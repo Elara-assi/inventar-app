@@ -16,8 +16,9 @@ Folgeaufgaben sollen zuerst diese Dateien lesen:
 - [docs/MASTER_ARCHITECTURE.md](docs/MASTER_ARCHITECTURE.md): Zielarchitektur und Systembild.
 - [docs/PHASES.md](docs/PHASES.md): Phasenlogik und Scope-Grenzen.
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md): Tabellen, Statuswerte und Seed-Struktur.
-- [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md): UI-Regeln fÃ¼r mobile Erfassung und PrÃ¼fung.
+- [docs/UI_GUIDELINES.md](docs/UI_GUIDELINES.md): UI-Regeln für mobile Erfassung und Prüfung.
 - [docs/ROOM_TEST_V01.md](docs/ROOM_TEST_V01.md): Raumtest und Akzeptanzkriterien.
+- [docs/SPECIAL_TOOL_KNOWLEDGE.md](docs/SPECIAL_TOOL_KNOWLEDGE.md): Spezialwerkzeug-Wissensbasis aus alten Inventar-/Werkzeuglisten.
 
 ## Umgesetzter Scope
 
@@ -65,7 +66,7 @@ Diese Themen sind durch Tabellen, Worker und Service-Struktur vorbereitet.
 ## Annahmen
 
 - Es gab im Repo keine `AGENTS.md` und keinen `/docs`-Ordner. Die Anforderungen aus dem Chat sind daher fuehrend.
-- Backend wurde mit FastAPI umgesetzt, weil es fÃ¼r den MVP schneller und gut testbar ist.
+- Backend wurde mit FastAPI umgesetzt, weil es für den MVP schneller und gut testbar ist.
 - Die Phase-1-KI ist ein deterministischer Stub. Er speichert bereits das geforderte JSON-Format und ist so vorbereitet, dass LiteLLM im Worker angebunden wird.
 - Mobile Foto-/Audioaufnahme ist im UI als Prozess angelegt. Die Upload-Endpunkte existieren; echte Kamera-/Mikrofonintegration und Retry-Queue gehoeren zur Haertung.
 - Der Excel-Export nutzt `openpyxl`.
