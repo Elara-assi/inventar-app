@@ -569,7 +569,7 @@ textarea {
 }
 
 .item-main-fields {
-  grid-template-columns: minmax(160px, 1.3fr) minmax(110px, 0.8fr) minmax(130px, 1fr) minmax(130px, 1fr);
+  grid-template-columns: minmax(150px, 1.2fr) minmax(105px, 0.8fr) minmax(120px, 0.9fr) minmax(125px, 0.9fr) minmax(110px, 0.7fr);
 }
 
 .item-review-selects {

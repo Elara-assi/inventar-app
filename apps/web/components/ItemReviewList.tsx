@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -43,6 +43,7 @@ export type ReviewItem = {
   model?: string;
   serial_number?: string;
   condition?: string;
+  value_estimate?: number | string | null;
   status?: string;
   review_status?: string;
   has_object_photo?: boolean;
@@ -68,6 +69,19 @@ const reviewStatuses = [
   "finalisiert",
   "abweichung",
 ];
+
+const reviewStatusLabels: Record<string, string> = {
+  erfasst: "Erfasst",
+  ki_vorgefuellt: "KI vorgefüllt",
+  nacharbeit_erfasser: "Noch zu ergänzen: Erfasser",
+  nacharbeit_pruefer: "Noch zu ergänzen: Prüfer",
+  nacharbeit_buchhaltung: "Noch zu ergänzen: Buchhaltung",
+  nacharbeit_technik: "Noch zu ergänzen: Technik",
+  finalisierbar: "Finalisierbar",
+  geprueft: "Geprüft",
+  finalisiert: "Finalisiert",
+  abweichung: "Abweichung",
+};
 
 export function ItemReviewList({
   items,
@@ -136,6 +150,7 @@ function ItemReviewRow({
     brand: item.brand ?? "",
     model: item.model ?? "",
     serial_number: item.serial_number ?? "",
+    value_estimate: item.value_estimate?.toString() ?? "",
     object_class_id: item.object_class_id ?? "",
     condition: item.condition ?? "gebraucht",
     review_status: item.review_status ?? "erfasst",
@@ -148,6 +163,7 @@ function ItemReviewRow({
       brand: item.brand ?? "",
       model: item.model ?? "",
       serial_number: item.serial_number ?? "",
+      value_estimate: item.value_estimate?.toString() ?? "",
       object_class_id: item.object_class_id ?? "",
       condition: item.condition ?? "gebraucht",
       review_status: item.review_status ?? "erfasst",
@@ -162,6 +178,7 @@ function ItemReviewRow({
         brand: draft.brand || null,
         model: draft.model || null,
         serial_number: draft.serial_number || null,
+        value_estimate: draft.value_estimate ? Number(draft.value_estimate) : null,
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
         review_status: draft.review_status,
@@ -241,6 +258,12 @@ function ItemReviewRow({
           <input value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
           <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
           <input value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
+          <input
+            value={draft.value_estimate}
+            onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
+            inputMode="decimal"
+            placeholder="Schätzwert €"
+          />
         </div>
 
         <div className="item-review-selects">
@@ -257,7 +280,7 @@ function ItemReviewRow({
             <span>Zustand</span>
             <select value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
               {conditions.map((entry) => (
-                <option key={entry} value={entry}>{entry}</option>
+                <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
               ))}
             </select>
           </label>
@@ -265,7 +288,7 @@ function ItemReviewRow({
             <span>Prüfstatus</span>
             <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
               {reviewStatuses.map((entry) => (
-                <option key={entry} value={entry}>{entry}</option>
+                <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
               ))}
             </select>
           </label>
@@ -298,3 +321,4 @@ function ItemReviewRow({
     </div>
   );
 }
+

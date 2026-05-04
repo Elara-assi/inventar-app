@@ -92,6 +92,7 @@ class ItemPatch(BaseModel):
     serial_number: str | None = None
     condition: str | None = None
     condition_note: str | None = None
+    value_estimate: float | None = None
     status: str | None = None
     review_status: str | None = None
     commercial_category: str | None = None
