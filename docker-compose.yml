@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: inventar
+      POSTGRES_USER: inventar
+      POSTGRES_PASSWORD: inventar
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventar -d inventar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
+      UPLOAD_ROOT: /opt/inventar/uploads
+      APP_ORIGIN: http://localhost:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api/app:/app/app
+      - ./storage/uploads:/opt/inventar/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app/apps/web
+    depends_on:
+      - api
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment:
+      DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
+      UPLOAD_ROOT: /opt/inventar/uploads
+      REDIS_URL: redis://redis:6379/0
+      LITELLM_URL: http://litellm:4000
+    volumes:
+      - ./apps/api/app:/app/app
+      - ./storage/uploads:/opt/inventar/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    profiles: ["ai"]
+    environment:
+      LITELLM_MASTER_KEY: change-me-local
+    ports:
+      - "4000:4000"
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    profiles: ["ops"]
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+
+volumes:
+  postgres-data:
+  uptime-kuma-data:
