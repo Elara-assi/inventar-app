@@ -1,7 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Bootstrap, api } from "@/lib/api";
+import { API_BASE, Bootstrap, api } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
 type Task = {
@@ -26,6 +27,7 @@ export type ReviewItem = {
   has_object_photo?: boolean;
   has_nameplate_photo?: boolean;
   has_dot_photo?: boolean;
+  object_photo_id?: string;
   blockers?: string[];
   open_tasks?: Task[];
 };
@@ -62,20 +64,45 @@ export function ItemReviewList({
   }
 
   return (
-    <div className="item-list">
-      <div className="item-list-head">
-        <span>ID</span>
-        <span>Objekt</span>
-        <span>Details</span>
-        <span>Klasse</span>
-        <span>Zustand</span>
-        <span>Status</span>
-        <span>Aktion</span>
-      </div>
-      {items.map((item) => (
-        <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} />
-      ))}
-    </div>
+    <PhotoPreviewProvider>
+      {(openPhoto) => (
+        <div className="item-list">
+          <div className="item-list-head">
+            <span>Foto</span>
+            <span>ID</span>
+            <span>Objekt</span>
+            <span>Details</span>
+            <span>Klasse</span>
+            <span>Zustand</span>
+            <span>Status</span>
+            <span>Aktion</span>
+          </div>
+          {items.map((item) => (
+            <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} />
+          ))}
+        </div>
+      )}
+    </PhotoPreviewProvider>
+  );
+}
+
+function PhotoPreviewProvider({ children }: { children: (openPhoto: (url: string, label: string) => void) => ReactNode }) {
+  const [photo, setPhoto] = useState<{ url: string; label: string } | null>(null);
+  return (
+    <>
+      {children((url, label) => setPhoto({ url, label }))}
+      {photo ? (
+        <div className="photo-modal" role="dialog" aria-modal="true" onClick={() => setPhoto(null)}>
+          <div className="photo-modal-content" onClick={(event) => event.stopPropagation()}>
+            <div className="photo-modal-head">
+              <strong>{photo.label}</strong>
+              <button className="btn secondary compact-btn" onClick={() => setPhoto(null)}>Schließen</button>
+            </div>
+            <img src={photo.url} alt={photo.label} />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -83,10 +110,12 @@ function ItemReviewRow({
   item,
   objectClasses,
   onChanged,
+  onOpenPhoto,
 }: {
   item: ReviewItem;
   objectClasses: Bootstrap["object_classes"];
   onChanged: () => void;
+  onOpenPhoto: (url: string, label: string) => void;
 }) {
   const [draft, setDraft] = useState({
     object_type: item.object_type ?? "",
@@ -166,9 +195,21 @@ function ItemReviewRow({
 
   const blockers = item.blockers ?? [];
   const tasks = item.open_tasks ?? [];
+  const photoUrl = item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
+  const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
 
   return (
     <div className="item-row">
+      <button
+        className={`photo-thumb ${photoUrl ? "" : "is-empty"}`}
+        type="button"
+        onClick={() => photoUrl && onOpenPhoto(photoUrl, photoLabel)}
+        disabled={!photoUrl}
+        title={photoUrl ? "Foto groß öffnen" : "Kein Objektfoto vorhanden"}
+      >
+        {photoUrl ? <img src={photoUrl} alt={photoLabel} /> : <span>Kein Foto</span>}
+      </button>
+
       <div className="item-id">
         <strong>{item.inventory_id || item.temporary_id}</strong>
         <StatusBadge value={item.review_status} />

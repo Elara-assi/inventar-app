@@ -94,6 +94,14 @@ def ensure_upload_dirs() -> None:
         Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
 
 
+def safe_upload_path(value: str) -> Path:
+    root = Path(settings.upload_root).resolve()
+    path = Path(value).resolve()
+    if root not in path.parents and path != root:
+        raise HTTPException(status_code=403, detail="Uploadpfad nicht erlaubt")
+    return path
+
+
 def require_item_session_open(item_id: str) -> dict[str, Any]:
     row = fetch_one(
         """
@@ -533,7 +541,14 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
         SELECT i.*, oc.name AS object_class_name,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
+          (
+            SELECT p.id
+            FROM item_photos p
+            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            ORDER BY p.uploaded_at DESC
+            LIMIT 1
+          ) AS object_photo_id
         FROM inventory_items i
         LEFT JOIN object_classes oc ON oc.id = i.object_class_id
         WHERE i.session_id = %s
@@ -891,6 +906,17 @@ def download_export(export_id: str) -> FileResponse:
     if not row or not os.path.exists(row["file_path"]):
         raise HTTPException(status_code=404, detail="Export not found")
     return FileResponse(row["file_path"], filename=Path(row["file_path"]).name)
+
+
+@app.get("/uploads/photos/{photo_id}")
+def download_photo(photo_id: str) -> FileResponse:
+    row = fetch_one("SELECT * FROM item_photos WHERE id = %s", (photo_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Foto nicht gefunden")
+    path = safe_upload_path(row.get("stamped_path") or row["original_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Fotodatei nicht gefunden")
+    return FileResponse(path)
 
 
 @app.get("/items/{item_id}/audit-log")

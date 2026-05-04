@@ -396,7 +396,7 @@ textarea {
 .item-list-head,
 .item-row {
   display: grid;
-  grid-template-columns: minmax(145px, 1fr) minmax(130px, 1fr) minmax(230px, 1.6fr) minmax(145px, 1fr) minmax(130px, 0.8fr) minmax(170px, 1fr) minmax(220px, 1.2fr);
+  grid-template-columns: 88px minmax(145px, 1fr) minmax(130px, 1fr) minmax(230px, 1.6fr) minmax(145px, 1fr) minmax(130px, 0.8fr) minmax(170px, 1fr) minmax(220px, 1.2fr);
   gap: 8px;
   align-items: start;
 }
@@ -414,6 +414,68 @@ textarea {
   border-radius: 8px;
   background: #f8fafc;
   padding: 10px;
+}
+
+.photo-thumb {
+  width: 88px;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  cursor: zoom-in;
+  overflow: hidden;
+  padding: 0;
+}
+
+.photo-thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.photo-thumb.is-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  cursor: default;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px;
+}
+
+.photo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 20px;
+}
+
+.photo-modal-content {
+  width: min(800px, 100%);
+  display: grid;
+  gap: 10px;
+  border-radius: 8px;
+  background: white;
+  padding: 12px;
+}
+
+.photo-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.photo-modal-content img {
+  width: 100%;
+  max-height: min(800px, 80vh);
+  object-fit: contain;
+  border-radius: 8px;
+  background: #0f172a;
 }
 
 .item-row input,
@@ -530,6 +592,11 @@ textarea {
 
   .item-row {
     grid-template-columns: 1fr;
+  }
+
+  .photo-thumb {
+    width: 100%;
+    max-width: 220px;
   }
 
   .detail-fields,
