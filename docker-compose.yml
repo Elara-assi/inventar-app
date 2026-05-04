@@ -23,7 +23,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
+      DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
       APP_ORIGIN: http://localhost:3000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
@@ -61,9 +61,9 @@ services:
       dockerfile: apps/api/Dockerfile
     command: ["python", "-m", "app.worker"]
     environment:
-      DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
+      DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://inventar-app-redis-1:6379/0
       LITELLM_URL: http://litellm:4000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma3:27b-it-qat
