@@ -6,9 +6,12 @@ RUN npm install
 
 FROM node:24-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=development
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY apps/web ./apps/web
+RUN npm --workspace apps/web run build
 EXPOSE 3000
-CMD ["npm", "--workspace", "apps/web", "run", "dev"]
+CMD ["npm", "--workspace", "apps/web", "run", "start"]

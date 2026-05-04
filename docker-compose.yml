@@ -41,12 +41,12 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
     environment:
       NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
     ports:
       - "3002:3000"
-    volumes:
-      - ./apps/web:/app/apps/web
     depends_on:
       - api
 
