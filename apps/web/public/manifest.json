@@ -1,0 +1,9 @@
+{
+  "name": "Inventar Maschine",
+  "short_name": "Inventar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f7",
+  "theme_color": "#26343c",
+  "icons": []
+}
