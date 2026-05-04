@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     demo_user_email: str = "pruefer@example.local"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:31b-cloud"
-    ollama_timeout_seconds: float = 45.0
+    ollama_timeout_seconds: float = 120.0
 
 
 settings = Settings()

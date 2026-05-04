@@ -44,7 +44,7 @@ def build_ai_suggestion(item_id: str) -> dict[str, Any]:
     try:
         return build_ollama_suggestion(item_id, fallback)
     except Exception as exc:
-        fallback["notes"] = f"{fallback.get('notes')} Ollama nicht erreichbar, Stub genutzt: {type(exc).__name__}"
+        fallback["notes"] = f"{fallback.get('notes')} Ollama-Auswertung fehlgeschlagen, Stub genutzt: {type(exc).__name__}: {str(exc)[:180]}"
         fallback["_model_used"] = "phase1-stub"
         return fallback
 
@@ -240,12 +240,29 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         response = client.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload)
         response.raise_for_status()
     content = response.json().get("message", {}).get("content", "{}")
-    parsed = json.loads(content)
+    parsed = parse_ollama_json(content)
     result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
     result["_model_used"] = settings.ollama_model
     result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
     apply_suggestion_to_item(item_id, result, item.get("object_class_slug") or "monitor")
     return result
+
+
+def parse_ollama_json(content: str) -> dict[str, Any]:
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            raise
+        value = json.loads(match.group(0))
+    if not isinstance(value, dict):
+        raise ValueError("Ollama response JSON is not an object")
+    return value
 
 
 def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug: str) -> None:

@@ -28,6 +28,7 @@ services:
       APP_ORIGIN: http://localhost:3000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma4:31b-cloud
+      OLLAMA_TIMEOUT_SECONDS: 120
     ports:
       - "8000:8000"
     volumes:
@@ -67,6 +68,7 @@ services:
       LITELLM_URL: http://litellm:4000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma4:31b-cloud
+      OLLAMA_TIMEOUT_SECONDS: 120
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads
