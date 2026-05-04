@@ -1,10 +1,14 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = path.resolve(configDir, "../..");
 
 const nextConfig: NextConfig = {
   output: "standalone",
   turbopack: {
-    root: path.join(process.cwd(), "../.."),
+    root: workspaceRoot,
   },
   experimental: {
     serverActions: {
