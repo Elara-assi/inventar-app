@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { Bootstrap, api } from "@/lib/api";
 
 type Joined = {
@@ -19,6 +20,15 @@ type Item = {
   temporary_id: string;
 };
 
+type PhotoType = "object" | "dot" | "nameplate" | "condition";
+
+const photoLabels: Record<PhotoType, string> = {
+  object: "Objektfoto",
+  dot: "DOT-Foto",
+  nameplate: "Typenschildfoto",
+  condition: "Zustandsfoto",
+};
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
@@ -26,10 +36,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [objectClassId, setObjectClassId] = useState("");
   const [transcript, setTranscript] = useState("");
   const [activeItem, setActiveItem] = useState<Item | null>(null);
-  const [objectPhoto, setObjectPhoto] = useState<File | null>(null);
-  const [dotPhoto, setDotPhoto] = useState<File | null>(null);
-  const [nameplatePhoto, setNameplatePhoto] = useState<File | null>(null);
+  const [photos, setPhotos] = useState<Partial<Record<PhotoType, File>>>({});
   const [message, setMessage] = useState("Bereit");
+
+  const objectPhotoInputRef = useRef<HTMLInputElement>(null);
+  const nameplatePhotoInputRef = useRef<HTMLInputElement>(null);
+  const dotPhotoInputRef = useRef<HTMLInputElement>(null);
+  const conditionPhotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
@@ -39,7 +52,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     api<Bootstrap>("/meta/bootstrap").then((boot) => {
       setBootstrap(boot);
       setObjectClassId(boot.object_classes.find((entry) => entry.slug === "monitor")?.id ?? boot.object_classes[0]?.id ?? "");
-    });
+    }).catch((err) => setMessage(err instanceof Error ? err.message : "Stammdaten nicht erreichbar"));
   }, []);
 
   useEffect(() => {
@@ -70,24 +83,46 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return item;
   }
 
-  function fallbackFile(name: string, content: string) {
-    return new File([content], name, { type: "text/plain" });
+  function inputFor(type: PhotoType) {
+    return {
+      object: objectPhotoInputRef,
+      dot: dotPhotoInputRef,
+      nameplate: nameplatePhotoInputRef,
+      condition: conditionPhotoInputRef,
+    }[type].current;
   }
 
-  async function uploadPhoto(itemId: string, photoType: "object" | "dot" | "nameplate" | "condition", file: File | null) {
+  function openCamera(type: PhotoType) {
+    const input = inputFor(type);
+    if (!input) {
+      setMessage("Kamera-Eingabe nicht bereit");
+      return;
+    }
+    input.value = "";
+    input.click();
+  }
+
+  async function uploadPhoto(itemId: string, photoType: PhotoType, file: File) {
     const form = new FormData();
-    form.append("file", file ?? fallbackFile(`${photoType}.txt`, `Raumtest ${photoType} ${new Date().toISOString()}`));
+    form.append("file", file);
     await api(`/items/${itemId}/photos?photo_type=${photoType}`, {
       method: "POST",
       body: form,
     });
   }
 
-  async function captureObjectPhoto() {
+  async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setMessage("Kein Foto ausgewählt");
+      return;
+    }
+    setPhotos((current) => ({ ...current, [type]: file }));
+    setMessage(`${photoLabels[type]} wird hochgeladen...`);
     try {
       const item = await ensureItem();
-      await uploadPhoto(item.id, "object", objectPhoto);
-      setMessage(`Objektfoto gespeichert: ${item.inventory_id}`);
+      await uploadPhoto(item.id, type, file);
+      setMessage(`${photoLabels[type]} gespeichert: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
     }
@@ -116,12 +151,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
   }
 
-  async function addEvidence(type: "nameplate" | "condition" | "dot") {
+  async function addEvidence(type: Exclude<PhotoType, "object">) {
+    const selected = photos[type];
+    if (!selected) {
+      openCamera(type);
+      return;
+    }
     try {
       const item = await ensureItem();
-      const selected = type === "dot" ? dotPhoto : type === "nameplate" ? nameplatePhoto : null;
       await uploadPhoto(item.id, type, selected);
-      setMessage(`${type === "dot" ? "DOT-Foto" : type === "nameplate" ? "Typenschildfoto" : "Zustandsfoto"} gespeichert`);
+      setMessage(`${photoLabels[type]} gespeichert: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
     }
@@ -130,9 +169,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   function resetItem() {
     setActiveItem(null);
     setTranscript("");
-    setObjectPhoto(null);
-    setDotPhoto(null);
-    setNameplatePhoto(null);
+    setPhotos({});
     setMessage("Bereit für nächstes Objekt");
   }
 
@@ -153,10 +190,38 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </select>
         </label>
 
-        <label className="field">
-          <span>Objektfoto</span>
-          <input type="file" accept="image/*" capture="environment" onChange={(event) => setObjectPhoto(event.target.files?.[0] ?? null)} />
-        </label>
+        <input
+          ref={objectPhotoInputRef}
+          className="visually-hidden-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(event) => handlePhotoSelected("object", event)}
+        />
+        <input
+          ref={nameplatePhotoInputRef}
+          className="visually-hidden-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(event) => handlePhotoSelected("nameplate", event)}
+        />
+        <input
+          ref={dotPhotoInputRef}
+          className="visually-hidden-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(event) => handlePhotoSelected("dot", event)}
+        />
+        <input
+          ref={conditionPhotoInputRef}
+          className="visually-hidden-file"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(event) => handlePhotoSelected("condition", event)}
+        />
 
         <label className="field">
           <span>Sprachnotiz für Raumtest</span>
@@ -169,20 +234,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </label>
 
         <div className="mobile-actions">
-          <button className="btn accent" onClick={captureObjectPhoto}>Foto</button>
+          <button className="btn accent" onClick={() => openCamera("object")}>Foto</button>
           <button className="btn" onClick={scanCode}>Code scannen</button>
           <button className="btn secondary" onClick={recordVoice}>Sprache aufnehmen</button>
-        </div>
-
-        <div className="quick-row">
-          <label className="field">
-            <span>Typenschild</span>
-            <input type="file" accept="image/*" capture="environment" onChange={(event) => setNameplatePhoto(event.target.files?.[0] ?? null)} />
-          </label>
-          <label className="field">
-            <span>DOT</span>
-            <input type="file" accept="image/*" capture="environment" onChange={(event) => setDotPhoto(event.target.files?.[0] ?? null)} />
-          </label>
         </div>
 
         <div className="quick-row">
@@ -193,7 +247,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
         <p className="status pruefen">{message}</p>
-        <button className="btn" onClick={resetItem}>Naechstes Objekt</button>
+        <button className="btn" onClick={resetItem}>Nächstes Objekt</button>
       </section>
     </main>
   );
