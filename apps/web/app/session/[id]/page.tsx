@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { ItemReviewCard } from "@/components/ItemReviewCard";
 import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
@@ -31,6 +32,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [message, setMessage] = useState("");
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
     params.then((value) => setSessionId(value.id));
@@ -54,6 +56,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     ]);
     setSession(sessionData);
     setItems(itemData);
+    setLastUpdated(new Date());
   }
 
   async function exportExcel() {
@@ -77,14 +80,21 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     <main className="page grid">
       <section className="panel grid grid-2">
         <div className="grid">
+          <Link className="btn secondary back-link" href="/">Zurück zum Dashboard</Link>
           <h1>{session?.room_name || "Live-Prüfung"}</h1>
           <p className="muted">{session?.location_name} / {session?.building_name}</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <span className="live-indicator">Live</span>
             <span className="status pruefen">{items.length} Objekte</span>
             <span className={blockerCount ? "status upload_fehler" : "status finalisierbar"}>{blockerCount} Blocker</span>
             <button className="btn accent" onClick={exportExcel}>Excel-Export</button>
             <button className="btn" onClick={closeRoom}>Raum abschließen</button>
           </div>
+          <p className="muted">
+            {items.length
+              ? `Liste aktualisiert sich automatisch. Zuletzt: ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
+              : "Noch keine Objekte. Sobald das Handy ein Objekt speichert, erscheint es hier automatisch."}
+          </p>
           {message ? <p className="status pruefen">{message}</p> : null}
         </div>
         <div className="qr-box">
@@ -93,6 +103,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       </section>
 
       <section className="grid grid-3">
+        {!items.length ? (
+          <div className="empty-state">
+            <strong>Warte auf mobile Erfassung</strong>
+            <span>QR-Code mit dem Handy öffnen, Foto aufnehmen und Sprachnotiz speichern.</span>
+          </div>
+        ) : null}
         {items.map((item) => (
           <ItemReviewCard
             item={item}

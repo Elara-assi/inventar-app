@@ -50,6 +50,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [photos, setPhotos] = useState<Partial<Record<PhotoType, File>>>({});
   const [message, setMessage] = useState("Bereit");
   const [aiSummary, setAiSummary] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const objectPhotoInputRef = useRef<HTMLInputElement>(null);
   const nameplatePhotoInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +106,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   function openCamera(type: PhotoType) {
+    if (busy) return;
     const input = inputFor(type);
     if (!input) {
       setMessage("Kamera-Eingabe nicht bereit");
@@ -140,6 +142,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
     setPhotos((current) => ({ ...current, [type]: file }));
     setMessage(`${photoLabels[type]} wird hochgeladen...`);
+    setBusy(true);
     try {
       const item = await ensureItem();
       await uploadPhoto(item.id, type, file);
@@ -147,10 +150,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function scanCode() {
+    if (busy) return;
     try {
       const item = await ensureItem();
       setMessage(`Code/ID bereit: ${item.inventory_id || item.temporary_id}`);
@@ -160,6 +166,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   async function recordVoice() {
+    if (busy) return;
+    setBusy(true);
     try {
       const item = await ensureItem();
       await api(`/items/${item.id}/audio?transcript=${encodeURIComponent(transcript || "Sprachnotiz ohne Text")}`, {
@@ -170,26 +178,33 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setMessage(`Sprachnotiz und KI-Vorschlag gespeichert: ${item.inventory_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sprache fehlgeschlagen");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function addEvidence(type: Exclude<PhotoType, "object">) {
+    if (busy) return;
     const selected = photos[type];
     if (!selected) {
       openCamera(type);
       return;
     }
     try {
+      setBusy(true);
       const item = await ensureItem();
       await uploadPhoto(item.id, type, selected);
       await runAi(item);
       setMessage(`${photoLabels[type]} gespeichert und ausgewertet: ${item.inventory_id || item.temporary_id}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
+    } finally {
+      setBusy(false);
     }
   }
 
   function resetItem() {
+    if (busy) return;
     setActiveItem(null);
     setTranscript("");
     setPhotos({});
@@ -203,6 +218,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         <div>
           <h1>{roomName}</h1>
           <p className="muted">Foto, Code, Sprache. Keine Buchhaltungsmaske.</p>
+        </div>
+
+        <div className={`capture-status ${busy ? "is-busy" : ""}`}>
+          <strong>{busy ? "Bitte warten" : aiSummary ? "KI-Vorschlag" : "Erfassung bereit"}</strong>
+          <span>{aiSummary || message}</span>
         </div>
 
         <label className="field">
@@ -258,25 +278,20 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </label>
 
         <div className="mobile-actions">
-          <button className="btn accent" onClick={() => openCamera("object")}>Foto</button>
-          <button className="btn" onClick={scanCode}>Code scannen</button>
-          <button className="btn secondary" onClick={recordVoice}>Sprache aufnehmen</button>
+          <button className="btn accent" disabled={busy} onClick={() => openCamera("object")}>{busy ? "Lädt..." : "Foto"}</button>
+          <button className="btn" disabled={busy} onClick={scanCode}>Code scannen</button>
+          <button className="btn secondary" disabled={busy} onClick={recordVoice}>Sprache aufnehmen</button>
         </div>
 
         <div className="quick-row">
-          <button className="btn secondary" onClick={() => addEvidence("nameplate")}>Typenschildfoto</button>
-          <button className="btn secondary" onClick={() => addEvidence("dot")}>DOT-Foto</button>
+          <button className="btn secondary" disabled={busy} onClick={() => addEvidence("nameplate")}>Typenschildfoto</button>
+          <button className="btn secondary" disabled={busy} onClick={() => addEvidence("dot")}>DOT-Foto</button>
         </div>
-        <button className="btn secondary" onClick={() => addEvidence("condition")}>Zustandsfoto</button>
+        <button className="btn secondary" disabled={busy} onClick={() => addEvidence("condition")}>Zustandsfoto</button>
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
-        {aiSummary ? (
-          <div className="status ki_vorgefuellt">
-            KI-Vorschlag: {aiSummary}
-          </div>
-        ) : null}
         <p className="status pruefen">{message}</p>
-        <button className="btn" onClick={resetItem}>Nächstes Objekt</button>
+        <button className="btn" disabled={busy} onClick={resetItem}>Nächstes Objekt</button>
       </section>
     </main>
   );
