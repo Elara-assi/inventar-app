@@ -240,7 +240,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         response = client.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload)
         response.raise_for_status()
     content = response.json().get("message", {}).get("content", "{}")
-    parsed = parse_ollama_json(content)
+    parsed = normalize_ollama_result(parse_ollama_json(content), fallback)
     result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
     result["_model_used"] = settings.ollama_model
     result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
@@ -263,6 +263,75 @@ def parse_ollama_json(content: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Ollama response JSON is not an object")
     return value
+
+
+def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    result = dict(parsed)
+    condition_values = {"neu", "sehr_gut", "gut", "gebraucht", "reparaturbeduerftig", "defekt", "aussondern"}
+    commercial_values = {
+        "anlagevermoegen",
+        "gwg_pruefen",
+        "betriebsmittel",
+        "ware",
+        "kundenware",
+        "verbrauchsmaterial",
+        "it_ausstattung",
+        "bueroausstattung",
+        "werkstattausstattung",
+        "nicht_relevant",
+        "ungeklaert",
+    }
+    status_values = {
+        "erfasst",
+        "ki_vorgefuellt",
+        "nacharbeit_erfasser",
+        "nacharbeit_pruefer",
+        "nacharbeit_buchhaltung",
+        "nacharbeit_technik",
+        "finalisierbar",
+        "finalisiert",
+        "abweichung",
+        "dublette",
+        "pruefen",
+    }
+    commercial_aliases = {
+        "it-equipment": "it_ausstattung",
+        "it equipment": "it_ausstattung",
+        "it-ausstattung": "it_ausstattung",
+        "anlagevermögen": "anlagevermoegen",
+        "fixed asset": "anlagevermoegen",
+        "customer goods": "kundenware",
+        "office equipment": "bueroausstattung",
+        "workshop equipment": "werkstattausstattung",
+    }
+    status_aliases = {
+        "incomplete": fallback.get("recommended_status") or "nacharbeit_pruefer",
+        "needs_review": "pruefen",
+        "review": "pruefen",
+        "missing_fields": fallback.get("recommended_status") or "nacharbeit_pruefer",
+    }
+
+    condition = str(result.get("condition") or "").lower()
+    if condition and condition not in condition_values:
+        result["condition"] = fallback.get("condition")
+
+    commercial = str(result.get("commercial_category") or "").lower().strip()
+    commercial = commercial_aliases.get(commercial, commercial)
+    result["commercial_category"] = commercial if commercial in commercial_values else fallback.get("commercial_category")
+
+    status = str(result.get("recommended_status") or "").lower().strip()
+    status = status_aliases.get(status, status)
+    result["recommended_status"] = status if status in status_values else fallback.get("recommended_status")
+
+    if fallback.get("requires_accounting_review") and result.get("commercial_category") in {
+        "anlagevermoegen",
+        "it_ausstattung",
+        "betriebsmittel",
+        "werkstattausstattung",
+        "gwg_pruefen",
+    }:
+        result["requires_accounting_review"] = True
+    return result
 
 
 def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug: str) -> None:
