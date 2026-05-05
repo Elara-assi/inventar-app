@@ -2044,6 +2044,71 @@ body {
   align-items: stretch;
 }
 
+.room-main-panel,
+.item-list,
+.item-row,
+.item-main {
+  min-width: 0;
+}
+
+.room-main-panel {
+  overflow: hidden;
+}
+
+.item-row {
+  overflow: hidden;
+}
+
+.item-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.item-title-line .status,
+.item-title-line .hint-badge {
+  max-width: 100%;
+}
+
+.item-main-fields,
+.item-review-selects {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.row-actions .btn,
+.row-actions select {
+  flex: 1 1 138px;
+  min-width: 0;
+}
+
+.row-actions .btn.accent {
+  flex-basis: 180px;
+}
+
+.row-actions .rework-action {
+  flex: 2 1 330px;
+  min-width: 260px;
+}
+
+.row-actions .icon-btn {
+  flex: 0 0 48px;
+}
+
+@media (max-width: 1320px) {
+  .room-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .pairing-panel {
+    position: static;
+  }
+}
+
 @media (max-width: 1180px) {
   .item-main-fields,
   .item-review-selects,
