@@ -345,24 +345,21 @@ function ItemReviewRow({
             {message ? <span className="status pruefen">{message}</span> : null}
           </div>
         ) : null}
-      </div>
-
-      <div className="row-actions">
-        <button className="btn accent" onClick={save}>Speichern</button>
-        <div className="final-actions">
+        <div className="row-actions">
+          <button className="btn accent" onClick={save}>Speichern</button>
           <button className="btn" onClick={finalize}>Finalisieren</button>
+          <div className="rework-action">
+            <select value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
+              {reworkOptions.map((option) => (
+                <option key={option.label} value={option.label}>{option.label}</option>
+              ))}
+            </select>
+            <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Nacharbeit setzen</button>
+          </div>
+          <button className="btn secondary compact-btn" onClick={runReviewAi}>Prüf-KI</button>
+          <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
           <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
         </div>
-        <div className="rework-action">
-          <select value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
-            {reworkOptions.map((option) => (
-              <option key={option.label} value={option.label}>{option.label}</option>
-            ))}
-          </select>
-          <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Noch zu ergänzen</button>
-        </div>
-        <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
-        <button className="btn secondary compact-btn" onClick={runReviewAi}>Prüf-KI</button>
       </div>
     </div>
   );
