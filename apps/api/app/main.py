@@ -122,6 +122,10 @@ class ItemPatch(BaseModel):
     accounting_status: str | None = None
 
 
+class LearningExampleIn(BaseModel):
+    notes: str | None = None
+
+
 def ensure_upload_dirs() -> None:
     for sub in ["originals", "stamped", "audio", "exports", "temp"]:
         Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
@@ -968,6 +972,73 @@ def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
         (body.get("status"), body.get("review_status"), item_id),
     )
     audit("status_changed", "inventory_item", item_id, body)
+    return row
+
+
+@app.post("/items/{item_id}/ai/learning-example")
+def save_learning_example(item_id: str, body: LearningExampleIn | None = None) -> dict[str, Any]:
+    require_item_session_open(item_id)
+    item = fetch_one(
+        """
+        SELECT i.*, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Gegenstand nicht gefunden")
+    ai_row = fetch_one(
+        """
+        SELECT result_json
+        FROM ai_results
+        WHERE item_id = %s AND ai_type <> 'deep_dive'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (item_id,),
+    )
+    photo_rows = fetch_all(
+        "SELECT id FROM item_photos WHERE item_id = %s ORDER BY uploaded_at DESC LIMIT 5",
+        (item_id,),
+    )
+    corrected = {
+        "object_type": item.get("object_type"),
+        "object_class": item.get("object_class_name"),
+        "brand": item.get("brand"),
+        "model": item.get("model"),
+        "serial_number_present": bool(item.get("serial_number")),
+        "condition": item.get("condition"),
+        "commercial_category": item.get("commercial_category"),
+    }
+    row = execute(
+        """
+        INSERT INTO ai_learning_examples (
+          item_id, session_id, object_class_id, object_class_name, object_type,
+          brand, model, serial_number, condition, corrected_json, ai_suggestion_json,
+          photo_ids, notes, approved
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,true)
+        RETURNING *
+        """,
+        (
+            item_id,
+            item.get("session_id"),
+            item.get("object_class_id"),
+            item.get("object_class_name"),
+            item.get("object_type"),
+            item.get("brand"),
+            item.get("model"),
+            item.get("serial_number"),
+            item.get("condition"),
+            json_string(corrected),
+            json_string(ai_row.get("result_json") if ai_row else {}),
+            [photo["id"] for photo in photo_rows],
+            (body.notes if body else None) or "Vom Prüfer als gutes Beispiel markiert",
+        ),
+    )
+    audit("ai_learning_example_created", "inventory_item", item_id, {"learning_example_id": str(row["id"]), **corrected})
     return row
 
 

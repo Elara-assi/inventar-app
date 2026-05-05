@@ -346,6 +346,18 @@ function ItemReviewRow({
     }
   }
 
+  async function saveLearningExample() {
+    try {
+      await api(`/items/${item.id}/ai/learning-example`, {
+        method: "POST",
+        body: JSON.stringify({ notes: "Menschlich korrigierter Raumtest-Datensatz" }),
+      });
+      setMessage("Als KI-Beispiel gespeichert");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "KI-Beispiel konnte nicht gespeichert werden");
+    }
+  }
+
   async function removeItem() {
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
@@ -559,6 +571,7 @@ function ItemReviewRow({
           </div>
           <button className="btn secondary compact-btn" onClick={runReviewAi}>KI Check</button>
           <button className="btn secondary compact-btn" onClick={runDeepDive}>KI Deep Dive</button>
+          <button className="btn secondary compact-btn" onClick={saveLearningExample}>Als Beispiel merken</button>
           <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
           <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
         </div>

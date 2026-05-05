@@ -241,6 +241,53 @@ def select_inventory_history_references(transcripts: list[str], object_class_nam
     ]
 
 
+def select_learning_examples(
+    transcripts: list[str],
+    object_class_name: str | None,
+    object_type: str | None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    query = " ".join([object_class_name or "", object_type or "", *transcripts]).lower()
+    query_tokens = tokenize_reference_text(query)
+    rows = fetch_all(
+        """
+        SELECT id, object_class_name, object_type, brand, model, serial_number, condition,
+               corrected_json, notes, created_at
+        FROM ai_learning_examples
+        WHERE approved = true
+        ORDER BY created_at DESC
+        LIMIT 200
+        """
+    )
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for row in rows:
+        haystack = " ".join(
+            str(row.get(key) or "")
+            for key in ["object_class_name", "object_type", "brand", "model", "serial_number", "notes"]
+        )
+        score = len(query_tokens & tokenize_reference_text(haystack))
+        if object_class_name and str(row.get("object_class_name") or "").lower() == object_class_name.lower():
+            score += 5
+        if object_type and str(row.get("object_type") or "").lower() == object_type.lower():
+            score += 4
+        if score > 0:
+            scored.append((score, row))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [
+        {
+            "object_class": row.get("object_class_name"),
+            "object_type": row.get("object_type"),
+            "brand": row.get("brand"),
+            "model": row.get("model"),
+            "serial_number_present": bool(row.get("serial_number")),
+            "condition": row.get("condition"),
+            "corrected_fields": row.get("corrected_json") or {},
+            "notes": row.get("notes"),
+        }
+        for _, row in scored[:limit]
+    ]
+
+
 def build_ai_suggestion(item_id: str) -> dict[str, Any]:
     fallback = build_stub_suggestion(item_id)
     try:
@@ -498,6 +545,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
     special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
     inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
+    learning_examples = select_learning_examples(transcripts, item.get("object_class_name"), item.get("object_type"), limit=8)
     images = []
     for photo in photos:
         path = photo.get("original_path")
@@ -520,8 +568,11 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "reference_catalog": WORKSHOP_REFERENCE_CATALOG,
         "special_tool_matches": special_tool_matches,
         "inventory_history_matches": inventory_history_matches,
+        "learning_examples": learning_examples,
         "classification_rules": [
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
+            "Nutze learning_examples als kuratierte Beispiele aus früheren menschlichen Korrekturen; sie sind wichtiger als eine allgemeine Vermutung.",
+            "Wenn learning_examples eine typische Verwechslung zeigen, korrigiere konservativ und setze requires_review=true.",
             "Verwechsle IT-Peripherie nicht mit Monitor: Computermaus, Maus, Mouse, Tastatur, Keyboard und Trackpad sind immer Eingabegerät.",
             "Laptop, Notebook, ThinkPad, EliteBook, ProBook und MacBook sind Notebook, nicht Monitor.",
             "Nur ein sichtbarer einzelner Bildschirm ohne Tastatur-Unterteil ist Monitor. Ein aufgeklappter Laptop ist Notebook.",
@@ -577,6 +628,8 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         result["special_tool_matches"] = special_tool_matches[:5]
     if inventory_history_matches:
         result["inventory_history_matches"] = inventory_history_matches[:5]
+    if learning_examples:
+        result["learning_examples"] = learning_examples[:5]
     result["_model_used"] = settings.ollama_model
     result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
     apply_suggestion_to_item(item_id, result, item.get("object_class_slug") or "monitor")
