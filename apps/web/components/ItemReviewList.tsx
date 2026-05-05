@@ -253,6 +253,8 @@ function ItemReviewRow({
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
   const photoUrl = item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
+  const itemName = draft.object_type || "Unbekanntes Objekt";
+  const itemMeta = [draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
 
   return (
     <div className="item-row">
@@ -268,7 +270,10 @@ function ItemReviewRow({
 
       <div className="item-main">
         <div className="item-title-line">
-          <strong>{item.inventory_id || item.temporary_id}</strong>
+          <div className="item-identity">
+            <strong>{itemName}</strong>
+            <span>{item.inventory_id || item.temporary_id} · {itemMeta}</span>
+          </div>
           <StatusBadge value={item.review_status} />
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>Foto</span>
           {item.has_nameplate_photo ? <span className="status geprueft">Typenschild</span> : null}
@@ -334,19 +339,19 @@ function ItemReviewRow({
 
       <div className="row-actions">
         <button className="btn accent" onClick={save}>Speichern</button>
+        <div className="final-actions">
+          <button className="btn" onClick={finalize}>Finalisieren</button>
+          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
+        </div>
         <div className="rework-action">
           <select value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
             {reworkOptions.map((option) => (
               <option key={option.label} value={option.label}>{option.label}</option>
             ))}
           </select>
-          <button className="btn secondary" onClick={requestSelectedRework}>Nacharbeit</button>
+          <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Noch zu ergänzen</button>
         </div>
-        <div className="final-actions">
-          <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
-          <button className="btn" onClick={finalize}>Finalisieren</button>
-          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
-        </div>
+        <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
       </div>
     </div>
   );

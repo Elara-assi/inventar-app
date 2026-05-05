@@ -71,21 +71,32 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   ).length;
   const aiRunningCount = items.filter((item) => item.status === "ki_wartet" || item.status === "ki_laeuft").length;
   const finalCount = items.filter((item) => item.review_status === "finalisiert" || item.status === "finalisiert").length;
+  const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
 
   return (
     <main className="page grid">
-      <section className="panel grid grid-2">
-        <div className="grid">
-          <Link className="btn secondary back-link" href="/">Zurück zum Dashboard</Link>
-          <h1>{session?.room_name || "Live-Prüfung"}</h1>
-          <p className="muted">{session?.location_name} / {session?.building_name}</p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <span className="live-indicator">Live</span>
-            <span className="status pruefen">{items.length} Objekte</span>
-            <span className={blockerCount ? "status upload_fehler" : "status finalisierbar"}>{blockerCount} Blocker</span>
-            <button className="btn accent" onClick={exportExcel}>Excel-Export</button>
-            <button className="btn" onClick={closeRoom}>Raum abschließen</button>
+      <section className="room-hero">
+        <div className="room-hero-main">
+          <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
+          <div>
+            <span className="eyebrow">{session?.location_name || "Betrieb"} · {session?.building_name || "Gebäude"}</span>
+            <h1>{session?.room_name || "Live-Prüfung"}</h1>
+            <p className="muted">
+              {items.length
+                ? `Automatische Aktualisierung · zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
+                : "Noch keine Objekte. Sobald das Handy speichert, füllt sich die Liste automatisch."}
+            </p>
           </div>
+        </div>
+        <div className="room-hero-actions">
+          <span className={session?.status === "closed" ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
+          <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
+          <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
+        </div>
+      </section>
+
+      <section className="room-workbench">
+        <div className="room-main-panel">
           <div className="room-process-grid">
             <ProcessCard label="Erfasst" value={items.length} tone="info" />
             <ProcessCard label="KI läuft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
@@ -94,28 +105,39 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             <ProcessCard label="Blocker" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
             <ProcessCard label="Finalisiert" value={finalCount} tone="ok" />
           </div>
-          <p className="muted">
-            {items.length
-              ? `Liste aktualisiert sich automatisch. Zuletzt: ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
-              : "Noch keine Objekte. Sobald das Handy ein Objekt speichert, erscheint es hier automatisch."}
-          </p>
           {message ? <p className="status pruefen">{message}</p> : null}
-        </div>
-        <div className="qr-box">
-          {session ? <QRCodeSVG value={joinUrl(session.join_token)} size={190} /> : null}
-        </div>
-      </section>
 
-      <section className="panel grid">
-        <div>
-          <h2>Gegenstände im Raum</h2>
-          <p className="muted">Liste direkt bearbeiten, speichern, Nacharbeit setzen oder finalisieren.</p>
+          <div className="inventory-list-head">
+            <div>
+              <span className="live-indicator">Live</span>
+              <strong>Gegenstände im Raum</strong>
+              <small>{items.length} sichtbar</small>
+            </div>
+            <p className="muted">Direkt bearbeiten, Nacharbeit setzen, exportieren oder finalisieren.</p>
+          </div>
+
+          <ItemReviewList
+            items={items}
+            objectClasses={bootstrap?.object_classes ?? []}
+            onChanged={load}
+          />
         </div>
-        <ItemReviewList
-          items={items}
-          objectClasses={bootstrap?.object_classes ?? []}
-          onChanged={load}
-        />
+
+        <aside className="pairing-panel">
+          <div>
+            <strong>Handy koppeln</strong>
+            <span>QR-Code scannen und sofort erfassen.</span>
+          </div>
+          <div className="qr-box pairing-qr">
+            {session ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : null}
+          </div>
+          <div className="pairing-meta">
+            <span>Token</span>
+            <strong>{session?.join_token || "-"}</strong>
+            <span>Raum</span>
+            <strong>{session?.room_name || "-"}</strong>
+          </div>
+        </aside>
       </section>
     </main>
   );

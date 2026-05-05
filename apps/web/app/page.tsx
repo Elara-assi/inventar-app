@@ -60,6 +60,7 @@ export default function DashboardPage() {
   const [roomDrafts, setRoomDrafts] = useState<Record<string, RoomDraft>>({});
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -446,6 +447,9 @@ export default function DashboardPage() {
 
           <div className="start-footer">
             <button className="btn accent primary-action" onClick={startSession}>+ Session starten</button>
+            <button className="btn secondary" onClick={() => setShowSettings((current) => !current)}>
+              {showSettings ? "Einstellungen ausblenden" : "Vorschläge verwalten"}
+            </button>
             <span>Freie Eingaben werden beim Start automatisch als Vorschlag gespeichert.</span>
           </div>
         </div>
@@ -464,7 +468,7 @@ export default function DashboardPage() {
         </aside>
       </section>
 
-      <section className="panel setup-panel">
+      {showSettings ? <section className="panel setup-panel">
         <div className="section-title">
           <div>
             <h2>Einstellungen</h2>
@@ -581,7 +585,7 @@ export default function DashboardPage() {
             })}
           </div>
         ) : null}
-      </section>
+      </section> : null}
 
       <section className="panel session-board">
         <div className="section-title">

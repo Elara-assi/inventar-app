@@ -205,17 +205,30 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   return (
-    <main className="page grid">
-      <section className="panel grid">
-        <div>
-          <h1>{roomName}</h1>
-          <p className="muted">Foto, Code, Sprache. Keine Buchhaltungsmaske.</p>
+    <main className="page grid mobile-capture-page">
+      <section className="mobile-capture-shell">
+        <div className="mobile-room-bar">
+          <div>
+            <strong>{roomName}</strong>
+            <span>Foto · Code · Sprache</span>
+          </div>
+          <span className="live-indicator">Live</span>
         </div>
 
         <div className={`capture-status ${busy ? "is-busy" : ""}`}>
           <strong>{busy ? "Bitte warten" : aiSummary ? "KI-Vorschlag" : "Erfassung bereit"}</strong>
           <span>{aiSummary || message}</span>
         </div>
+
+        <button
+          className={`mobile-photo-stage ${photos.object ? "has-photo" : ""}`}
+          type="button"
+          disabled={busy}
+          onClick={() => openCamera("object")}
+        >
+          <span>{photos.object ? "Objektfoto bereit" : "Objektfoto aufnehmen"}</span>
+          <small>{busy ? "Upload läuft" : "Foto steht im Mittelpunkt der Erfassung"}</small>
+        </button>
 
         <label className="field">
           <span>Objektklasse</span>
@@ -259,8 +272,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           onChange={(event) => handlePhotoSelected("condition", event)}
         />
 
-        <label className="field">
-          <span>Sprachnotiz für Raumtest</span>
+        <div className="mobile-actions">
+          <button className="btn" disabled={busy} onClick={scanCode}>Code scannen</button>
+          <button className="btn secondary" disabled={busy} onClick={recordVoice}>Sprache aufnehmen</button>
+        </div>
+
+        <label className="field mobile-voice-field">
+          <span>Sprachnotiz</span>
           <textarea
             value={transcript}
             rows={3}
@@ -269,25 +287,18 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           />
         </label>
 
-        <div className="mobile-actions">
-          <button className="btn accent" disabled={busy} onClick={() => openCamera("object")}>{busy ? "Lädt..." : "Foto"}</button>
-          <button className="btn" disabled={busy} onClick={scanCode}>Code scannen</button>
-          <button className="btn secondary" disabled={busy} onClick={recordVoice}>Sprache aufnehmen</button>
-        </div>
-
-        <div className="quick-row">
+        <div className="quick-row evidence-actions">
           <button className="btn secondary" disabled={busy} onClick={() => addEvidence("nameplate")}>Typenschildfoto</button>
           <button className="btn secondary" disabled={busy} onClick={() => addEvidence("dot")}>DOT-Foto</button>
+          <button className="btn secondary" disabled={busy} onClick={() => addEvidence("condition")}>Zustandsfoto</button>
         </div>
-        <button className="btn secondary" disabled={busy} onClick={() => addEvidence("condition")}>Zustandsfoto</button>
 
         {activeItem ? <p className="muted">Aktiv: {activeItem.inventory_id || activeItem.temporary_id}</p> : null}
         {activeItem ? (
           <div className="mobile-save-bar">
-            <button className="btn accent" disabled={busy} onClick={saveCurrentItem}>Objekt speichern</button>
+            <button className="btn accent" disabled={busy} onClick={saveCurrentItem}>Speichern · nächstes Objekt</button>
           </div>
         ) : null}
-        <p className="status pruefen">{message}</p>
         {joined ? (
           <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a>
         ) : null}
