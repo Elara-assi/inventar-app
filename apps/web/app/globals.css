@@ -2063,11 +2063,12 @@ body {
 
 .row-actions {
   display: grid;
-  grid-template-columns: minmax(150px, 0.9fr) minmax(140px, 0.8fr) minmax(290px, 1.6fr) minmax(110px, 0.65fr) minmax(90px, 0.55fr) 48px;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(140px, 0.8fr) minmax(290px, 1.6fr) minmax(110px, 0.65fr);
   gap: 8px;
   align-items: stretch;
   border-top: 1px solid #e5edf8;
   padding-top: 10px;
+  position: relative;
 }
 
 .row-actions .btn,
@@ -2075,13 +2076,20 @@ body {
   min-height: 42px;
 }
 
-.row-actions .icon-btn {
-  width: 48px;
-}
-
 .rework-action {
   grid-template-columns: minmax(150px, 1fr) minmax(128px, auto);
   align-items: stretch;
+}
+
+.more-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 8px;
 }
 
 .room-main-panel,
@@ -2135,8 +2143,12 @@ body {
   min-width: 260px;
 }
 
-.row-actions .icon-btn {
-  flex: 0 0 48px;
+.row-actions .more-actions {
+  flex: 1 0 100%;
+}
+
+.more-actions .btn {
+  min-height: 38px;
 }
 
 .evidence-add-panel {
@@ -2146,11 +2158,19 @@ body {
   padding-top: 10px;
 }
 
-.evidence-add-panel > strong {
+.evidence-add-panel > summary {
   color: #52657e;
   font-size: 12px;
+  font-weight: 900;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.evidence-add-panel > summary::-webkit-details-marker,
+.deep-dive-box > summary::-webkit-details-marker {
+  display: none;
 }
 
 .evidence-add-grid {
@@ -2253,12 +2273,9 @@ body {
   .item-main-fields,
   .item-review-selects,
   .evidence-add-grid,
-  .row-actions {
+  .row-actions,
+  .more-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .row-actions .icon-btn {
-    width: 100%;
   }
 }
 
@@ -2277,7 +2294,8 @@ body {
   .item-review-selects,
   .evidence-add-grid,
   .row-actions,
-  .rework-action {
+  .rework-action,
+  .more-actions {
     grid-template-columns: 1fr;
   }
 }
@@ -2351,9 +2369,13 @@ body {
   padding: 12px;
 }
 
-.deep-dive-box > div:first-child {
-  display: grid;
-  gap: 2px;
+.deep-dive-box > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
 }
 
 .deep-dive-box strong {

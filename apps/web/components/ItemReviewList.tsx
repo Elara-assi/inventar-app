@@ -247,6 +247,7 @@ function ItemReviewRow({
   const [selectedRework, setSelectedRework] = useState<(typeof reworkOptions)[number]["label"]>(reworkOptions[0].label);
   const [templateQuery, setTemplateQuery] = useState("");
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setDraft({
@@ -545,11 +546,16 @@ function ItemReviewRow({
           </div>
         ) : null}
         {deepDive ? (
-          <div className="deep-dive-box">
-            <div>
+          <details className="deep-dive-box">
+            <summary>
               <strong>KI-Schätzung</strong>
-              <span>Diese Werte sind automatisch recherchiert und müssen bei Bedarf fachlich bestätigt werden.</span>
-            </div>
+              <span>
+                {deepDive.estimated_age_years ? `${deepDive.estimated_age_years} Jahre` : "Alter offen"}
+                {" · "}
+                {deepDive.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen"}
+                {deepDive.web_search_performed ? " · Websuche" : ""}
+              </span>
+            </summary>
             <div className="deep-dive-grid">
               <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
@@ -572,10 +578,10 @@ function ItemReviewRow({
                 ))}
               </div>
             ) : null}
-          </div>
+          </details>
         ) : null}
-        <div className="evidence-add-panel">
-          <strong>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</strong>
+        <details className="evidence-add-panel">
+          <summary>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</summary>
           <div className="evidence-add-grid">
             {evidencePhotoTypes.map((entry) => (
               <label className={`btn secondary evidence-upload ${readOnly ? "is-disabled" : ""}`} key={entry.type}>
@@ -594,7 +600,7 @@ function ItemReviewRow({
               </label>
             ))}
           </div>
-        </div>
+        </details>
         <div className="row-actions">
           <button className="btn accent" onClick={save} disabled={readOnly}>Speichern</button>
           <button className="btn" onClick={finalize} disabled={readOnly}>Finalisieren</button>
@@ -606,11 +612,18 @@ function ItemReviewRow({
             </select>
             <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
           </div>
-          <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>KI Check</button>
-          <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
-          <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
-          <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
-          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen" disabled={readOnly}>×</button>
+          <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>
+            Mehr
+          </button>
+          {moreOpen ? (
+            <div className="more-actions">
+              <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
+              <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
+              <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
+              <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
+              <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
