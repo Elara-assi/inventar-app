@@ -835,6 +835,16 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
             "inventory_history_matches": (ai_result.get("inventory_history_matches") or [])[:3],
         }
         row["process_hints"] = build_process_hints(row, ai_result, row["open_tasks"])
+        row["photos"] = fetch_all(
+            """
+            SELECT id, photo_type, uploaded_at
+            FROM item_photos
+            WHERE item_id = %s
+            ORDER BY uploaded_at ASC
+            LIMIT 5
+            """,
+            (row["id"],),
+        )
     return rows
 
 
@@ -949,6 +959,9 @@ def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFile = File(...)) -> dict[str, Any]:
     ensure_upload_dirs()
     require_item_session_open(item_id)
+    photo_count = fetch_one("SELECT count(*)::int AS count FROM item_photos WHERE item_id = %s", (item_id,))
+    if photo_count and int(photo_count["count"]) >= 5:
+        raise HTTPException(status_code=409, detail="Maximal 5 Fotos pro Gegenstand möglich")
     data = await file.read()
     digest = hashlib.sha256(data).hexdigest()
     suffix = Path(file.filename or "upload.bin").suffix or ".bin"

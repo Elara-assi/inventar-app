@@ -32,6 +32,12 @@ type AiSummary = {
   inventory_history_matches?: ReferenceMatch[];
 };
 
+type ItemPhoto = {
+  id: string;
+  photo_type: string;
+  uploaded_at?: string;
+};
+
 export type ReviewItem = {
   id: string;
   inventory_id?: string;
@@ -50,6 +56,7 @@ export type ReviewItem = {
   has_nameplate_photo?: boolean;
   has_dot_photo?: boolean;
   object_photo_id?: string;
+  photos?: ItemPhoto[];
   blockers?: string[];
   open_tasks?: Task[];
   process_hints?: ProcessHint[];
@@ -333,6 +340,10 @@ function ItemReviewRow({
 
   async function uploadEvidencePhoto(photoType: string, file?: File) {
     if (!file) return;
+    if ((item.photos?.length ?? 0) >= 5) {
+      setMessage("Maximal 5 Fotos pro Gegenstand möglich");
+      return;
+    }
     try {
       setMessage("Foto wird hochgeladen");
       const prepared = await compressEvidencePhoto(file, photoType);
@@ -351,7 +362,9 @@ function ItemReviewRow({
   const hints = item.process_hints ?? [];
   const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
-  const photoUrl = item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
+  const itemPhotos = item.photos ?? [];
+  const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object") ?? itemPhotos[0];
+  const photoUrl = mainPhoto ? `${API_BASE}/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const itemMeta = [draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
@@ -375,10 +388,25 @@ function ItemReviewRow({
             <span>{item.inventory_id || item.temporary_id} · {itemMeta}</span>
           </div>
           <StatusBadge value={item.review_status} />
-          <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>Foto</span>
+          <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>{itemPhotos.length || (item.has_object_photo ? 1 : 0)}/5 Fotos</span>
           {item.has_nameplate_photo ? <span className="status geprueft">Typenschild</span> : null}
           {item.has_dot_photo ? <span className="status geprueft">DOT</span> : null}
         </div>
+
+        {itemPhotos.length ? (
+          <div className="photo-strip">
+            {itemPhotos.map((photo, index) => {
+              const label = `${photoLabel} · ${photo.photo_type}`;
+              const url = `${API_BASE}/uploads/photos/${photo.id}`;
+              return (
+                <button key={photo.id} type="button" onClick={() => onOpenPhoto(url, label)} title={label}>
+                  <img src={url} alt={label} />
+                  <span>{index + 1}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
 
         <div className="item-main-fields">
           <input value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
@@ -454,7 +482,7 @@ function ItemReviewRow({
           </div>
         ) : null}
         <div className="evidence-add-panel">
-          <strong>Fotos ergänzen</strong>
+          <strong>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</strong>
           <div className="evidence-add-grid">
             {evidencePhotoTypes.map((entry) => (
               <label className="btn secondary evidence-upload" key={entry.type}>

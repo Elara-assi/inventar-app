@@ -52,6 +52,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [transcript, setTranscript] = useState("");
   const [activeItem, setActiveItem] = useState<Item | null>(null);
   const [photos, setPhotos] = useState<Partial<Record<PhotoType, File>>>({});
+  const [photoCount, setPhotoCount] = useState(0);
   const [message, setMessage] = useState("Bereit");
   const [aiSummary, setAiSummary] = useState("");
   const [busy, setBusy] = useState(false);
@@ -177,6 +178,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   async function uploadPhoto(itemId: string, photoType: PhotoType, file: File) {
+    if (photoCount >= 5) throw new Error("Maximal 5 Fotos pro Gegenstand möglich");
     const form = new FormData();
     const prepared = await compressPhoto(file, photoType);
     form.append("file", prepared);
@@ -184,6 +186,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       method: "POST",
       body: form,
     });
+    setPhotoCount((value) => Math.min(5, value + 1));
     return prepared;
   }
 
@@ -270,6 +273,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setActiveItem(null);
     setTranscript("");
     setPhotos({});
+    setPhotoCount(0);
     setAiSummary("");
     setSelectedTemplate(null);
     setTemplateQuery("");
@@ -299,7 +303,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           onClick={() => openCamera("object")}
         >
           <span>{photos.object ? "Objektfoto bereit" : "Objektfoto aufnehmen"}</span>
-          <small>{busy ? "Upload läuft" : "Foto steht im Mittelpunkt der Erfassung"}</small>
+          <small>{busy ? "Upload läuft" : `${photoCount}/5 Fotos gespeichert`}</small>
         </button>
 
         <div className="template-picker">
