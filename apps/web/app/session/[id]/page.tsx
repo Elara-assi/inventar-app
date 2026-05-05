@@ -104,7 +104,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
 
   return (
-    <main className="page grid">
+    <main className="page grid premium-session-page">
       <section className="room-hero">
         <div className="room-hero-main">
           <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
