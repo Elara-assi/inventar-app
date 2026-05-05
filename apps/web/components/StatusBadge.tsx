@@ -12,7 +12,7 @@ export function StatusBadge({ value }: { value?: string | null }) {
     ki_vorgefuellt: "KI vorgefüllt",
     nacharbeit_erfasser: "Noch zu ergänzen",
     nacharbeit_pruefer: "Noch zu ergänzen",
-    nacharbeit_buchhaltung: "Noch zu ergänzen",
+    nacharbeit_buchhaltung: "Später auswerten",
     nacharbeit_technik: "Noch zu ergänzen",
     pruefen: "Noch zu ergänzen",
     finalisierbar: "Finalisierbar",

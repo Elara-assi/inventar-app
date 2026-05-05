@@ -91,7 +91,7 @@ export function ItemReviewCard({
     onChanged();
   }
 
-  async function requestRework(role: "Buchhaltung" | "Erfasser" | "Prüfer", missingField: string) {
+  async function requestRework(role: "Auswertung" | "Erfasser" | "Prüfer", missingField: string) {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -100,7 +100,7 @@ export function ItemReviewCard({
         comment: `${missingField} im Raumtest nacharbeiten`,
       }),
     });
-    setMessage(`Nacharbeit ${role} gesetzt`);
+    setMessage(role === "Auswertung" ? "Spätere Auswertung markiert" : `Nacharbeit ${role} gesetzt`);
     onChanged();
   }
 
@@ -170,7 +170,7 @@ export function ItemReviewCard({
 
         {blockers.length ? (
           <div className="grid">
-            <strong>Blocker</strong>
+            <strong>Vor Ort offen</strong>
             {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
           </div>
         ) : <span className="status finalisierbar">finalisierbar</span>}
@@ -179,13 +179,13 @@ export function ItemReviewCard({
           <div className="grid">
             <strong>Nacharbeit</strong>
             {tasks.map((task) => (
-              <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role}: {task.missing_field}</span>
+              <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role === "Buchhaltung" || task.assigned_role === "Auswertung" ? "Spätere Auswertung" : task.assigned_role}: {task.missing_field}</span>
             ))}
           </div>
         ) : null}
 
         <div className="quick-row">
-          <button className="btn secondary" onClick={() => requestRework("Buchhaltung", "Anlagenummer/Buchwert")}>Buchhaltung</button>
+          <button className="btn secondary" onClick={() => requestRework("Auswertung", "Wert/Zuordnung später klären")}>Später auswerten</button>
           <button className="btn secondary" onClick={() => requestRework("Erfasser", "Foto/Nachweis")}>Erfasser</button>
         </div>
         <div className="quick-row">

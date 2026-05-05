@@ -195,8 +195,8 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
         role = task.get("assigned_role")
         if role == "Technik":
             add("technical_rework", "Technik-Nacharbeit", "warn")
-        elif role == "Buchhaltung":
-            add("accounting_rework", "Buchhaltung", "info")
+        elif role in {"Buchhaltung", "Auswertung"}:
+            add("later_review", "Spätere Auswertung", "info")
         elif role == "Erfasser":
             add("capture_rework", "Erfasser-Nacharbeit", "warn")
 
@@ -705,7 +705,7 @@ def close_session(session_id: str) -> dict[str, Any]:
     blockers = {str(i["id"]): finalization_blockers(str(i["id"])) for i in items}
     open_blockers = {k: v for k, v in blockers.items() if v}
     if open_blockers:
-        raise HTTPException(status_code=409, detail={"message": "Offene blockierende Pflichtpunkte", "blockers": open_blockers})
+        raise HTTPException(status_code=409, detail={"message": "Offene Punkte für Raumabschluss", "blockers": open_blockers})
     row = execute(
         "UPDATE inventory_sessions SET status = 'closed', closed_at = now() WHERE id = %s RETURNING *",
         (session_id,),
@@ -925,6 +925,7 @@ def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
     )
     review_status = {
         "Buchhaltung": "nacharbeit_buchhaltung",
+        "Auswertung": "nacharbeit_buchhaltung",
         "Erfasser": "nacharbeit_erfasser",
         "Technik": "nacharbeit_technik",
     }.get(assigned_role, "nacharbeit_pruefer")

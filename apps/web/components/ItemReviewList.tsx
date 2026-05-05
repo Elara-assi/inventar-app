@@ -75,7 +75,7 @@ const reviewStatusLabels: Record<string, string> = {
   ki_vorgefuellt: "KI vorgefüllt",
   nacharbeit_erfasser: "Noch zu ergänzen: Erfasser",
   nacharbeit_pruefer: "Noch zu ergänzen: Prüfer",
-  nacharbeit_buchhaltung: "Noch zu ergänzen: Buchhaltung",
+  nacharbeit_buchhaltung: "Später auswerten",
   nacharbeit_technik: "Noch zu ergänzen: Technik",
   finalisierbar: "Finalisierbar",
   geprueft: "Geprüft",
@@ -86,8 +86,24 @@ const reviewStatusLabels: Record<string, string> = {
 const reworkOptions = [
   { role: "Erfasser", label: "Erfasser: Foto/Nachweis", missingField: "Foto/Nachweis" },
   { role: "Technik", label: "Technik: UVV/Wartung/Prüfbuch", missingField: "UVV/Wartung/Prüfbuch" },
-  { role: "Buchhaltung", label: "Buchhaltung: Anlagenummer/Buchwert", missingField: "Anlagenummer/Buchwert" },
+  { role: "Auswertung", label: "Spätere Auswertung: Wert/Zuordnung", missingField: "Wert/Zuordnung später klären" },
 ] as const;
+
+function displayTaskRole(role?: string) {
+  if (role === "Buchhaltung" || role === "Auswertung") return "Spätere Auswertung";
+  return role || "Hinweis";
+}
+
+function displayTaskField(field?: string) {
+  const value = field || "offen";
+  const replacements: Record<string, string> = {
+    Anschaffungsdatum: "Anschaffungsdatum später klären",
+    Buchwert: "Wert später klären",
+    Anlagenummer: "Zuordnung später klären",
+    "Anlagenummer/Buchwert": "Wert/Zuordnung später klären",
+  };
+  return replacements[value] ?? value.replace(/^Buchhaltung:\s*/i, "").replace(/^BUCHHALTUNG:\s*/i, "");
+}
 
 const evidencePhotoTypes = [
   { type: "object", label: "Objektfoto", hint: "Gesamtansicht" },
@@ -254,7 +270,7 @@ function ItemReviewRow({
     onChanged();
   }
 
-  async function requestRework(role: "Buchhaltung" | "Erfasser" | "Technik", missingField: string) {
+  async function requestRework(role: "Auswertung" | "Erfasser" | "Technik", missingField: string) {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -263,7 +279,7 @@ function ItemReviewRow({
         comment: `${missingField} im Raumtest nacharbeiten`,
       }),
     });
-    setMessage(`Nacharbeit ${role}`);
+    setMessage(role === "Auswertung" ? "Spätere Auswertung markiert" : `Nacharbeit ${role}`);
     onChanged();
   }
 
@@ -433,7 +449,7 @@ function ItemReviewRow({
               <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
             ) : null}
             {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
-            {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{task.assigned_role}: {task.missing_field}</span>)}
+            {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{displayTaskRole(task.assigned_role)}: {displayTaskField(task.missing_field)}</span>)}
             {message ? <span className="status pruefen">{message}</span> : null}
           </div>
         ) : null}

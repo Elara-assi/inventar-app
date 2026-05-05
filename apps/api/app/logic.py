@@ -80,7 +80,7 @@ def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[s
                 "commercial_category": "it_ausstattung",
                 "requires_accounting_review": True,
                 "missing_fields": ["Seriennummer", "Anschaffungsdatum", "Buchwert"],
-                "recommended_tasks": [{"role": "Buchhaltung", "task": "Anlagenummer, Anschaffungsdatum und Buchwert prüfen"}],
+                "recommended_tasks": [{"role": "Auswertung", "task": "Wert und Zuordnung später klären"}],
                 "recommended_status": "nacharbeit_buchhaltung",
                 "confidence": 0.76,
             },
@@ -288,7 +288,7 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
         "requires_accounting_review": True,
         "missing_fields": ["Seriennummer", "Anschaffungsdatum", "Buchwert"],
         "required_evidence_missing": [],
-        "recommended_tasks": [{"role": "Buchhaltung", "task": "Anlagenummer, Anschaffungsdatum und Buchwert prüfen"}],
+        "recommended_tasks": [{"role": "Auswertung", "task": "Wert und Zuordnung später klären"}],
         "confidence": 0.62,
         "requires_review": True,
         "recommended_status": "nacharbeit_buchhaltung",
@@ -741,7 +741,7 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
         if field == "DOT-Foto" and "dot" in photo_types:
             continue
         if field in ["Anschaffungsdatum", "Buchwert", "Anlagenummer"]:
-            role = "Buchhaltung"
+            role = "Auswertung"
         elif field in ["Profiltiefe", "DOT-Foto", "Typenschildfoto"]:
             role = "Erfasser"
         elif field in ["Wartung/UVV prüfen", "Defekt prüfen", "Prüfbuch fehlt"]:
@@ -758,7 +758,7 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
             )
             RETURNING id
             """,
-            (item_id, role, field, f"Nacharbeit aus KI/Pflichtfeldlogik: {field}", item_id, field),
+            (item_id, role, field, f"Hinweis aus KI-Auswertung: {field}", item_id, field),
         )
 
 

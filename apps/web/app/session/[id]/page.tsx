@@ -117,7 +117,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             <ProcessCard label="Prüf-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
             <ProcessCard label="Hinweise" value={hintCount} tone={hintCount ? "warn" : "ok"} />
             <ProcessCard label="Technik" value={technicalCount} tone={technicalCount ? "warn" : "ok"} />
-            <ProcessCard label="Blocker" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
+            <ProcessCard label="Vor Ort offen" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
             <ProcessCard label="Finalisiert" value={finalCount} tone="ok" />
           </div>
           {message ? <p className="status pruefen">{message}</p> : null}
