@@ -34,6 +34,13 @@ const photoLabels: Record<PhotoType, string> = {
   condition: "Zustandsfoto",
 };
 
+const photoMaxSide: Record<PhotoType, number> = {
+  object: 1280,
+  condition: 1280,
+  dot: 1600,
+  nameplate: 1600,
+};
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
@@ -110,19 +117,49 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     input.click();
   }
 
+  async function compressPhoto(file: File, photoType: PhotoType) {
+    if (!file.type.startsWith("image/")) return file;
+    const maxSide = photoMaxSide[photoType];
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      return file;
+    }
+    const scale = Math.min(maxSide / bitmap.width, maxSide / bitmap.height, 1);
+    if (scale >= 1 && file.size <= 1_400_000) return file;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.74);
+    });
+    if (!blob) return file;
+    const name = `${file.name.replace(/\.[^.]+$/, "") || photoType}.jpg`;
+    return new File([blob], name, { type: "image/jpeg", lastModified: Date.now() });
+  }
+
   async function uploadPhoto(itemId: string, photoType: PhotoType, file: File) {
     const form = new FormData();
-    form.append("file", file);
+    const prepared = await compressPhoto(file, photoType);
+    form.append("file", prepared);
     await api(`/items/${itemId}/photos?photo_type=${photoType}`, {
       method: "POST",
       body: form,
     });
+    return prepared;
   }
 
-  async function runAi(item: Item) {
-    setMessage("KI-Auswertung wird gestartet...");
-    const job = await api<AiJob>(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
-    setAiSummary(job.message || "KI läuft im Hintergrund");
+  function startAiInBackground(item: Item) {
+    setAiSummary("KI läuft im Hintergrund");
+    api<AiJob>(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" })
+      .then((job) => setAiSummary(job.message || "KI läuft im Hintergrund"))
+      .catch(() => setAiSummary("KI konnte nicht gestartet werden. Erfassung bleibt gespeichert."));
   }
 
   async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {
@@ -131,14 +168,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setMessage("Kein Foto ausgewählt");
       return;
     }
-    setPhotos((current) => ({ ...current, [type]: file }));
-    setMessage(`${photoLabels[type]} wird hochgeladen...`);
+    setMessage(`${photoLabels[type]} wird vorbereitet...`);
     setBusy(true);
     try {
       const item = await ensureItem();
-      await uploadPhoto(item.id, type, file);
-      await runAi(item);
-      setMessage(`${photoLabels[type]} gespeichert. Bei Bedarf Sprache oder Nachweis ergänzen, dann Objekt speichern.`);
+      const uploadedFile = await uploadPhoto(item.id, type, file);
+      setPhotos((current) => ({ ...current, [type]: uploadedFile }));
+      startAiInBackground(item);
+      setMessage(`${photoLabels[type]} gespeichert. Du kannst direkt weitermachen.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto fehlgeschlagen");
     } finally {
@@ -165,7 +202,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         method: "POST",
         body: undefined,
       });
-      await runAi(item);
+      startAiInBackground(item);
       setMessage("Sprachnotiz gespeichert. Objekt speichern, wenn die Erfassung fertig ist.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sprache fehlgeschlagen");
@@ -184,8 +221,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     try {
       setBusy(true);
       const item = await ensureItem();
-      await uploadPhoto(item.id, type, selected);
-      await runAi(item);
+      const uploadedFile = await uploadPhoto(item.id, type, selected);
+      setPhotos((current) => ({ ...current, [type]: uploadedFile }));
+      startAiInBackground(item);
       setMessage(`${photoLabels[type]} gespeichert. Objekt speichern, wenn die Erfassung fertig ist.`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nachweis fehlgeschlagen");
