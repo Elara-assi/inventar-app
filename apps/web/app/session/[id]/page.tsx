@@ -65,28 +65,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }
 
   async function reopenRoom() {
-    const confirmed = window.confirm("Raum wieder Ã¶ffnen? Danach kÃ¶nnen GegenstÃ¤nde wieder bearbeitet und neue Handy-Erfassungen gekoppelt werden.");
+    const confirmed = window.confirm("Raum wieder öffnen? Danach können Gegenstände wieder bearbeitet und neue Handy-Erfassungen gekoppelt werden.");
     if (!confirmed) return;
     try {
       await api(`/sessions/${sessionId}/reopen`, { method: "POST", body: "{}" });
-      setMessage("Raum wieder geÃ¶ffnet");
+      setMessage("Raum wieder geöffnet");
       await load();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Raum konnte nicht wieder geÃ¶ffnet werden");
+      setMessage(err instanceof Error ? err.message : "Raum konnte nicht wieder geöffnet werden");
     }
   }
 
   async function runReviewAi() {
     if (session?.status === "closed") {
-      setMessage("Raum ist abgeschlossen. FÃ¼r KI-PrÃ¼fung zuerst wieder Ã¶ffnen.");
+      setMessage("Raum ist abgeschlossen. Für KI-Prüfung zuerst wieder öffnen.");
       return;
     }
     try {
       const result = await api<{ queued: number }>(`/sessions/${sessionId}/ai/review`, { method: "POST", body: "{}" });
-      setMessage(`PrÃ¼f-KI fÃ¼r ${result.queued} GegenstÃ¤nde gestartet`);
+      setMessage(`Prüf-KI für ${result.queued} Gegenstände gestartet`);
       await load();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "PrÃ¼f-KI konnte nicht gestartet werden");
+      setMessage(err instanceof Error ? err.message : "Prüf-KI konnte nicht gestartet werden");
     }
   }
 
@@ -107,14 +107,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     <main className="page grid">
       <section className="room-hero">
         <div className="room-hero-main">
-          <Link className="btn secondary back-link compact-btn" href="/">â† Dashboard</Link>
+          <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
           <div>
-            <span className="eyebrow">{session?.location_name || "Betrieb"} Â· {session?.building_name || "GebÃ¤ude"}</span>
-            <h1>{session?.room_name || "Live-PrÃ¼fung"}</h1>
+            <span className="eyebrow">{session?.location_name || "Betrieb"} · {session?.building_name || "Gebäude"}</span>
+            <h1>{session?.room_name || "Live-Prüfung"}</h1>
             <p className="muted">
               {items.length
-                ? `Automatische Aktualisierung Â· zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
-                : "Noch keine Objekte. Sobald das Handy speichert, fÃ¼llt sich die Liste automatisch."}
+                ? `Automatische Aktualisierung · zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
+                : "Noch keine Objekte. Sobald das Handy speichert, füllt sich die Liste automatisch."}
             </p>
           </div>
         </div>
@@ -134,8 +134,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <div className="room-main-panel">
           <div className="room-process-grid">
             <ProcessCard label="Erfasst" value={items.length} tone="info" />
-            <ProcessCard label="KI lÃ¤uft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
-            <ProcessCard label="PrÃ¼f-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
+            <ProcessCard label="KI läuft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
+            <ProcessCard label="Prüf-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
             <ProcessCard label="Hinweise" value={hintCount} tone={hintCount ? "warn" : "ok"} />
             <ProcessCard label="Technik" value={technicalCount} tone={technicalCount ? "warn" : "ok"} />
             <ProcessCard label="Vor Ort offen" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
@@ -146,7 +146,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <div className="inventory-list-head">
             <div>
               <span className="live-indicator">Live</span>
-              <strong>GegenstÃ¤nde im Raum</strong>
+              <strong>Gegenstände im Raum</strong>
               <small>{items.length} sichtbar</small>
             </div>
             <p className="muted">
