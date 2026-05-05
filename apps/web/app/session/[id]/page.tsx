@@ -64,12 +64,25 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function runReviewAi() {
+    try {
+      const result = await api<{ queued: number }>(`/sessions/${sessionId}/ai/review`, { method: "POST", body: "{}" });
+      setMessage(`Prüf-KI für ${result.queued} Gegenstände gestartet`);
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Prüf-KI konnte nicht gestartet werden");
+    }
+  }
+
   const blockerCount = items.reduce((sum, item) => sum + (item.blockers?.length ?? 0), 0);
   const hintCount = items.reduce((sum, item) => sum + (item.process_hints?.length ?? 0), 0);
   const technicalCount = items.filter((item) =>
     item.process_hints?.some((hint) => hint.kind.includes("technical") || hint.kind === "uvv" || hint.kind === "maintenance" || hint.kind === "inspection_book"),
   ).length;
-  const aiRunningCount = items.filter((item) => item.status === "ki_wartet" || item.status === "ki_laeuft").length;
+  const aiRunningCount = items.filter((item) =>
+    ["ki_wartet", "ki_laeuft", "ki_schnell_wartet", "ki_schnell_laeuft", "ki_pruefung_wartet", "ki_pruefung_laeuft"].includes(item.status ?? ""),
+  ).length;
+  const aiReviewOpenCount = items.filter((item) => item.status === "ki_pruefung_offen").length;
   const finalCount = items.filter((item) => item.review_status === "finalisiert" || item.status === "finalisiert").length;
   const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
 
@@ -90,6 +103,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         </div>
         <div className="room-hero-actions">
           <span className={session?.status === "closed" ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
+          <button className="btn secondary" onClick={runReviewAi}>Prüf-KI starten</button>
           <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
           <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
         </div>
@@ -100,6 +114,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <div className="room-process-grid">
             <ProcessCard label="Erfasst" value={items.length} tone="info" />
             <ProcessCard label="KI läuft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
+            <ProcessCard label="Prüf-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
             <ProcessCard label="Hinweise" value={hintCount} tone={hintCount ? "warn" : "ok"} />
             <ProcessCard label="Technik" value={technicalCount} tone={technicalCount ? "warn" : "ok"} />
             <ProcessCard label="Blocker" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />

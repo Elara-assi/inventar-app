@@ -148,8 +148,17 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
         seen.add(kind)
         hints.append({"kind": kind, "label": label, "severity": severity})
 
-    if row.get("status") in {"ki_wartet", "ki_laeuft"}:
+    status = row.get("status")
+    if status in {"ki_wartet", "ki_laeuft", "ki_schnell_wartet", "ki_schnell_laeuft"}:
         add("ki", "KI läuft", "info")
+    if status == "ki_schnell_fertig":
+        add("ki_quick_done", "Schnell-KI fertig", "ok")
+    if status == "ki_pruefung_offen":
+        add("ki_review_open", "Prüf-KI offen", "warn")
+    if status in {"ki_pruefung_wartet", "ki_pruefung_laeuft"}:
+        add("ki_review", "Prüf-KI läuft", "info")
+    if status == "ki_pruefung_fertig":
+        add("ki_review_done", "Prüf-KI fertig", "ok")
     if row.get("confidence_score") and float(row["confidence_score"]) >= 0.7:
         add("ki_confident", "KI sicher", "ok")
 
@@ -873,17 +882,56 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
     return row
 
 
-def process_ai_item(item_id: str) -> None:
-    execute("UPDATE inventory_items SET status = 'ki_laeuft', updated_at = now() WHERE id = %s RETURNING id", (item_id,))
+def ai_status_for_mode(mode: str, step: str) -> str:
+    normalized = "review" if mode == "review" else "fast"
+    matrix = {
+        "fast": {
+            "queued": "ki_schnell_wartet",
+            "running": "ki_schnell_laeuft",
+            "done": "ki_schnell_fertig",
+            "open": "ki_pruefung_offen",
+        },
+        "review": {
+            "queued": "ki_pruefung_wartet",
+            "running": "ki_pruefung_laeuft",
+            "done": "ki_pruefung_fertig",
+            "open": "ki_pruefung_offen",
+        },
+    }
+    return matrix[normalized][step]
+
+
+def process_ai_item(item_id: str, mode: str = "fast") -> None:
+    normalized_mode = "review" if mode == "review" else "fast"
+    execute(
+        "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
+        (ai_status_for_mode(normalized_mode, "running"), item_id),
+    )
     suggestion = build_ai_suggestion(item_id)
     model_used = suggestion.pop("_model_used", "phase1-stub")
+    confidence = float(suggestion.get("confidence") or 0)
+    needs_review_ai = normalized_mode == "fast" and (
+        confidence < 0.78
+        or bool(suggestion.get("missing_fields"))
+        or bool(suggestion.get("required_evidence_missing"))
+    )
+    suggestion["ai_stage"] = normalized_mode
+    suggestion["needs_review_ai"] = needs_review_ai
     row = execute(
         """
-        INSERT INTO ai_results (item_id, ai_type, model_used, input_sources, result_json, confidence)
-        VALUES (%s, 'ollama', %s, %s::jsonb, %s::jsonb, %s)
+        INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
+        VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
         RETURNING *
         """,
-        (item_id, model_used, '["photos","audio"]', json_string(suggestion), suggestion["confidence"]),
+        (
+            item_id,
+            "quick_vision" if normalized_mode == "fast" else "review_vision",
+            model_used,
+            "phase1-fast-v1" if normalized_mode == "fast" else "phase1-review-v1",
+            '["photos","audio"]',
+            json_string(suggestion),
+            confidence,
+        ),
     )
     create_rework_tasks(item_id, suggestion)
     execute(
@@ -896,16 +944,54 @@ def process_ai_item(item_id: str) -> None:
         """,
         (suggestion["commercial_category"], suggestion["requires_accounting_review"], item_id),
     )
-    audit("ai_result_created", "inventory_item", item_id, suggestion)
+    final_status = ai_status_for_mode(normalized_mode, "open" if needs_review_ai else "done")
+    execute(
+        "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
+        (final_status, item_id),
+    )
+    audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, **suggestion})
 
 
 @app.post("/items/{item_id}/ai/run")
-def run_ai(item_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") -> dict[str, Any]:
     require_item_session_open(item_id)
-    execute("UPDATE inventory_items SET status = 'ki_wartet', updated_at = now() WHERE id = %s RETURNING id", (item_id,))
-    background_tasks.add_task(process_ai_item, item_id)
-    audit("ai_job_queued", "inventory_item", item_id, {"status": "ki_wartet"})
-    return {"item_id": item_id, "status": "ki_wartet", "message": "KI-Auswertung läuft im Hintergrund"}
+    normalized_mode = "review" if mode == "review" else "fast"
+    queued_status = ai_status_for_mode(normalized_mode, "queued")
+    execute("UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id", (queued_status, item_id))
+    background_tasks.add_task(process_ai_item, item_id, normalized_mode)
+    audit("ai_job_queued", "inventory_item", item_id, {"status": queued_status, "stage": normalized_mode})
+    label = "Prüf-KI" if normalized_mode == "review" else "Schnell-KI"
+    return {"item_id": item_id, "status": queued_status, "stage": normalized_mode, "message": f"{label} läuft im Hintergrund"}
+
+@app.post("/sessions/{session_id}/ai/review")
+def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    session = fetch_one("SELECT id, status FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session["status"] != "open":
+        raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
+
+    rows = fetch_all(
+        """
+        SELECT id
+        FROM inventory_items
+        WHERE session_id = %s
+          AND finalized_at IS NULL
+          AND locked_at IS NULL
+          AND status NOT IN ('ki_pruefung_wartet', 'ki_pruefung_laeuft', 'finalisiert')
+        ORDER BY created_at
+        """,
+        (session_id,),
+    )
+    for row in rows:
+        item_id = str(row["id"])
+        execute(
+            "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
+            (ai_status_for_mode("review", "queued"), item_id),
+        )
+        background_tasks.add_task(process_ai_item, item_id, "review")
+    audit("session_ai_review_queued", "inventory_session", session_id, {"queued": len(rows)})
+    return {"session_id": session_id, "queued": len(rows), "status": "ki_pruefung_wartet"}
 
 
 def json_string(value: Any) -> str:

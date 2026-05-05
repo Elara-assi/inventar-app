@@ -97,6 +97,25 @@ textarea {
   padding: 18px;
 }
 
+.status.ki_schnell_wartet,
+.status.ki_schnell_laeuft,
+.status.ki_pruefung_wartet,
+.status.ki_pruefung_laeuft {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status.ki_schnell_fertig,
+.status.ki_pruefung_fertig {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status.ki_pruefung_offen {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .section-title {
   display: flex;
   align-items: flex-start;

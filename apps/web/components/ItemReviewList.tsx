@@ -233,6 +233,16 @@ function ItemReviewRow({
     }
   }
 
+  async function runReviewAi() {
+    try {
+      await api(`/items/${item.id}/ai/run?mode=review`, { method: "POST", body: "{}" });
+      setMessage("Prüf-KI gestartet");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Prüf-KI konnte nicht gestartet werden");
+    }
+  }
+
   async function removeItem() {
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
@@ -352,6 +362,7 @@ function ItemReviewRow({
           <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Noch zu ergänzen</button>
         </div>
         <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
+        <button className="btn secondary compact-btn" onClick={runReviewAi}>Prüf-KI</button>
       </div>
     </div>
   );
