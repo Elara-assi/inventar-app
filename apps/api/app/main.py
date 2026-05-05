@@ -1271,6 +1271,137 @@ def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[in
     return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
 
 
+def is_tire_item(item: dict[str, Any], ai_context: str = "") -> bool:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    ) + " " + ai_context.lower()
+    return any(term in text for term in ["reifen", "radsatz", "sommerreifen", "winterreifen", "ganzjahresreifen", "dot "])
+
+
+def tire_dot_age_years(item: dict[str, Any], ai_context: str = "") -> float | None:
+    text = " ".join(
+        [str(item.get(key) or "") for key in ["object_type", "brand", "model", "serial_number"]]
+        + [ai_context]
+    )
+    match = re.search(r"\bDOT\D{0,8}(\d{2})(\d{2})\b", text, flags=re.IGNORECASE)
+    if not match and re.search(r"\bdot\b", text, flags=re.IGNORECASE):
+        match = re.search(r"\b(\d{2})(\d{2})\b", text)
+    if not match:
+        if item.get("estimated_age_years") is not None and item.get("age_source") == "dot":
+            try:
+                return max(0.0, float(item["estimated_age_years"]))
+            except (TypeError, ValueError):
+                return None
+        return None
+    week = int(match.group(1))
+    year_suffix = int(match.group(2))
+    if week < 1 or week > 53:
+        return None
+    production_year = 2000 + year_suffix if year_suffix < 80 else 1900 + year_suffix
+    current_year = datetime.utcnow().year
+    current_week = int(datetime.utcnow().strftime("%V"))
+    age = (current_year - production_year) + ((current_week - week) / 52)
+    return round(max(0.0, age), 1)
+
+
+def tire_profile_depth_mm(ai_context: str = "") -> float | None:
+    patterns = [
+        r"profil(?:tiefe)?\D{0,12}(\d{1,2}(?:[,.]\d)?)\s*mm",
+        r"(\d{1,2}(?:[,.]\d)?)\s*mm\D{0,12}profil",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, ai_context, flags=re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1).replace(",", "."))
+            except ValueError:
+                return None
+    return None
+
+
+def tire_season(item: dict[str, Any], ai_context: str = "") -> str:
+    text = " ".join(str(part or "").lower() for part in [item.get("object_type"), item.get("model"), ai_context])
+    if any(term in text for term in ["winter", "m+s", "m+s", "alpin", "snow"]):
+        return "winter"
+    if any(term in text for term in ["ganzjahr", "allseason", "all season"]):
+        return "ganzjahr"
+    return "sommer"
+
+
+def tire_age_factor(age_years: float) -> float:
+    if age_years <= 0:
+        return 1.0
+    factor = 0.75
+    additional_years = max(0, int(age_years))
+    if age_years > 1:
+        additional_years = int(age_years - 1)
+        factor *= 0.85 ** additional_years
+    return max(0.12, factor)
+
+
+def tire_profile_factor(profile_mm: float | None, season: str) -> tuple[float, str]:
+    if profile_mm is None:
+        return 0.85, "Profiltiefe fehlt: konservativer Zusatzabschlag 15%."
+    if profile_mm >= 7:
+        return 1.0, "Volles/gutes Profil: kein Profilabschlag; DOT-Alter bleibt wertmindernd."
+    if profile_mm >= 5:
+        return 0.85, "Profil 5-6,9 mm: Zusatzabschlag 15%."
+    if profile_mm >= 4:
+        return 0.70, "Profil 4-4,9 mm: Zusatzabschlag 30%."
+    if profile_mm >= 3:
+        factor = 0.55 if season == "sommer" else 0.35
+        return factor, "Profil kritisch: deutlicher Zusatzabschlag."
+    return 0.15, "Profil unter Praxisgrenze: nur sehr geringer Restwert."
+
+
+def tire_condition_factor(condition: str | None) -> float:
+    return {
+        "neu": 1.0,
+        "sehr_gut": 0.95,
+        "gut": 0.9,
+        "gebraucht": 0.8,
+        "reparaturbeduerftig": 0.45,
+        "defekt": 0.10,
+        "aussondern": 0.03,
+    }.get(str(condition or "gebraucht"), 0.8)
+
+
+def conservative_tire_estimate(item: dict[str, Any], ai_context: str, sources: list[dict[str, str]]) -> dict[str, Any]:
+    value_min, value_max = estimate_value_range({**item, "condition": "neu"}, ai_context)
+    # Annäherung an günstigsten heutigen Neupreis: unteres Ende aus Web-/Referenzheuristik, dann konservativ.
+    lowest_new_price = max(1, round(value_min * 0.9))
+    dot_age = tire_dot_age_years(item, ai_context)
+    estimated_age = dot_age if dot_age is not None else conservative_age_estimate(estimate_age_years(item, sources, ai_context))
+    age_factor = tire_age_factor(float(estimated_age or 0))
+    season = tire_season(item, ai_context)
+    profile_mm = tire_profile_depth_mm(ai_context)
+    profile_factor, profile_note = tire_profile_factor(profile_mm, season)
+    condition_factor = tire_condition_factor(item.get("condition"))
+    safety_factor = 0.90
+    estimated_value = max(1, round(lowest_new_price * age_factor * profile_factor * condition_factor * safety_factor))
+    return {
+        "estimated_value": estimated_value,
+        "estimated_age_years": round(float(estimated_age or 0), 1) if estimated_age is not None else None,
+        "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+        "tire_valuation": {
+            "lowest_new_price_basis": lowest_new_price,
+            "dot_age_years": round(dot_age, 1) if dot_age is not None else None,
+            "profile_depth_mm": profile_mm,
+            "season": season,
+            "age_factor": round(age_factor, 3),
+            "profile_factor": round(profile_factor, 3),
+            "condition_factor": round(condition_factor, 3),
+            "safety_factor": safety_factor,
+            "policy": "Günstigster plausibler Neupreis minus DOT-Alter, Profil, Zustand und Sicherheitsabschlag.",
+        },
+        "notes": (
+            "Konservative Reifenbewertung: volles Profil hebt DOT-Alter nicht auf. "
+            f"{profile_note} Lagerreifen werden nach DOT-Alter bewertet, auch wenn sie ungefahren wirken."
+        ),
+    }
+
+
 def conservative_value_estimate(value_min: int, value_max: int) -> int:
     # Kaufprüfung: realistisch bleiben, aber bei Unsicherheit nicht zu hoch bewerten.
     lower_quartile = value_min + ((value_max - value_min) * 0.25)
@@ -1332,9 +1463,20 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     ai_context = latest_ai_context(item_id)
     query = deep_dive_query(item, ai_context)
     sources = web_search_sources(query)
-    value_min, value_max = estimate_value_range(item, ai_context)
-    estimated_value = conservative_value_estimate(value_min, value_max)
-    estimated_age = conservative_age_estimate(estimate_age_years(item, sources, ai_context))
+    if is_tire_item(item, ai_context):
+        tire_result = conservative_tire_estimate(item, ai_context, sources)
+        value_min = tire_result["estimated_value_range"]["min"]
+        value_max = tire_result["estimated_value_range"]["max"]
+        estimated_value = tire_result["estimated_value"]
+        estimated_age = tire_result["estimated_age_years"]
+        notes = tire_result["notes"]
+        extra_result = {"tire_valuation": tire_result["tire_valuation"]}
+    else:
+        value_min, value_max = estimate_value_range(item, ai_context)
+        estimated_value = conservative_value_estimate(value_min, value_max)
+        estimated_age = conservative_age_estimate(estimate_age_years(item, sources, ai_context))
+        notes = "Konservative KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen: Wert eher am unteren Rand, Alter im Zweifel +1 Jahr. Muss bei kaufmännischer Auswertung geprüft werden."
+        extra_result = {}
     return {
         "ai_stage": "deep_dive",
         "estimated_by_ai": True,
@@ -1349,7 +1491,8 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "estimated_value": estimated_value,
         "estimated_value_range": {"min": value_min, "max": value_max},
         "value_source": "ki_web_schaetzung",
-        "notes": "Konservative KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen: Wert eher am unteren Rand, Alter im Zweifel +1 Jahr. Muss bei kaufmännischer Auswertung geprüft werden.",
+        "notes": notes,
+        **extra_result,
     }
 
 

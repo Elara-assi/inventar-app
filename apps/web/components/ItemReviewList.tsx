@@ -39,6 +39,17 @@ type AiSummary = {
     estimated_value?: number | null;
     estimated_value_range?: { min?: number; max?: number };
     value_source?: string;
+    tire_valuation?: {
+      lowest_new_price_basis?: number;
+      dot_age_years?: number | null;
+      profile_depth_mm?: number | null;
+      season?: string;
+      age_factor?: number;
+      profile_factor?: number;
+      condition_factor?: number;
+      safety_factor?: number;
+      policy?: string;
+    };
     notes?: string;
   } | null;
 };
@@ -554,6 +565,14 @@ function ItemReviewRow({
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
               <span>Quelle: <b>{deepDive.web_search_performed ? "Websuche + KI" : "KI-Schätzung ohne Webtreffer"}</b></span>
             </div>
+            {deepDive.tire_valuation ? (
+              <div className="deep-dive-grid">
+                <span>Reifen-Neupreis: <b>{deepDive.tire_valuation.lowest_new_price_basis ?? "offen"} €</b></span>
+                <span>DOT-Alter: <b>{deepDive.tire_valuation.dot_age_years ?? "offen"} Jahre</b></span>
+                <span>Profil: <b>{deepDive.tire_valuation.profile_depth_mm ?? "offen"} mm</b></span>
+              </div>
+            ) : null}
+            {deepDive.notes ? <p className="deep-dive-note">{deepDive.notes}</p> : null}
             {deepDive.sources?.length ? (
               <div className="deep-dive-sources">
                 {deepDive.sources.slice(0, 3).filter((source) => source.url).map((source) => (

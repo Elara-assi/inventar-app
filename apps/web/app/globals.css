@@ -2383,6 +2383,17 @@ body {
   color: #0b172a;
 }
 
+.deep-dive-note {
+  margin: 0;
+  border-left: 4px solid #1d4ed8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+  color: #344256;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .deep-dive-sources {
   display: flex;
   flex-wrap: wrap;
