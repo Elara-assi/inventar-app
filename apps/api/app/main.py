@@ -1232,7 +1232,7 @@ def conservative_value_estimate(value_min: int, value_max: int) -> int:
 
 
 def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_context: str = "") -> float | None:
-    if item.get("estimated_age_years") is not None:
+    if item.get("estimated_age_years") is not None and item.get("age_source") != "schaetzung":
         try:
             return round(float(item["estimated_age_years"]), 1)
         except (TypeError, ValueError):
