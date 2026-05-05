@@ -1125,6 +1125,12 @@ def estimate_value_range(item: dict[str, Any]) -> tuple[int, int]:
     return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
 
 
+def conservative_value_estimate(value_min: int, value_max: int) -> int:
+    # Kaufprüfung: realistisch bleiben, aber bei Unsicherheit nicht zu hoch bewerten.
+    lower_quartile = value_min + ((value_max - value_min) * 0.25)
+    return max(1, round(lower_quartile * 0.9))
+
+
 def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]]) -> float | None:
     if item.get("estimated_age_years") is not None:
         try:
@@ -1149,6 +1155,12 @@ def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]]) -> f
     }.get(str(item.get("condition") or "gebraucht"), 6.0)
 
 
+def conservative_age_estimate(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(max(0.0, value + 1.0), 1)
+
+
 def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     item = fetch_one(
         """
@@ -1164,11 +1176,12 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     query = deep_dive_query(item)
     sources = web_search_sources(query)
     value_min, value_max = estimate_value_range(item)
-    estimated_value = round((value_min + value_max) / 2)
-    estimated_age = estimate_age_years(item, sources)
+    estimated_value = conservative_value_estimate(value_min, value_max)
+    estimated_age = conservative_age_estimate(estimate_age_years(item, sources))
     return {
         "ai_stage": "deep_dive",
         "estimated_by_ai": True,
+        "estimation_policy": "konservativ",
         "web_search_performed": bool(sources),
         "query": query,
         "sources": sources,
@@ -1178,7 +1191,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "estimated_value": estimated_value,
         "estimated_value_range": {"min": value_min, "max": value_max},
         "value_source": "ki_web_schaetzung",
-        "notes": "KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen. Muss bei kaufmännischer Auswertung geprüft werden.",
+        "notes": "Konservative KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen: Wert eher am unteren Rand, Alter im Zweifel +1 Jahr. Muss bei kaufmännischer Auswertung geprüft werden.",
     }
 
 
