@@ -16,6 +16,13 @@ type Session = {
   item_count?: number;
 };
 
+type SessionSummary = {
+  sessions: number;
+  items: number;
+  open: number;
+  closed: number;
+};
+
 type RoomDraft = {
   name: string;
   building_id: string;
@@ -321,6 +328,12 @@ export default function DashboardPage() {
   const selectedLocationLabel = freeLocationName || bootstrap?.locations.find((location) => location.id === selectedLocation)?.name || "Betrieb offen";
   const selectedBuildingLabel = freeBuildingName || bootstrap?.buildings.find((building) => building.id === selectedBuilding)?.name || "Gebäude offen";
   const selectedRoomLabel = freeRoomName || roomOptions.find((room) => room.id === selectedRoom)?.name || "Raum offen";
+  const summary: SessionSummary = {
+    sessions: sessions.length,
+    items: sessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0),
+    open: sessions.filter((session) => session.status !== "closed").length,
+    closed: sessions.filter((session) => session.status === "closed").length,
+  };
 
   return (
     <main className="page grid">
@@ -337,12 +350,23 @@ export default function DashboardPage() {
         {roomOptions.map((room) => <option key={room.id} value={room.name} />)}
       </datalist>
 
+      <section className="hero-strip">
+        <div>
+          <h1>Inventur starten</h1>
+          <p>Raum-Session anlegen, QR-Code anzeigen, Handy koppeln. Erfasser arbeitet mobil, Prüfer sieht Objekte live.</p>
+        </div>
+        <div className="today-meta">
+          <span>Heute</span>
+          <strong>{summary.open} aktive Räume · {summary.items} Objekte erfasst</strong>
+        </div>
+      </section>
+
       <section className="start-shell">
         <div className="start-card">
           <div className="section-title">
             <div>
-              <h1>Inventur vorbereiten</h1>
-              <p className="muted">Erfasser, Betrieb, Gebäude und Raum festlegen. Danach koppelt das Handy per QR-Code.</p>
+              <h2>Session-Konfiguration</h2>
+              <p className="muted">Freie Eingaben werden als Vorschlag gespeichert.</p>
             </div>
             <span className="status erfasst">Raumtest v0.1</span>
           </div>
@@ -421,7 +445,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="start-footer">
-            <button className="btn accent" onClick={startSession}>Session starten</button>
+            <button className="btn accent primary-action" onClick={startSession}>+ Session starten</button>
             <span>Freie Eingaben werden beim Start automatisch als Vorschlag gespeichert.</span>
           </div>
         </div>
@@ -559,43 +583,83 @@ export default function DashboardPage() {
         ) : null}
       </section>
 
-      <section className="grid">
-        <div>
-          <h2>Raum-Sessions</h2>
-          <p className="muted">Gestartete Räume bleiben sichtbar, bis sie abgeschlossen oder bereinigt werden.</p>
-          <button className="btn accent compact-btn" onClick={exportAll}>Gesamtaufstellung Excel</button>
+      <section className="panel session-board">
+        <div className="section-title">
+          <div>
+            <h2>Aktive Raum-Sessions</h2>
+            <p className="muted">Gestartete Räume bleiben sichtbar, bis sie abgeschlossen oder bereinigt werden.</p>
+          </div>
+          <button className="btn secondary compact-btn" onClick={exportAll}>Excel Gesamt</button>
         </div>
-        <div className="grid grid-3">
-          {sessions.map((session) => (
-            <article className="card clickable-card" key={session.id} onClick={() => { window.location.href = `/session/${session.id}`; }}>
-              <div className="card-body grid">
-                <StatusBadgeShim value={session.status} />
-                <strong>{session.room_name || "Raum"}</strong>
-                <span className="muted">{session.location_name || "Betrieb"} / {session.building_name || "Gebäude"}</span>
-                <div className="session-meta">
-                  <span>{session.item_count ?? 0} Objekte</span>
-                  <span>{formatDateTime(session.created_at)}</span>
-                </div>
-                <div className="session-actions">
-                  <span className="btn secondary">Inventarliste öffnen</span>
-                  <button
-                    className="btn danger icon-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      deleteSession(session);
-                    }}
-                    title="Session löschen"
-                    aria-label={`Session ${session.room_name || "Raum"} löschen`}
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
+
+        <div className="session-table-wrap">
+          <table className="session-table">
+            <thead>
+              <tr>
+                <th>Raum</th>
+                <th>Betrieb / Gebäude</th>
+                <th>Objekte</th>
+                <th>Status</th>
+                <th>Start</th>
+                <th>Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((session) => (
+                <tr key={session.id}>
+                  <td>
+                    <strong>{session.room_name || "Raum"}</strong>
+                    <span>{session.room_id ? session.room_id.slice(0, 8) : "freie Session"}</span>
+                  </td>
+                  <td>
+                    <strong>{session.location_name || "Betrieb"}</strong>
+                    <span>{session.building_name || "Gebäude"}</span>
+                  </td>
+                  <td className="count-cell">{session.item_count ?? 0}</td>
+                  <td><StatusBadgeShim value={session.status} /></td>
+                  <td>{formatDateTime(session.created_at)}</td>
+                  <td>
+                    <div className="table-actions">
+                      <a className="btn secondary compact-btn" href={`/session/${session.id}`}>Inventarliste</a>
+                      <button className="btn secondary compact-btn" onClick={() => exportSession(session)}>Excel</button>
+                      <button
+                        className="btn danger icon-btn"
+                        onClick={() => deleteSession(session)}
+                        title="Session löschen"
+                        aria-label={`Session ${session.room_name || "Raum"} löschen`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!sessions.length ? (
+                <tr>
+                  <td colSpan={6} className="empty-table">Noch keine Raum-Session gestartet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="metric-grid">
+          <MetricCard label="Aktive Räume" value={summary.open} hint={`${summary.closed} abgeschlossen`} />
+          <MetricCard label="Heute erfasst" value={summary.items} hint="über alle offenen Räume" />
+          <MetricCard label="Vorschläge" value={bootstrap?.rooms.length ?? 0} hint="Räume aus Stammdaten/Altaufnahme" />
         </div>
       </section>
     </main>
+  );
+}
+
+function MetricCard({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <article className="metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{hint}</small>
+    </article>
   );
 }
 

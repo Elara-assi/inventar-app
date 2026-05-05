@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Inventar Maschine",
-  description: "KI-gestützte Inventur für Autohaus-Standorte",
+  description: "KI-gestützte Inventur für mehrere Standorte",
   manifest: "/manifest.json",
 };
 
