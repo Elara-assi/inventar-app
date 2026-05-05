@@ -731,6 +731,40 @@ def close_session(session_id: str) -> dict[str, Any]:
     return row
 
 
+@app.post("/sessions/{session_id}/reopen")
+def reopen_session(session_id: str) -> dict[str, Any]:
+    current = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not current:
+        raise HTTPException(status_code=404, detail="Session nicht gefunden")
+    if current["status"] == "open":
+        return current
+    row = execute(
+        """
+        UPDATE inventory_sessions
+        SET status = 'open',
+            closed_at = NULL,
+            closed_by = NULL,
+            join_token_expires_at = now() + interval '12 hours'
+        WHERE id = %s
+        RETURNING *
+        """,
+        (session_id,),
+    )
+    execute(
+        """
+        UPDATE inventory_items
+        SET locked_at = NULL,
+            updated_at = now()
+        WHERE session_id = %s
+          AND status <> 'finalisiert'
+        RETURNING id
+        """,
+        (session_id,),
+    )
+    audit("session_reopened", "inventory_session", session_id, row)
+    return row
+
+
 @app.delete("/sessions/{session_id}")
 def delete_session(session_id: str) -> dict[str, Any]:
     current = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))

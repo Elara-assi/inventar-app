@@ -2439,6 +2439,30 @@ body {
   font-weight: 700;
 }
 
+.locked-strip {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #e0f2fe;
+  color: #075985;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+.evidence-upload.is-disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
+.evidence-upload.is-disabled {
+  pointer-events: none;
+}
+
 @media (max-width: 760px) {
   .hero-strip h1 {
     font-size: 30px;

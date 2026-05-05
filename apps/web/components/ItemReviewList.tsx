@@ -160,10 +160,12 @@ export function ItemReviewList({
   items,
   objectClasses,
   onChanged,
+  readOnly = false,
 }: {
   items: ReviewItem[];
   objectClasses: Bootstrap["object_classes"];
   onChanged: () => void;
+  readOnly?: boolean;
 }) {
   if (!items.length) {
     return (
@@ -179,7 +181,7 @@ export function ItemReviewList({
       {(openPhoto) => (
         <div className="item-list">
           {items.map((item) => (
-            <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} />
+            <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} />
           ))}
         </div>
       )}
@@ -212,11 +214,13 @@ function ItemReviewRow({
   objectClasses,
   onChanged,
   onOpenPhoto,
+  readOnly,
 }: {
   item: ReviewItem;
   objectClasses: Bootstrap["object_classes"];
   onChanged: () => void;
   onOpenPhoto: (url: string, label: string) => void;
+  readOnly: boolean;
 }) {
   const [draft, setDraft] = useState({
     object_type: item.object_type ?? "",
@@ -274,6 +278,7 @@ function ItemReviewRow({
   }
 
   async function save() {
+    if (readOnly) return;
     await api(`/items/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -292,6 +297,7 @@ function ItemReviewRow({
   }
 
   async function requestRework(role: "Auswertung" | "Erfasser" | "Technik", missingField: string) {
+    if (readOnly) return;
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -310,6 +316,7 @@ function ItemReviewRow({
   }
 
   async function finalize() {
+    if (readOnly) return;
     try {
       await api(`/items/${item.id}/finalize`, { method: "POST", body: "{}" });
       setMessage("Finalisiert");
@@ -330,6 +337,7 @@ function ItemReviewRow({
   }
 
   async function runReviewAi() {
+    if (readOnly) return;
     try {
       await api(`/items/${item.id}/ai/run?mode=review`, { method: "POST", body: "{}" });
       setMessage("Prüf-KI gestartet");
@@ -340,6 +348,7 @@ function ItemReviewRow({
   }
 
   async function runDeepDive() {
+    if (readOnly) return;
     try {
       await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
       setMessage("KI Deep Dive gestartet");
@@ -350,6 +359,7 @@ function ItemReviewRow({
   }
 
   async function saveLearningExample() {
+    if (readOnly) return;
     try {
       await api(`/items/${item.id}/ai/learning-example`, {
         method: "POST",
@@ -362,6 +372,7 @@ function ItemReviewRow({
   }
 
   async function removeItem() {
+    if (readOnly) return;
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
     if (!confirmed) return;
@@ -375,6 +386,7 @@ function ItemReviewRow({
   }
 
   async function uploadEvidencePhoto(photoType: string, file?: File) {
+    if (readOnly) return;
     if (!file) return;
     if ((item.photos?.length ?? 0) >= 5) {
       setMessage("Maximal 5 Fotos pro Gegenstand möglich");
@@ -420,6 +432,7 @@ function ItemReviewRow({
       </button>
 
       <div className="item-main">
+        {readOnly ? <div className="locked-strip">Raum abgeschlossen: Dieser Datensatz ist schreibgeschützt.</div> : null}
         <div className="item-title-line">
           <div className="item-identity">
             <strong>{itemName}</strong>
@@ -447,11 +460,12 @@ function ItemReviewRow({
         ) : null}
 
         <div className="item-main-fields">
-          <input value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
-          <input value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
-          <input value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
-          <input value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
+          <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
+          <input disabled={readOnly} value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
+          <input disabled={readOnly} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
+          <input disabled={readOnly} value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
           <input
+            disabled={readOnly}
             value={draft.value_estimate}
             onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
             inputMode="decimal"
@@ -471,6 +485,7 @@ function ItemReviewRow({
         <div className="template-picker compact">
           <input
             value={templateQuery}
+            disabled={readOnly}
             placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
             onChange={(event) => setTemplateQuery(event.target.value)}
           />
@@ -489,7 +504,7 @@ function ItemReviewRow({
         <div className="item-review-selects">
           <label>
             <span>Klasse</span>
-            <select value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
+            <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
               <option value="">Offen</option>
               {objectClasses.map((entry) => (
                 <option key={entry.id} value={entry.id}>{entry.name}</option>
@@ -498,7 +513,7 @@ function ItemReviewRow({
           </label>
           <label>
             <span>Zustand</span>
-            <select value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
+            <select disabled={readOnly} value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
               {conditions.map((entry) => (
                 <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
               ))}
@@ -506,7 +521,7 @@ function ItemReviewRow({
           </label>
           <label>
             <span>Bearbeitung</span>
-            <select value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
+            <select disabled={readOnly} value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
               {reviewStatuses.map((entry) => (
                 <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
               ))}
@@ -554,10 +569,10 @@ function ItemReviewRow({
           <strong>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</strong>
           <div className="evidence-add-grid">
             {evidencePhotoTypes.map((entry) => (
-              <label className="btn secondary evidence-upload" key={entry.type}>
+              <label className={`btn secondary evidence-upload ${readOnly ? "is-disabled" : ""}`} key={entry.type}>
                 <span>{entry.label}</span>
                 <small>{entry.hint}</small>
-                <input
+                {readOnly ? null : <input
                   type="file"
                   accept="image/*"
                   capture={entry.type === "nameplate" || entry.type === "dot" ? "environment" : undefined}
@@ -566,27 +581,27 @@ function ItemReviewRow({
                     event.target.value = "";
                     void uploadEvidencePhoto(entry.type, file);
                   }}
-                />
+                />}
               </label>
             ))}
           </div>
         </div>
         <div className="row-actions">
-          <button className="btn accent" onClick={save}>Speichern</button>
-          <button className="btn" onClick={finalize}>Finalisieren</button>
+          <button className="btn accent" onClick={save} disabled={readOnly}>Speichern</button>
+          <button className="btn" onClick={finalize} disabled={readOnly}>Finalisieren</button>
           <div className="rework-action">
-            <select value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
+            <select disabled={readOnly} value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
               {reworkOptions.map((option) => (
                 <option key={option.label} value={option.label}>{option.label}</option>
               ))}
             </select>
-            <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Nacharbeit setzen</button>
+            <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
           </div>
-          <button className="btn secondary compact-btn" onClick={runReviewAi}>KI Check</button>
-          <button className="btn secondary compact-btn" onClick={runDeepDive}>KI Deep Dive</button>
-          <button className="btn secondary compact-btn" onClick={saveLearningExample}>Als Beispiel merken</button>
+          <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>KI Check</button>
+          <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
+          <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
           <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
-          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
+          <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen" disabled={readOnly}>×</button>
         </div>
       </div>
     </div>

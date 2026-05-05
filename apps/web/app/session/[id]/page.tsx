@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -64,13 +64,29 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
-  async function runReviewAi() {
+  async function reopenRoom() {
+    const confirmed = window.confirm("Raum wieder Ã¶ffnen? Danach kÃ¶nnen GegenstÃ¤nde wieder bearbeitet und neue Handy-Erfassungen gekoppelt werden.");
+    if (!confirmed) return;
     try {
-      const result = await api<{ queued: number }>(`/sessions/${sessionId}/ai/review`, { method: "POST", body: "{}" });
-      setMessage(`Prüf-KI für ${result.queued} Gegenstände gestartet`);
+      await api(`/sessions/${sessionId}/reopen`, { method: "POST", body: "{}" });
+      setMessage("Raum wieder geÃ¶ffnet");
       await load();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Prüf-KI konnte nicht gestartet werden");
+      setMessage(err instanceof Error ? err.message : "Raum konnte nicht wieder geÃ¶ffnet werden");
+    }
+  }
+
+  async function runReviewAi() {
+    if (session?.status === "closed") {
+      setMessage("Raum ist abgeschlossen. FÃ¼r KI-PrÃ¼fung zuerst wieder Ã¶ffnen.");
+      return;
+    }
+    try {
+      const result = await api<{ queued: number }>(`/sessions/${sessionId}/ai/review`, { method: "POST", body: "{}" });
+      setMessage(`PrÃ¼f-KI fÃ¼r ${result.queued} GegenstÃ¤nde gestartet`);
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "PrÃ¼f-KI konnte nicht gestartet werden");
     }
   }
 
@@ -84,28 +100,33 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   ).length;
   const aiReviewOpenCount = items.filter((item) => item.status === "ki_pruefung_offen").length;
   const finalCount = items.filter((item) => item.review_status === "finalisiert" || item.status === "finalisiert").length;
+  const isClosed = session?.status === "closed";
   const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
 
   return (
     <main className="page grid">
       <section className="room-hero">
         <div className="room-hero-main">
-          <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
+          <Link className="btn secondary back-link compact-btn" href="/">â† Dashboard</Link>
           <div>
-            <span className="eyebrow">{session?.location_name || "Betrieb"} · {session?.building_name || "Gebäude"}</span>
-            <h1>{session?.room_name || "Live-Prüfung"}</h1>
+            <span className="eyebrow">{session?.location_name || "Betrieb"} Â· {session?.building_name || "GebÃ¤ude"}</span>
+            <h1>{session?.room_name || "Live-PrÃ¼fung"}</h1>
             <p className="muted">
               {items.length
-                ? `Automatische Aktualisierung · zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
-                : "Noch keine Objekte. Sobald das Handy speichert, füllt sich die Liste automatisch."}
+                ? `Automatische Aktualisierung Â· zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
+                : "Noch keine Objekte. Sobald das Handy speichert, fÃ¼llt sich die Liste automatisch."}
             </p>
           </div>
         </div>
         <div className="room-hero-actions">
-          <span className={session?.status === "closed" ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
-          <button className="btn secondary" onClick={runReviewAi}>Prüf-KI starten</button>
+          <span className={isClosed ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
+          <button className="btn secondary" onClick={runReviewAi} disabled={isClosed}>Prüf-KI starten</button>
           <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
-          <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
+          {isClosed ? (
+            <button className="btn accent" onClick={reopenRoom}>Raum wieder öffnen</button>
+          ) : (
+            <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
+          )}
         </div>
       </section>
 
@@ -113,8 +134,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <div className="room-main-panel">
           <div className="room-process-grid">
             <ProcessCard label="Erfasst" value={items.length} tone="info" />
-            <ProcessCard label="KI läuft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
-            <ProcessCard label="Prüf-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
+            <ProcessCard label="KI lÃ¤uft" value={aiRunningCount} tone={aiRunningCount ? "warn" : "ok"} />
+            <ProcessCard label="PrÃ¼f-KI offen" value={aiReviewOpenCount} tone={aiReviewOpenCount ? "warn" : "ok"} />
             <ProcessCard label="Hinweise" value={hintCount} tone={hintCount ? "warn" : "ok"} />
             <ProcessCard label="Technik" value={technicalCount} tone={technicalCount ? "warn" : "ok"} />
             <ProcessCard label="Vor Ort offen" value={blockerCount} tone={blockerCount ? "danger" : "ok"} />
@@ -125,26 +146,29 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <div className="inventory-list-head">
             <div>
               <span className="live-indicator">Live</span>
-              <strong>Gegenstände im Raum</strong>
+              <strong>GegenstÃ¤nde im Raum</strong>
               <small>{items.length} sichtbar</small>
             </div>
-            <p className="muted">Direkt bearbeiten, Nacharbeit setzen, exportieren oder finalisieren.</p>
+            <p className="muted">
+              {isClosed ? "Schreibgeschützt. Für Änderungen den Raum wieder öffnen." : "Direkt bearbeiten, Nacharbeit setzen, exportieren oder finalisieren."}
+            </p>
           </div>
 
           <ItemReviewList
             items={items}
             objectClasses={bootstrap?.object_classes ?? []}
             onChanged={load}
+            readOnly={isClosed}
           />
         </div>
 
         <aside className="pairing-panel">
           <div>
             <strong>Handy koppeln</strong>
-            <span>QR-Code scannen und sofort erfassen.</span>
+            <span>{isClosed ? "Raum ist abgeschlossen. Kopplung ist deaktiviert." : "QR-Code scannen und sofort erfassen."}</span>
           </div>
           <div className="qr-box pairing-qr">
-            {session ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : null}
+            {session && !isClosed ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : <strong>Gesperrt</strong>}
           </div>
           <div className="pairing-meta">
             <span>Token</span>
