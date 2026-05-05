@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import os
+import re
 import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
+import httpx
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -824,15 +828,27 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
             (row["id"],),
         )
         ai_row = fetch_one(
-            "SELECT result_json FROM ai_results WHERE item_id = %s ORDER BY created_at DESC LIMIT 1",
+            "SELECT result_json FROM ai_results WHERE item_id = %s AND ai_type <> 'deep_dive' ORDER BY created_at DESC LIMIT 1",
+            (row["id"],),
+        )
+        deep_dive_row = fetch_one(
+            """
+            SELECT result_json
+            FROM ai_results
+            WHERE item_id = %s AND ai_type = 'deep_dive'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
             (row["id"],),
         )
         ai_result = ai_row.get("result_json") if ai_row else {}
+        deep_dive = deep_dive_row.get("result_json") if deep_dive_row else None
         row["ai_summary"] = {
             "confidence": ai_result.get("confidence"),
             "notes": ai_result.get("notes"),
             "special_tool_matches": (ai_result.get("special_tool_matches") or [])[:3],
             "inventory_history_matches": (ai_result.get("inventory_history_matches") or [])[:3],
+            "deep_dive": deep_dive,
         }
         row["process_hints"] = build_process_hints(row, ai_result, row["open_tasks"])
         row["photos"] = fetch_all(
@@ -1024,6 +1040,180 @@ def ai_status_for_mode(mode: str, step: str) -> str:
     return matrix[normalized][step]
 
 
+def deep_dive_query(item: dict[str, Any]) -> str:
+    parts = [
+        item.get("object_type"),
+        item.get("brand"),
+        item.get("model"),
+        item.get("serial_number"),
+        item.get("object_class_name"),
+    ]
+    value = " ".join(str(part).strip() for part in parts if part)
+    return f"{value} Gebrauchtpreis Alter Datenblatt".strip() or "Werkstattausstattung Gebrauchtpreis"
+
+
+def decode_search_url(value: str) -> str:
+    parsed = urlparse(value)
+    query = parse_qs(parsed.query)
+    if "uddg" in query and query["uddg"]:
+        return unquote(query["uddg"][0])
+    return value
+
+
+def web_search_sources(query: str, limit: int = 5) -> list[dict[str, str]]:
+    try:
+        response = httpx.get(
+            "https://duckduckgo.com/html/",
+            params={"q": query},
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=8,
+        )
+        response.raise_for_status()
+    except Exception:
+        return []
+
+    sources: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        response.text,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        raw_url, raw_title = match.groups()
+        url = decode_search_url(html.unescape(raw_url))
+        title = re.sub(r"<[^>]+>", "", raw_title)
+        title = html.unescape(re.sub(r"\s+", " ", title)).strip()
+        if not title or not url or url in seen:
+            continue
+        seen.add(url)
+        sources.append({"title": title[:180], "url": url})
+        if len(sources) >= limit:
+            break
+    return sources
+
+
+def estimate_value_range(item: dict[str, Any]) -> tuple[int, int]:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    )
+    ranges = [
+        (("hebebuehne", "hebebühne", "lift"), (1500, 12000)),
+        (("wuchtmaschine", "reifenmontiermaschine"), (800, 8000)),
+        (("kompressor",), (300, 4000)),
+        (("werkzeugwagen",), (100, 1500)),
+        (("notebook", "laptop", "thinkpad"), (120, 900)),
+        (("monitor", "display"), (40, 300)),
+        (("maus", "mouse", "tastatur", "keyboard"), (10, 80)),
+        (("reifen", "radsatz"), (80, 700)),
+    ]
+    base_min, base_max = 50, 500
+    for needles, price_range in ranges:
+        if any(needle in text for needle in needles):
+            base_min, base_max = price_range
+            break
+
+    multiplier = {
+        "neu": 1.0,
+        "sehr_gut": 0.8,
+        "gut": 0.65,
+        "gebraucht": 0.45,
+        "reparaturbeduerftig": 0.2,
+        "defekt": 0.08,
+        "aussondern": 0.03,
+    }.get(str(item.get("condition") or "gebraucht"), 0.45)
+    return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
+
+
+def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]]) -> float | None:
+    if item.get("estimated_age_years") is not None:
+        try:
+            return round(float(item["estimated_age_years"]), 1)
+        except (TypeError, ValueError):
+            pass
+    text = " ".join(
+        [str(item.get(key) or "") for key in ["object_type", "brand", "model", "serial_number"]]
+        + [source.get("title", "") for source in sources]
+    )
+    years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
+    if years:
+        return max(0.0, round(datetime.utcnow().year - max(years), 1))
+    return {
+        "neu": 0.5,
+        "sehr_gut": 2.0,
+        "gut": 4.0,
+        "gebraucht": 6.0,
+        "reparaturbeduerftig": 8.0,
+        "defekt": 10.0,
+        "aussondern": 12.0,
+    }.get(str(item.get("condition") or "gebraucht"), 6.0)
+
+
+def build_deep_dive_result(item_id: str) -> dict[str, Any]:
+    item = fetch_one(
+        """
+        SELECT i.*, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    query = deep_dive_query(item)
+    sources = web_search_sources(query)
+    value_min, value_max = estimate_value_range(item)
+    estimated_value = round((value_min + value_max) / 2)
+    estimated_age = estimate_age_years(item, sources)
+    return {
+        "ai_stage": "deep_dive",
+        "estimated_by_ai": True,
+        "web_search_performed": bool(sources),
+        "query": query,
+        "sources": sources,
+        "estimated_age_years": estimated_age,
+        "age_source": "schaetzung",
+        "age_verification_status": "geschaetzt",
+        "estimated_value": estimated_value,
+        "estimated_value_range": {"min": value_min, "max": value_max},
+        "value_source": "ki_web_schaetzung",
+        "notes": "KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen. Muss bei kaufmännischer Auswertung geprüft werden.",
+    }
+
+
+def process_deep_dive_item(item_id: str) -> None:
+    result = build_deep_dive_result(item_id)
+    execute(
+        """
+        INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
+        VALUES (%s, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed')
+        RETURNING *
+        """,
+        (
+            item_id,
+            "web-search+heuristic",
+            '["item_fields","web_search","reference_heuristic"]',
+            json_string(result),
+            0.55,
+        ),
+    )
+    execute(
+        """
+        UPDATE inventory_items
+        SET value_estimate = %s,
+            estimated_age_years = %s,
+            age_source = 'schaetzung',
+            age_verification_status = 'geschaetzt',
+            updated_at = now()
+        WHERE id = %s
+        RETURNING id
+        """,
+        (result["estimated_value"], result["estimated_age_years"], item_id),
+    )
+    audit("ai_deep_dive_created", "inventory_item", item_id, result)
+
+
 def process_ai_item(item_id: str, mode: str = "fast") -> None:
     normalized_mode = "review" if mode == "review" else "fast"
     execute(
@@ -1085,6 +1275,19 @@ def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") 
     audit("ai_job_queued", "inventory_item", item_id, {"status": queued_status, "stage": normalized_mode})
     label = "Prüf-KI" if normalized_mode == "review" else "Schnell-KI"
     return {"item_id": item_id, "status": queued_status, "stage": normalized_mode, "message": f"{label} läuft im Hintergrund"}
+
+@app.post("/items/{item_id}/ai/deep-dive")
+def run_ai_deep_dive(item_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    require_item_session_open(item_id)
+    background_tasks.add_task(process_deep_dive_item, item_id)
+    audit("ai_deep_dive_queued", "inventory_item", item_id, {"stage": "deep_dive"})
+    return {
+        "item_id": item_id,
+        "stage": "deep_dive",
+        "status": "queued",
+        "message": "KI Deep Dive gestartet: Websuche, Alters- und Wertschätzung laufen im Hintergrund",
+    }
+
 
 @app.post("/sessions/{session_id}/ai/review")
 def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:

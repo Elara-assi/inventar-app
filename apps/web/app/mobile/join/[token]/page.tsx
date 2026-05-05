@@ -270,6 +270,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   function saveCurrentItem() {
     if (busy) return;
     const savedLabel = activeItem?.inventory_id || activeItem?.temporary_id || "Objekt";
+    if (activeItem) {
+      api<AiJob>(`/items/${activeItem.id}/ai/run?mode=review`, { method: "POST", body: "{}" })
+        .catch(() => undefined);
+    }
     setActiveItem(null);
     setTranscript("");
     setPhotos({});
@@ -277,7 +281,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setAiSummary("");
     setSelectedTemplate(null);
     setTemplateQuery("");
-    setMessage(`${savedLabel} gespeichert. Bereit für nächstes Objekt.`);
+    setMessage(`${savedLabel} gespeichert. KI Check startet automatisch. Bereit für nächstes Objekt.`);
   }
 
   return (

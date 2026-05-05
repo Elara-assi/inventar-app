@@ -30,6 +30,17 @@ type AiSummary = {
   notes?: string;
   special_tool_matches?: ReferenceMatch[];
   inventory_history_matches?: ReferenceMatch[];
+  deep_dive?: {
+    estimated_by_ai?: boolean;
+    web_search_performed?: boolean;
+    query?: string;
+    sources?: Array<{ title?: string; url?: string }>;
+    estimated_age_years?: number | null;
+    estimated_value?: number | null;
+    estimated_value_range?: { min?: number; max?: number };
+    value_source?: string;
+    notes?: string;
+  } | null;
 };
 
 type ItemPhoto = {
@@ -325,6 +336,16 @@ function ItemReviewRow({
     }
   }
 
+  async function runDeepDive() {
+    try {
+      await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
+      setMessage("KI Deep Dive gestartet");
+      window.setTimeout(onChanged, 1200);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "KI Deep Dive konnte nicht gestartet werden");
+    }
+  }
+
   async function removeItem() {
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
@@ -362,6 +383,7 @@ function ItemReviewRow({
   const hints = item.process_hints ?? [];
   const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
+  const deepDive = item.ai_summary?.deep_dive;
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object") ?? itemPhotos[0];
   const photoUrl = mainPhoto ? `${API_BASE}/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
@@ -417,7 +439,7 @@ function ItemReviewRow({
             value={draft.value_estimate}
             onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
             inputMode="decimal"
-            placeholder="Schätzwert €"
+            placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
           />
         </div>
 
@@ -481,6 +503,28 @@ function ItemReviewRow({
             {message ? <span className="status pruefen">{message}</span> : null}
           </div>
         ) : null}
+        {deepDive ? (
+          <div className="deep-dive-box">
+            <div>
+              <strong>KI-Schätzung</strong>
+              <span>Diese Werte sind automatisch recherchiert und müssen bei Bedarf fachlich bestätigt werden.</span>
+            </div>
+            <div className="deep-dive-grid">
+              <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
+              <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
+              <span>Quelle: <b>{deepDive.web_search_performed ? "Websuche + KI" : "KI-Schätzung ohne Webtreffer"}</b></span>
+            </div>
+            {deepDive.sources?.length ? (
+              <div className="deep-dive-sources">
+                {deepDive.sources.slice(0, 3).filter((source) => source.url).map((source) => (
+                  <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
+                    {source.title || source.url}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="evidence-add-panel">
           <strong>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</strong>
           <div className="evidence-add-grid">
@@ -513,7 +557,8 @@ function ItemReviewRow({
             </select>
             <button className="btn secondary compact-btn" onClick={requestSelectedRework}>Nacharbeit setzen</button>
           </div>
-          <button className="btn secondary compact-btn" onClick={runReviewAi}>Prüf-KI</button>
+          <button className="btn secondary compact-btn" onClick={runReviewAi}>KI Check</button>
+          <button className="btn secondary compact-btn" onClick={runDeepDive}>KI Deep Dive</button>
           <button className="btn secondary compact-btn" onClick={exportItem}>Excel</button>
           <button className="btn danger icon-btn" onClick={removeItem} title="Löschen" aria-label="Gegenstand löschen">×</button>
         </div>

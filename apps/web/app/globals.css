@@ -2342,6 +2342,68 @@ body {
   box-shadow: 0 18px 42px rgba(15, 31, 58, 0.20);
 }
 
+.deep-dive-box {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+  padding: 12px;
+}
+
+.deep-dive-box > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.deep-dive-box strong {
+  color: #1e3a8a;
+}
+
+.deep-dive-box span {
+  color: #52657e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.deep-dive-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.deep-dive-grid span {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.deep-dive-grid b {
+  color: #0b172a;
+}
+
+.deep-dive-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.deep-dive-sources a {
+  max-width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 9px;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 760px) {
   .hero-strip h1 {
     font-size: 30px;
@@ -2351,5 +2413,9 @@ body {
   .qr-panel,
   .panel {
     padding: 16px;
+  }
+
+  .deep-dive-grid {
+    grid-template-columns: 1fr;
   }
 }
