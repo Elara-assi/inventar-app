@@ -89,6 +89,36 @@ const reworkOptions = [
   { role: "Buchhaltung", label: "Buchhaltung: Anlagenummer/Buchwert", missingField: "Anlagenummer/Buchwert" },
 ] as const;
 
+const evidencePhotoTypes = [
+  { type: "object", label: "Objektfoto", hint: "Gesamtansicht" },
+  { type: "nameplate", label: "Typenschild", hint: "Seriennummer" },
+  { type: "condition", label: "Rückseite/Zustand", hint: "Nachweis" },
+  { type: "dot", label: "DOT", hint: "Reifen" },
+  { type: "other", label: "Sonstiges", hint: "Zusatzfoto" },
+] as const;
+
+async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  const maxSide = photoType === "nameplate" || photoType === "dot" ? 1600 : 1200;
+  const quality = photoType === "nameplate" || photoType === "dot" ? 0.82 : 0.76;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    bitmap.close?.();
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
 export function ItemReviewList({
   items,
   objectClasses,
@@ -256,6 +286,21 @@ function ItemReviewRow({
     }
   }
 
+  async function uploadEvidencePhoto(photoType: string, file?: File) {
+    if (!file) return;
+    try {
+      setMessage("Foto wird hochgeladen");
+      const prepared = await compressEvidencePhoto(file, photoType);
+      const form = new FormData();
+      form.append("file", prepared);
+      await api(`/items/${item.id}/photos?photo_type=${photoType}`, { method: "POST", body: form });
+      setMessage("Foto ergänzt");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Foto konnte nicht hochgeladen werden");
+    }
+  }
+
   const blockers = item.blockers ?? [];
   const tasks = item.open_tasks ?? [];
   const hints = item.process_hints ?? [];
@@ -345,6 +390,27 @@ function ItemReviewRow({
             {message ? <span className="status pruefen">{message}</span> : null}
           </div>
         ) : null}
+        <div className="evidence-add-panel">
+          <strong>Fotos ergänzen</strong>
+          <div className="evidence-add-grid">
+            {evidencePhotoTypes.map((entry) => (
+              <label className="btn secondary evidence-upload" key={entry.type}>
+                <span>{entry.label}</span>
+                <small>{entry.hint}</small>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture={entry.type === "nameplate" || entry.type === "dot" ? "environment" : undefined}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void uploadEvidencePhoto(entry.type, file);
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </div>
         <div className="row-actions">
           <button className="btn accent" onClick={save}>Speichern</button>
           <button className="btn" onClick={finalize}>Finalisieren</button>
