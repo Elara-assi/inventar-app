@@ -1249,6 +1249,8 @@ def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_c
         return 3.0
     if "12700h" in lower_text or "rtx 3060" in lower_text or "rtx 3070" in lower_text:
         return 4.0
+    if "agile-splendor" in lower_text or ("ips" in lower_text and "monitor" in lower_text):
+        return 2.0
     years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
     if years:
         return max(0.0, round(datetime.utcnow().year - max(years), 1))
