@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { Bootstrap, api } from "@/lib/api";
+import { Bootstrap, ItemTemplate, api } from "@/lib/api";
 
 type Joined = {
   session: {
@@ -46,6 +46,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [joined, setJoined] = useState<Joined | null>(null);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [objectClassId, setObjectClassId] = useState("");
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templates, setTemplates] = useState<ItemTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<ItemTemplate | null>(null);
   const [transcript, setTranscript] = useState("");
   const [activeItem, setActiveItem] = useState<Item | null>(null);
   const [photos, setPhotos] = useState<Partial<Record<PhotoType, File>>>({});
@@ -82,6 +85,32 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return room?.name ?? "Raum";
   }, [bootstrap, joined]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const search = new URLSearchParams({ q: templateQuery, room: roomName, limit: "8" });
+      api<ItemTemplate[]>(`/item-templates?${search.toString()}`)
+        .then(setTemplates)
+        .catch(() => setTemplates([]));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [templateQuery, roomName]);
+
+  function applyTemplate(template: ItemTemplate) {
+    setSelectedTemplate(template);
+    setTemplateQuery(template.label);
+    if (template.object_class_id) setObjectClassId(template.object_class_id);
+    if (!activeItem) return;
+    api(`/items/${activeItem.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        object_type: template.object_type || template.label,
+        object_class_id: template.object_class_id || objectClassId || null,
+        brand: template.brand || null,
+        model: template.model || null,
+      }),
+    }).then(() => setMessage("Vorlage am Artikel gespeichert")).catch(() => setMessage("Vorlage gewählt"));
+  }
+
   async function ensureItem() {
     if (activeItem) return activeItem;
     if (!joined) throw new Error("Session noch nicht gekoppelt");
@@ -90,6 +119,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       body: JSON.stringify({
         session_id: joined.session.id,
         object_class_id: objectClassId,
+        object_type: selectedTemplate?.object_type || selectedTemplate?.label || null,
+        brand: selectedTemplate?.brand || null,
+        model: selectedTemplate?.model || null,
         condition: "gebraucht",
       }),
     });
@@ -239,6 +271,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setTranscript("");
     setPhotos({});
     setAiSummary("");
+    setSelectedTemplate(null);
+    setTemplateQuery("");
     setMessage(`${savedLabel} gespeichert. Bereit für nächstes Objekt.`);
   }
 
@@ -267,6 +301,35 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <span>{photos.object ? "Objektfoto bereit" : "Objektfoto aufnehmen"}</span>
           <small>{busy ? "Upload läuft" : "Foto steht im Mittelpunkt der Erfassung"}</small>
         </button>
+
+        <div className="template-picker">
+          <label className="field">
+            <span>Artikelvorlage suchen</span>
+            <input
+              value={templateQuery}
+              placeholder="z. B. Hebebühne, Wuchtmaschine, Dell, VAS"
+              onChange={(event) => {
+                setTemplateQuery(event.target.value);
+                setSelectedTemplate(null);
+              }}
+            />
+          </label>
+          {templates.length ? (
+            <div className="template-results">
+              {templates.map((template) => (
+                <button
+                  className={selectedTemplate?.id === template.id ? "template-result is-selected" : "template-result"}
+                  key={template.id}
+                  type="button"
+                  onClick={() => applyTemplate(template)}
+                >
+                  <strong>{template.label}</strong>
+                  <span>{template.source}{template.subtitle ? ` · ${template.subtitle}` : ""}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         <label className="field">
           <span>Objektklasse</span>

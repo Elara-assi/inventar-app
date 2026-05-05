@@ -17,7 +17,17 @@ from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 
 from .db import execute, fetch_all, fetch_one
-from .logic import audit, build_ai_suggestion, create_rework_tasks, finalization_blockers, next_inventory_id
+from .logic import (
+    WORKSHOP_REFERENCE_CATALOG,
+    audit,
+    build_ai_suggestion,
+    create_rework_tasks,
+    finalization_blockers,
+    load_inventory_history_references,
+    load_special_tool_references,
+    next_inventory_id,
+    tokenize_reference_text,
+)
 from .settings import settings
 
 app = FastAPI(title="Inventar API", version="0.1.0-phase1")
@@ -286,6 +296,105 @@ def bootstrap() -> dict[str, Any]:
         "rooms": fetch_all("SELECT * FROM rooms ORDER BY name"),
         "object_classes": fetch_all("SELECT * FROM object_classes ORDER BY name"),
     }
+
+
+def template_from_object_class(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"class:{row['id']}",
+        "source": "Objektklasse",
+        "label": row["name"],
+        "subtitle": row.get("description") or "Standard-Vorlage",
+        "object_type": row["name"],
+        "object_class_id": str(row["id"]),
+        "object_class_slug": row.get("slug"),
+        "brand": None,
+        "model": None,
+    }
+
+
+@app.get("/item-templates")
+def item_templates(q: str = "", room: str = "", limit: int = 8) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 12))
+    query = " ".join([q, room]).strip()
+    query_tokens = tokenize_reference_text(query)
+    object_classes = fetch_all("SELECT * FROM object_classes ORDER BY name")
+    class_by_slug = {row.get("slug"): row for row in object_classes}
+    templates: list[dict[str, Any]] = [template_from_object_class(row) for row in object_classes]
+
+    for entry in WORKSHOP_REFERENCE_CATALOG:
+        oc = class_by_slug.get(entry.get("slug"))
+        templates.append(
+            {
+                "id": f"workshop:{entry.get('slug')}",
+                "source": "Werkstattprofil",
+                "label": entry.get("object_class"),
+                "subtitle": ", ".join((entry.get("typical_brands") or [])[:4]),
+                "object_type": entry.get("object_class"),
+                "object_class_id": str(oc["id"]) if oc else None,
+                "object_class_slug": entry.get("slug"),
+                "brand": None,
+                "model": None,
+            }
+        )
+
+    for record in load_special_tool_references()[:600]:
+        label = record.get("designation_de") or record.get("designation_en") or record.get("vag_no") or record.get("order_no")
+        if not label:
+            continue
+        templates.append(
+            {
+                "id": f"special:{record.get('row_id') or record.get('vag_no') or record.get('order_no')}",
+                "source": "Spezialwerkzeug",
+                "label": label,
+                "subtitle": " · ".join(str(value) for value in [record.get("vag_no"), record.get("order_no"), record.get("source_file")] if value),
+                "object_type": label,
+                "object_class_id": None,
+                "object_class_slug": None,
+                "brand": None,
+                "model": record.get("vag_no") or record.get("order_no"),
+            }
+        )
+
+    for record in load_inventory_history_references()[:400]:
+        label = record.get("designation_de") or record.get("tool_no")
+        if not label:
+            continue
+        templates.append(
+            {
+                "id": f"history:{record.get('row_id') or record.get('tool_no')}",
+                "source": "Alte Aufnahme",
+                "label": label,
+                "subtitle": " · ".join(str(value) for value in [record.get("tool_no"), record.get("action"), record.get("list_name")] if value),
+                "object_type": label,
+                "object_class_id": None,
+                "object_class_slug": None,
+                "brand": None,
+                "model": record.get("tool_no"),
+            }
+        )
+
+    seen: set[str] = set()
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for template in templates:
+        key = "|".join(str(template.get(field) or "").lower() for field in ["label", "subtitle", "source"])
+        if key in seen:
+            continue
+        seen.add(key)
+        haystack = " ".join(str(template.get(field) or "") for field in ["label", "subtitle", "source", "object_class_slug"])
+        tokens = tokenize_reference_text(haystack)
+        if query_tokens:
+            score = len(query_tokens & tokens)
+            if str(template.get("label") or "").lower().startswith(q.lower().strip()):
+                score += 4
+            if score <= 0:
+                continue
+        else:
+            score = 1 if template["source"] in {"Objektklasse", "Werkstattprofil"} else 0
+            if score <= 0:
+                continue
+        scored.append((score, template))
+    scored.sort(key=lambda item: (item[0], item[1].get("source") == "Objektklasse"), reverse=True)
+    return [template for _, template in scored[:limit]]
 
 
 @app.post("/users")

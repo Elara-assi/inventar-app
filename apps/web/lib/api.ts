@@ -8,6 +8,18 @@ export type Bootstrap = {
   object_classes: Array<{ id: string; name: string; slug: string }>;
 };
 
+export type ItemTemplate = {
+  id: string;
+  source: string;
+  label: string;
+  subtitle?: string | null;
+  object_type?: string | null;
+  object_class_id?: string | null;
+  object_class_slug?: string | null;
+  brand?: string | null;
+  model?: string | null;
+};
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_BASE}${path}`, {

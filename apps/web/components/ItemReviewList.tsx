@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { API_BASE, Bootstrap, api } from "@/lib/api";
+import { API_BASE, Bootstrap, ItemTemplate, api } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
 type Task = {
@@ -193,6 +193,8 @@ function ItemReviewRow({
   });
   const [message, setMessage] = useState("");
   const [selectedRework, setSelectedRework] = useState<(typeof reworkOptions)[number]["label"]>(reworkOptions[0].label);
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templates, setTemplates] = useState<ItemTemplate[]>([]);
 
   useEffect(() => {
     setDraft({
@@ -206,6 +208,33 @@ function ItemReviewRow({
       review_status: item.review_status ?? "erfasst",
     });
   }, [item]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!templateQuery.trim()) {
+        setTemplates([]);
+        return;
+      }
+      const search = new URLSearchParams({ q: templateQuery, limit: "8" });
+      api<ItemTemplate[]>(`/item-templates?${search.toString()}`)
+        .then(setTemplates)
+        .catch(() => setTemplates([]));
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [templateQuery]);
+
+  function applyTemplate(template: ItemTemplate) {
+    setDraft((current) => ({
+      ...current,
+      object_type: template.object_type || template.label,
+      object_class_id: template.object_class_id || current.object_class_id,
+      brand: template.brand || current.brand,
+      model: template.model || current.model,
+    }));
+    setTemplateQuery(template.label);
+    setTemplates([]);
+    setMessage("Vorlage gewählt");
+  }
 
   async function save() {
     await api(`/items/${item.id}`, {
@@ -346,6 +375,24 @@ function ItemReviewRow({
             inputMode="decimal"
             placeholder="Schätzwert €"
           />
+        </div>
+
+        <div className="template-picker compact">
+          <input
+            value={templateQuery}
+            placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
+            onChange={(event) => setTemplateQuery(event.target.value)}
+          />
+          {templates.length ? (
+            <div className="template-results">
+              {templates.map((template) => (
+                <button className="template-result" key={template.id} type="button" onClick={() => applyTemplate(template)}>
+                  <strong>{template.label}</strong>
+                  <span>{template.source}{template.subtitle ? ` · ${template.subtitle}` : ""}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="item-review-selects">
