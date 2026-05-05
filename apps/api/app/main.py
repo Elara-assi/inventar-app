@@ -1111,13 +1111,38 @@ def ai_status_for_mode(mode: str, step: str) -> str:
     return matrix[normalized][step]
 
 
-def deep_dive_query(item: dict[str, Any]) -> str:
+def latest_ai_context(item_id: str) -> str:
+    row = fetch_one(
+        """
+        SELECT result_json
+        FROM ai_results
+        WHERE item_id = %s AND ai_type <> 'deep_dive'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (item_id,),
+    )
+    if not row:
+        return ""
+    result = row.get("result_json") or {}
+    parts = [
+        result.get("notes"),
+        result.get("brand"),
+        result.get("model"),
+        result.get("object_type"),
+        " ".join(str(value) for value in result.get("missing_fields") or []),
+    ]
+    return " ".join(str(part) for part in parts if part)
+
+
+def deep_dive_query(item: dict[str, Any], ai_context: str = "") -> str:
     parts = [
         item.get("object_type"),
         item.get("brand"),
         item.get("model"),
         item.get("serial_number"),
         item.get("object_class_name"),
+        ai_context,
     ]
     value = " ".join(str(part).strip() for part in parts if part)
     return f"{value} Gebrauchtpreis Alter Datenblatt".strip() or "Werkstattausstattung Gebrauchtpreis"
@@ -1163,16 +1188,20 @@ def web_search_sources(query: str, limit: int = 5) -> list[dict[str, str]]:
     return sources
 
 
-def estimate_value_range(item: dict[str, Any]) -> tuple[int, int]:
+def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[int, int]:
     text = " ".join(
         str(item.get(key) or "").lower()
         for key in ["object_type", "object_class_name", "brand", "model"]
-    )
+    ) + " " + ai_context.lower()
     ranges = [
         (("hebebuehne", "hebebühne", "lift"), (1500, 12000)),
         (("wuchtmaschine", "reifenmontiermaschine"), (800, 8000)),
         (("kompressor",), (300, 4000)),
         (("werkzeugwagen",), (100, 1500)),
+        (("rtx 4070", "14700hx"), (1600, 2600)),
+        (("rtx 4060", "13700hx", "13620h"), (1100, 2100)),
+        (("rtx 3060", "rtx 3070", "12700h"), (700, 1600)),
+        (("omen", "rog", "legion", "alienware", "gaming laptop"), (800, 1800)),
         (("notebook", "laptop", "thinkpad"), (120, 900)),
         (("monitor", "display"), (40, 300)),
         (("maus", "mouse", "tastatur", "keyboard"), (10, 80)),
@@ -1202,7 +1231,7 @@ def conservative_value_estimate(value_min: int, value_max: int) -> int:
     return max(1, round(lower_quartile * 0.9))
 
 
-def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]]) -> float | None:
+def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_context: str = "") -> float | None:
     if item.get("estimated_age_years") is not None:
         try:
             return round(float(item["estimated_age_years"]), 1)
@@ -1211,7 +1240,15 @@ def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]]) -> f
     text = " ".join(
         [str(item.get(key) or "") for key in ["object_type", "brand", "model", "serial_number"]]
         + [source.get("title", "") for source in sources]
+        + [ai_context]
     )
+    lower_text = text.lower()
+    if "14700hx" in lower_text or "rtx 4070" in lower_text:
+        return 2.0
+    if "13700hx" in lower_text or "13620h" in lower_text or "rtx 4060" in lower_text:
+        return 3.0
+    if "12700h" in lower_text or "rtx 3060" in lower_text or "rtx 3070" in lower_text:
+        return 4.0
     years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
     if years:
         return max(0.0, round(datetime.utcnow().year - max(years), 1))
@@ -1244,17 +1281,19 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     )
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    query = deep_dive_query(item)
+    ai_context = latest_ai_context(item_id)
+    query = deep_dive_query(item, ai_context)
     sources = web_search_sources(query)
-    value_min, value_max = estimate_value_range(item)
+    value_min, value_max = estimate_value_range(item, ai_context)
     estimated_value = conservative_value_estimate(value_min, value_max)
-    estimated_age = conservative_age_estimate(estimate_age_years(item, sources))
+    estimated_age = conservative_age_estimate(estimate_age_years(item, sources, ai_context))
     return {
         "ai_stage": "deep_dive",
         "estimated_by_ai": True,
         "estimation_policy": "konservativ",
         "web_search_performed": bool(sources),
         "query": query,
+        "technical_context": ai_context,
         "sources": sources,
         "estimated_age_years": estimated_age,
         "age_source": "schaetzung",
