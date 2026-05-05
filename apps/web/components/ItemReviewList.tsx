@@ -248,6 +248,7 @@ function ItemReviewRow({
   const [templateQuery, setTemplateQuery] = useState("");
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     setDraft({
@@ -429,6 +430,9 @@ function ItemReviewRow({
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const itemMeta = [draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
+  const issueCount = blockers.length + tasks.length + hints.filter((hint) => hint.severity === "warn" || hint.severity === "danger").length;
+  const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : deepDive?.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen";
+  const compactKi = deepDive ? `${deepDive.estimated_age_years ?? "?"} Jahre · ${deepDive.estimated_value ?? "?"} €` : item.status?.startsWith("ki_") ? "KI läuft" : "";
 
   return (
     <div className="item-row">
@@ -451,102 +455,119 @@ function ItemReviewRow({
           </div>
           <StatusBadge value={item.review_status} />
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>{itemPhotos.length || (item.has_object_photo ? 1 : 0)}/5 Fotos</span>
-          {item.has_nameplate_photo ? <span className="status geprueft">Typenschild</span> : null}
-          {item.has_dot_photo ? <span className="status geprueft">DOT</span> : null}
+          {issueCount ? <span className="status nacharbeit_pruefer">{issueCount} Hinweise</span> : null}
         </div>
 
-        {itemPhotos.length ? (
-          <div className="photo-strip">
-            {itemPhotos.map((photo, index) => {
-              const label = `${photoLabel} · ${photo.photo_type}`;
-              const url = `${API_BASE}/uploads/photos/${photo.id}`;
-              return (
-                <button key={photo.id} type="button" onClick={() => onOpenPhoto(url, label)} title={label}>
-                  <img src={url} alt={label} />
-                  <span>{index + 1}</span>
-                </button>
-              );
-            })}
+        <div className="item-compact-grid">
+          <span><b>Klasse</b>{objectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen"}</span>
+          <span><b>Zustand</b>{reviewStatusLabels[draft.condition] ?? draft.condition}</span>
+          <span><b>Bearbeitung</b>{reviewStatusLabels[draft.review_status] ?? draft.review_status}</span>
+          <span><b>Schätzwert</b>{compactValue}</span>
+          {compactKi ? <span><b>KI</b>{compactKi}</span> : null}
+        </div>
+
+        {itemPhotos.length > 1 ? (
+          <div className="photo-strip compact-strip">
+            {itemPhotos.slice(0, 5).map((photo, index) => {
+                const label = `${photoLabel} · ${photo.photo_type}`;
+                const url = `${API_BASE}/uploads/photos/${photo.id}`;
+                return (
+                  <button key={photo.id} type="button" onClick={() => onOpenPhoto(url, label)} title={label}>
+                    <img src={url} alt={label} />
+                    <span>{index + 1}</span>
+                  </button>
+                );
+              })}
           </div>
         ) : null}
 
-        <div className="item-main-fields">
-          <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
-          <input disabled={readOnly} value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
-          <input disabled={readOnly} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
-          <input disabled={readOnly} value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
-          <input
-            disabled={readOnly}
-            value={draft.value_estimate}
-            onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
-            inputMode="decimal"
-            placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
-          />
+        <div className="compact-row-actions">
+          <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen((current) => !current)}>
+            {editOpen ? "Schließen" : "Bearbeiten"}
+          </button>
+          <button className="btn" onClick={finalize} disabled={readOnly}>Finalisieren</button>
+          <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
 
-        <div className="template-picker compact">
-          <input
-            value={templateQuery}
-            disabled={readOnly}
-            placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
-            onChange={(event) => setTemplateQuery(event.target.value)}
-          />
-          {templates.length ? (
-            <div className="template-results">
-              {templates.map((template) => (
-                <button className="template-result" key={template.id} type="button" onClick={() => applyTemplate(template)}>
-                  <strong>{template.label}</strong>
-                  <span>{template.source}{template.subtitle ? ` · ${template.subtitle}` : ""}</span>
-                </button>
-              ))}
+        {editOpen ? (
+          <div className="item-edit-panel">
+            <div className="item-main-fields">
+              <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
+              <input disabled={readOnly} value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
+              <input disabled={readOnly} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
+              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
+              <input
+                disabled={readOnly}
+                value={draft.value_estimate}
+                onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
+                inputMode="decimal"
+                placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
+              />
             </div>
-          ) : null}
-        </div>
 
-        <div className="item-review-selects">
-          <label>
-            <span>Klasse</span>
-            <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
-              <option value="">Offen</option>
-              {objectClasses.map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Zustand</span>
-            <select disabled={readOnly} value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
-              {conditions.map((entry) => (
-                <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Bearbeitung</span>
-            <select disabled={readOnly} value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
-              {reviewStatuses.map((entry) => (
-                <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
-              ))}
-            </select>
-          </label>
-        </div>
+            <div className="template-picker compact">
+              <input
+                value={templateQuery}
+                disabled={readOnly}
+                placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
+                onChange={(event) => setTemplateQuery(event.target.value)}
+              />
+              {templates.length ? (
+                <div className="template-results">
+                  {templates.map((template) => (
+                    <button className="template-result" key={template.id} type="button" onClick={() => applyTemplate(template)}>
+                      <strong>{template.label}</strong>
+                      <span>{template.source}{template.subtitle ? ` · ${template.subtitle}` : ""}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
-        {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
-          <div className="item-row-notes">
-            {hints.map((hint) => <span className={`hint-badge ${hint.severity}`} key={hint.kind}>{hint.label}</span>)}
-            {firstSpecial ? (
-              <span className="hint-badge info">Referenz: {firstSpecial.designation_de || firstSpecial.vag_no || firstSpecial.source_file}</span>
+            <div className="item-review-selects">
+              <label>
+                <span>Klasse</span>
+                <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
+                  <option value="">Offen</option>
+                  {objectClasses.map((entry) => (
+                    <option key={entry.id} value={entry.id}>{entry.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Zustand</span>
+                <select disabled={readOnly} value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
+                  {conditions.map((entry) => (
+                    <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Bearbeitung</span>
+                <select disabled={readOnly} value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
+                  {reviewStatuses.map((entry) => (
+                    <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
+              <div className="item-row-notes">
+                {hints.map((hint) => <span className={`hint-badge ${hint.severity}`} key={hint.kind}>{hint.label}</span>)}
+                {firstSpecial ? (
+                  <span className="hint-badge info">Referenz: {firstSpecial.designation_de || firstSpecial.vag_no || firstSpecial.source_file}</span>
+                ) : null}
+                {firstHistory ? (
+                  <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
+                ) : null}
+                {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
+                {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{displayTaskRole(task.assigned_role)}: {displayTaskField(task.missing_field)}</span>)}
+                {message ? <span className="status pruefen">{message}</span> : null}
+              </div>
             ) : null}
-            {firstHistory ? (
-              <span className="hint-badge warn">Historie: {firstHistory.designation_de || firstHistory.tool_no || firstHistory.action || firstHistory.source_file}</span>
-            ) : null}
-            {blockers.map((blocker) => <span className="status upload_fehler" key={blocker}>{blocker}</span>)}
-            {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{displayTaskRole(task.assigned_role)}: {displayTaskField(task.missing_field)}</span>)}
-            {message ? <span className="status pruefen">{message}</span> : null}
-          </div>
-        ) : null}
-        {deepDive ? (
-          <details className="deep-dive-box">
+            {deepDive ? (
+              <details className="deep-dive-box">
             <summary>
               <strong>KI-Schätzung</strong>
               <span>
@@ -578,53 +599,51 @@ function ItemReviewRow({
                 ))}
               </div>
             ) : null}
-          </details>
-        ) : null}
-        <details className="evidence-add-panel">
-          <summary>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</summary>
-          <div className="evidence-add-grid">
-            {evidencePhotoTypes.map((entry) => (
-              <label className={`btn secondary evidence-upload ${readOnly ? "is-disabled" : ""}`} key={entry.type}>
-                <span>{entry.label}</span>
-                <small>{entry.hint}</small>
-                {readOnly ? null : <input
-                  type="file"
-                  accept="image/*"
-                  capture={entry.type === "nameplate" || entry.type === "dot" ? "environment" : undefined}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    void uploadEvidencePhoto(entry.type, file);
-                  }}
-                />}
-              </label>
-            ))}
-          </div>
-        </details>
-        <div className="row-actions">
-          <button className="btn accent" onClick={save} disabled={readOnly}>Speichern</button>
-          <button className="btn" onClick={finalize} disabled={readOnly}>Finalisieren</button>
-          <div className="rework-action">
-            <select disabled={readOnly} value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
-              {reworkOptions.map((option) => (
-                <option key={option.label} value={option.label}>{option.label}</option>
-              ))}
-            </select>
-            <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
-          </div>
-          <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>
-            Mehr
-          </button>
-          {moreOpen ? (
-            <div className="more-actions">
-              <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
-              <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
-              <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
-              <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
-              <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
+              </details>
+            ) : null}
+            <details className="evidence-add-panel">
+              <summary>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</summary>
+              <div className="evidence-add-grid">
+                {evidencePhotoTypes.map((entry) => (
+                  <label className={`btn secondary evidence-upload ${readOnly ? "is-disabled" : ""}`} key={entry.type}>
+                    <span>{entry.label}</span>
+                    <small>{entry.hint}</small>
+                    {readOnly ? null : <input
+                      type="file"
+                      accept="image/*"
+                      capture={entry.type === "nameplate" || entry.type === "dot" ? "environment" : undefined}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        void uploadEvidencePhoto(entry.type, file);
+                      }}
+                    />}
+                  </label>
+                ))}
+              </div>
+            </details>
+            <div className="row-actions">
+              <button className="btn accent" onClick={save} disabled={readOnly}>Speichern</button>
+              <div className="rework-action">
+                <select disabled={readOnly} value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
+                  {reworkOptions.map((option) => (
+                    <option key={option.label} value={option.label}>{option.label}</option>
+                  ))}
+                </select>
+                <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
+              </div>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+        {moreOpen ? (
+          <div className="more-actions">
+            <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
+            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
+            <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
+            <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
+            <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
