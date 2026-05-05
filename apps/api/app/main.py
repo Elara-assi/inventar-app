@@ -1385,6 +1385,11 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
         "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
         (final_status, item_id),
     )
+    if normalized_mode == "review":
+        try:
+            process_deep_dive_item(item_id)
+        except Exception as exc:
+            audit("ai_deep_dive_failed", "inventory_item", item_id, {"error": type(exc).__name__, "message": str(exc)[:240]})
     audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, **suggestion})
 
 
