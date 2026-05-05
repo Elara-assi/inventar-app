@@ -3722,10 +3722,68 @@ body:has(.premium-session-page) {
   font-weight: 760;
 }
 
+.premium-session-page .ai-process-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.premium-session-page .ai-process-strip span {
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.52);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
 .premium-session-page .room-hero-actions {
   align-items: center;
   flex-wrap: wrap;
   justify-content: end;
+}
+
+.premium-session-page .action-help {
+  position: relative;
+  display: inline-flex;
+}
+
+.premium-session-page .action-help small {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 40;
+  width: min(330px, 80vw);
+  display: none;
+  border: 1px solid rgba(191, 219, 254, 0.65);
+  border-radius: 14px;
+  background: #ffffff;
+  color: #26364d;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  padding: 11px 12px;
+}
+
+.premium-session-page .action-help small::before {
+  content: "";
+  position: absolute;
+  right: 22px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-left: 1px solid rgba(191, 219, 254, 0.65);
+  border-top: 1px solid rgba(191, 219, 254, 0.65);
+  background: #ffffff;
+  transform: rotate(45deg);
+}
+
+.premium-session-page .action-help:hover small,
+.premium-session-page .action-help:focus-within small {
+  display: block;
 }
 
 .premium-session-page .room-hero-actions .btn {

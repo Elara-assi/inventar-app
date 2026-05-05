@@ -116,16 +116,33 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
                 ? `Automatische Aktualisierung · zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`
                 : "Noch keine Objekte. Sobald das Handy speichert, füllt sich die Liste automatisch."}
             </p>
+            <div className="ai-process-strip" aria-label="KI-Ablauf">
+              <span>Upload: Schnellcheck</span>
+              <span>danach: automatischer KI-Check</span>
+              <span>Prüf-KI: Webrecherche & Schätzung</span>
+            </div>
           </div>
         </div>
         <div className="room-hero-actions">
           <span className={isClosed ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
-          <button className="btn secondary" onClick={runReviewAi} disabled={isClosed}>Prüf-KI starten</button>
-          <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
+          <span className="action-help">
+            <button className="btn secondary" onClick={runReviewAi} disabled={isClosed}>Prüf-KI starten</button>
+            <small>Startet die intensive Prüfung: Webrecherche, Alterslogik und konservative Schätzung. Normale KI-Prüfung läuft nach Upload automatisch.</small>
+          </span>
+          <span className="action-help">
+            <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
+            <small>Erzeugt die Raumaufnahme mit Fotos, Zeitpunkten, Aufnehmer, Prüfer, KI-Herkunft und Nacharbeiten.</small>
+          </span>
           {isClosed ? (
-            <button className="btn accent" onClick={reopenRoom}>Raum wieder öffnen</button>
+            <span className="action-help">
+              <button className="btn accent" onClick={reopenRoom}>Raum wieder öffnen</button>
+              <small>Hebt die Sperre auf, damit Gegenstände wieder bearbeitet und Handys erneut gekoppelt werden können.</small>
+            </span>
           ) : (
-            <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
+            <span className="action-help">
+              <button className="btn accent" onClick={closeRoom}>Raum abschließen</button>
+              <small>Sperrt den Raum gegen weitere Bearbeitung. Abschluss ist nur sinnvoll, wenn blockierende Vor-Ort-Punkte erledigt sind.</small>
+            </span>
           )}
         </div>
       </section>
