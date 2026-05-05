@@ -430,7 +430,13 @@ function ItemReviewRow({
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const itemMeta = [draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
-  const issueCount = blockers.length + tasks.length + hints.filter((hint) => hint.severity === "warn" || hint.severity === "danger").length;
+  const visibleHints = hints.filter((hint) => hint.severity === "warn" || hint.severity === "danger");
+  const issueLabels = [
+    ...blockers,
+    ...tasks.map((task) => `${displayTaskRole(task.assigned_role)}: ${displayTaskField(task.missing_field)}`),
+    ...visibleHints.map((hint) => hint.label),
+  ].filter(Boolean);
+  const issueCount = issueLabels.length;
   const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : deepDive?.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen";
   const compactKi = deepDive ? `${deepDive.estimated_age_years ?? "?"} Jahre · ${deepDive.estimated_value ?? "?"} €` : item.status?.startsWith("ki_") ? "KI läuft" : "";
 
@@ -455,7 +461,18 @@ function ItemReviewRow({
           </div>
           <StatusBadge value={item.review_status} />
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>{itemPhotos.length || (item.has_object_photo ? 1 : 0)}/5 Fotos</span>
-          {issueCount ? <span className="status nacharbeit_pruefer">{issueCount} Hinweise</span> : null}
+          {issueCount ? (
+            <span className="status nacharbeit_pruefer issue-tooltip" tabIndex={0}>
+              {issueCount} offene Punkte
+              <span className="issue-tooltip-panel">
+                <strong>Offene Punkte</strong>
+                {issueLabels.slice(0, 8).map((label, index) => (
+                  <small key={`${label}-${index}`}>{label}</small>
+                ))}
+                {issueLabels.length > 8 ? <small>+{issueLabels.length - 8} weitere</small> : null}
+              </span>
+            </span>
+          ) : null}
         </div>
 
         <div className="item-compact-grid">

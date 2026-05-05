@@ -3894,6 +3894,66 @@ body:has(.premium-session-page) {
   padding: 7px 10px;
 }
 
+.issue-tooltip {
+  position: relative;
+  cursor: help;
+}
+
+.issue-tooltip-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 30;
+  width: min(360px, 86vw);
+  display: none;
+  gap: 7px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(15, 31, 58, 0.22);
+  color: #0f1f3a;
+  padding: 13px 14px;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.issue-tooltip-panel::before {
+  content: "";
+  position: absolute;
+  right: 22px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-left: 1px solid #bfdbfe;
+  border-top: 1px solid #bfdbfe;
+  background: #ffffff;
+  transform: rotate(45deg);
+}
+
+.issue-tooltip:hover .issue-tooltip-panel,
+.issue-tooltip:focus .issue-tooltip-panel,
+.issue-tooltip:focus-within .issue-tooltip-panel {
+  display: grid;
+}
+
+.issue-tooltip-panel strong {
+  color: #0f1f3a;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.issue-tooltip-panel small {
+  display: block;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+  padding: 7px 9px;
+}
+
 .premium-session-page .item-compact-grid {
   grid-template-columns: minmax(150px, 1fr) minmax(110px, .7fr) minmax(150px, .9fr) minmax(110px, .65fr) minmax(120px, .7fr);
 }
