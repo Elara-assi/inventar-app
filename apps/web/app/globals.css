@@ -2415,41 +2415,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.ki-origin-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #bfdbfe;
-  border-radius: 10px;
-  background: #eff6ff;
-  padding: 9px 10px;
-  color: #1e3a8a;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.ki-origin-strip span {
-  border-radius: 999px;
-  background: #dbeafe;
-  padding: 4px 8px;
-  color: #1d4ed8;
-  text-transform: uppercase;
-  letter-spacing: .03em;
-  font-size: 11px;
-}
-
-.ki-origin-strip strong {
-  border-radius: 999px;
-  background: #ffffff;
-  padding: 4px 8px;
-}
-
-.ki-origin-strip small {
-  color: #52657e;
-  font-weight: 700;
-}
-
 .locked-strip {
   border: 1px solid #bfdbfe;
   border-radius: 10px;

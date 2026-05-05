@@ -422,7 +422,6 @@ function ItemReviewRow({
   const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
   const deepDive = item.ai_summary?.deep_dive;
-  const hasKiEstimate = Boolean(deepDive?.estimated_by_ai || item.age_source === "schaetzung");
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object") ?? itemPhotos[0];
   const photoUrl = mainPhoto ? `${API_BASE}/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
@@ -483,15 +482,6 @@ function ItemReviewRow({
             placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
           />
         </div>
-
-        {hasKiEstimate ? (
-          <div className="ki-origin-strip">
-            <span>KI-Herkunft</span>
-            {draft.value_estimate ? <strong>Schätzwert: KI konservativ</strong> : null}
-            {item.estimated_age_years ? <strong>Alter: KI geschätzt ({item.estimated_age_years} Jahre)</strong> : null}
-            <small>Automatische Werte sind Vorschläge und werden im Excel als KI gekennzeichnet.</small>
-          </div>
-        ) : null}
 
         <div className="template-picker compact">
           <input
