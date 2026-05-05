@@ -131,6 +131,11 @@ def ensure_upload_dirs() -> None:
         Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
 
 
+def demo_user_id() -> str | None:
+    row = fetch_one("SELECT id FROM users WHERE email = %s", (settings.demo_user_email,))
+    return str(row["id"]) if row else None
+
+
 def safe_upload_path(value: str) -> Path:
     root = Path(settings.upload_root).resolve()
     path = Path(value).resolve()
@@ -891,11 +896,15 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
+    reviewer_id = demo_user_id()
     allowed = list(data.keys())
-    sql = ", ".join([f"{key} = %s" for key in allowed])
+    sql_parts = [f"{key} = %s" for key in allowed]
+    if reviewer_id:
+        sql_parts.append("reviewed_by = COALESCE(reviewed_by, %s)")
+    sql = ", ".join(sql_parts)
     row = execute(
         f"UPDATE inventory_items SET {sql}, updated_at = now() WHERE id = %s RETURNING *",
-        tuple(data[key] for key in allowed) + (item_id,),
+        tuple(data[key] for key in allowed) + ((reviewer_id,) if reviewer_id else ()) + (item_id,),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -920,15 +929,18 @@ def finalize_item(item_id: str) -> dict[str, Any]:
     blockers = finalization_blockers(item_id)
     if blockers:
         raise HTTPException(status_code=409, detail={"message": "Item has blockers", "blockers": blockers})
+    user_id = demo_user_id()
     row = execute(
         """
         UPDATE inventory_items
         SET review_status = 'finalisiert', status = 'finalisiert',
             lifecycle_status = COALESCE(lifecycle_status, 'aktiv'),
+            reviewed_by = COALESCE(reviewed_by, %s),
+            finalized_by = COALESCE(finalized_by, %s),
             finalized_at = now(), updated_at = now()
         WHERE id = %s RETURNING *
         """,
-        (item_id,),
+        (user_id, user_id, item_id),
     )
     audit("item_finalized", "inventory_item", item_id, row)
     return row
@@ -1462,6 +1474,130 @@ def excel_value(value: Any) -> Any:
     return value
 
 
+def format_excel_datetime(value: Any) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return str(value)
+
+
+def label_status(value: Any) -> str:
+    labels = {
+        "erfasst": "Erfasst",
+        "ki_vorgefuellt": "KI vorgefüllt",
+        "nacharbeit_erfasser": "Noch zu ergänzen: Erfasser",
+        "nacharbeit_pruefer": "Noch zu ergänzen: Prüfer",
+        "nacharbeit_buchhaltung": "Später auswerten",
+        "nacharbeit_technik": "Noch zu ergänzen: Technik",
+        "finalisierbar": "Finalisierbar",
+        "geprueft": "Geprüft",
+        "finalisiert": "Finalisiert",
+        "ki_schnell_wartet": "Schnell-KI wartet",
+        "ki_schnell_laeuft": "Schnell-KI läuft",
+        "ki_schnell_fertig": "Schnell-KI fertig",
+        "ki_pruefung_offen": "Prüf-KI offen",
+        "ki_pruefung_wartet": "Prüf-KI wartet",
+        "ki_pruefung_laeuft": "Prüf-KI läuft",
+        "ki_pruefung_fertig": "Prüf-KI fertig",
+        "open": "Offen",
+        "closed": "Abgeschlossen",
+        "hochgeladen": "Hochgeladen",
+    }
+    return labels.get(str(value or ""), str(value or ""))
+
+
+def label_role(value: Any) -> str:
+    roles = {
+        "Buchhaltung": "Spätere kaufmännische Auswertung",
+        "Auswertung": "Spätere Auswertung",
+        "Prüfer": "Prüfer",
+        "Erfasser": "Erfasser",
+        "Technik": "Technik",
+    }
+    return roles.get(str(value or ""), str(value or "Nicht zugeordnet"))
+
+
+def label_field(value: Any) -> str:
+    raw = str(value or "").strip()
+    replacements = {
+        "serial_number": "Seriennummer",
+        "serial number": "Seriennummer",
+        "seriennummer": "Seriennummer",
+        "Seriennummer": "Seriennummer",
+        "model": "Modell",
+        "modell": "Modell",
+        "Modell": "Modell",
+        "Foto/Nachweis": "Foto oder Nachweisfoto",
+        "Typenschildfoto": "Typenschildfoto",
+        "dot_photo": "DOT-Foto",
+        "DOT-Foto": "DOT-Foto",
+        "Anschaffungsdatum": "Anschaffungsdatum später klären",
+        "Buchwert": "Wert später klären",
+        "Anlagenummer": "Zuordnung später klären",
+        "Anlagenummer/Buchwert": "Wert/Zuordnung später klären",
+        "Wert/Zuordnung später klären": "Wert/Zuordnung später klären",
+    }
+    if raw in replacements:
+        return replacements[raw]
+    return raw.replace("_", " ").strip().capitalize() if raw else "offen"
+
+
+def label_field_list(value: Any) -> str:
+    parts = [part.strip() for part in str(value or "").split(",") if part.strip()]
+    return ", ".join(label_field(part) for part in parts) if parts else ""
+
+
+def export_value(row: dict[str, Any], key: str) -> Any:
+    if key == "captured_by_name":
+        return row.get("created_by_name") or row.get("session_started_by_name") or "Nicht erfasst"
+    if key == "reviewed_by_name":
+        return row.get("reviewed_by_name") or ("Prüfer nicht gesetzt" if row.get("manual_reviewed_at") else "")
+    if key == "status_label":
+        return label_status(row.get("status"))
+    if key == "review_status_label":
+        return label_status(row.get("review_status"))
+    if key == "session_status_label":
+        return label_status(row.get("session_status"))
+    if key == "condition_label":
+        return str(row.get("condition") or "").replace("_", " ")
+    if key == "value_provenance":
+        if row.get("latest_deep_dive_at") and row.get("value_estimate") is not None:
+            return "KI-Schätzung, konservativ"
+        return "Manuell/ungeklärt" if row.get("value_estimate") is not None else ""
+    if key == "age_provenance":
+        if row.get("latest_deep_dive_at") and row.get("estimated_age_years") is not None:
+            return "KI-Altersschätzung, konservativ"
+        if row.get("age_source") and row.get("age_source") != "unbekannt":
+            return label_field(row.get("age_source"))
+        return ""
+    if key == "ai_value_note":
+        if row.get("latest_deep_dive_at"):
+            return "KI-Wert ist ein konservativer Richtwert und muss bei Bedarf fachlich bestätigt werden."
+        return ""
+    if key == "open_task_roles_label":
+        return ", ".join(label_role(part.strip()) for part in str(row.get("open_task_roles") or "").split(",") if part.strip())
+    if key == "open_task_fields_label":
+        return label_field_list(row.get("open_task_fields"))
+    if key in {
+        "created_at",
+        "updated_at",
+        "finalized_at",
+        "session_created_at",
+        "session_started_at",
+        "latest_ai_at",
+        "latest_deep_dive_at",
+        "manual_reviewed_at",
+        "first_photo_uploaded_at",
+        "last_photo_uploaded_at",
+    }:
+        return format_excel_datetime(row.get(key))
+    value = row.get(key)
+    if isinstance(value, bool):
+        return "ja" if value else "nein"
+    return value
+
+
 def filename_part(value: str | None, fallback: str) -> str:
     raw = (value or fallback).strip().lower()
     cleaned = "".join(ch if ch.isalnum() else "-" for ch in raw)
@@ -1520,15 +1656,107 @@ EXPORT_COLUMNS = [
 ]
 
 
+EXPORT_COLUMNS = [
+    ("Foto", "photo_cell"),
+    ("Betrieb", "location_name"),
+    ("Gebäude", "building_name"),
+    ("Raum", "room_name"),
+    ("Session-Status", "session_status_label"),
+    ("Session gestartet am", "session_started_at"),
+    ("Session gestartet von", "session_started_by_name"),
+    ("Inventar-ID", "inventory_id"),
+    ("Temporäre ID", "temporary_id"),
+    ("Objektart", "object_type"),
+    ("Objektklasse", "object_class_name"),
+    ("Kategorie", "category"),
+    ("Marke", "brand"),
+    ("Modell", "model"),
+    ("Seriennummer", "serial_number"),
+    ("Zustand", "condition_label"),
+    ("Bemerkung", "condition_note"),
+    ("Schätzwert EUR", "value_estimate"),
+    ("Schätzwert Herkunft", "value_provenance"),
+    ("KI-Wert Hinweis", "ai_value_note"),
+    ("Altersquelle", "age_source"),
+    ("Alter Herkunft", "age_provenance"),
+    ("Altersprüfung", "age_verification_status"),
+    ("Geschätztes Alter", "estimated_age_years"),
+    ("Herstellungsdatum", "manufacturing_date"),
+    ("Anschaffungsdatum", "acquisition_date"),
+    ("Inbetriebnahme", "commissioning_date"),
+    ("Kostenstelle", "cost_center"),
+    ("Kaufmännische Kategorie", "commercial_category"),
+    ("Buchhaltungsrelevanz", "accounting_relevance"),
+    ("Buchhaltungsstatus", "accounting_status"),
+    ("Später auswerten", "requires_accounting_review"),
+    ("Status", "status_label"),
+    ("Bearbeitung", "review_status_label"),
+    ("Lebenszyklus", "lifecycle_status"),
+    ("KI-Konfidenz", "confidence_score"),
+    ("KI zuletzt am", "latest_ai_at"),
+    ("KI Deep Dive am", "latest_deep_dive_at"),
+    ("KI Modell/Quelle", "latest_ai_model"),
+    ("Objektfoto", "has_object_photo"),
+    ("Typenschildfoto", "has_nameplate_photo"),
+    ("DOT-Foto", "has_dot_photo"),
+    ("Weitere Fotos", "photo_count"),
+    ("Sprachnotizen", "audio_count"),
+    ("Erstes Foto am", "first_photo_uploaded_at"),
+    ("Letztes Foto am", "last_photo_uploaded_at"),
+    ("Offene Nacharbeiten", "open_task_count"),
+    ("Nacharbeit Rollen", "open_task_roles_label"),
+    ("Nacharbeit Themen", "open_task_fields_label"),
+    ("Aufnehmer", "captured_by_name"),
+    ("Aufgenommen am", "created_at"),
+    ("Prüfer", "reviewed_by_name"),
+    ("Manuell geprüft am", "manual_reviewed_at"),
+    ("Finalisiert von", "finalized_by_name"),
+    ("Aktualisiert am", "updated_at"),
+    ("Finalisiert am", "finalized_at"),
+]
+
+
 def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     return fetch_all(
         f"""
         SELECT i.*, oc.name AS object_class_name,
           s.status AS session_status, s.created_at AS session_created_at,
+          s.started_at AS session_started_at, s.closed_at AS session_closed_at,
           l.name AS location_name, b.name AS building_name, r.name AS room_name,
+          session_starter.display_name AS session_started_by_name,
           creator.display_name AS created_by_name,
           reviewer.display_name AS reviewed_by_name,
           finalizer.display_name AS finalized_by_name,
+          (
+            SELECT ar.created_at
+            FROM ai_results ar
+            WHERE ar.item_id = i.id
+            ORDER BY ar.created_at DESC
+            LIMIT 1
+          ) AS latest_ai_at,
+          (
+            SELECT ar.model_used
+            FROM ai_results ar
+            WHERE ar.item_id = i.id
+            ORDER BY ar.created_at DESC
+            LIMIT 1
+          ) AS latest_ai_model,
+          (
+            SELECT ar.created_at
+            FROM ai_results ar
+            WHERE ar.item_id = i.id AND ar.ai_type = 'deep_dive'
+            ORDER BY ar.created_at DESC
+            LIMIT 1
+          ) AS latest_deep_dive_at,
+          (
+            SELECT al.created_at
+            FROM audit_log al
+            WHERE al.entity_type = 'inventory_item'
+              AND al.entity_id = i.id
+              AND al.action IN ('item_changed', 'status_changed', 'item_finalized')
+            ORDER BY al.created_at DESC
+            LIMIT 1
+          ) AS manual_reviewed_at,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
@@ -1546,6 +1774,8 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
             ORDER BY p.uploaded_at DESC
             LIMIT 1
           ) AS object_photo_path,
+          (SELECT min(p.uploaded_at) FROM item_photos p WHERE p.item_id = i.id) AS first_photo_uploaded_at,
+          (SELECT max(p.uploaded_at) FROM item_photos p WHERE p.item_id = i.id) AS last_photo_uploaded_at,
           (SELECT count(*)::int FROM item_photos p WHERE p.item_id = i.id) AS photo_count,
           (SELECT count(*)::int FROM item_audio_notes a WHERE a.item_id = i.id) AS audio_count,
           (SELECT count(*)::int FROM accounting_tasks t WHERE t.item_id = i.id AND t.status = 'open') AS open_task_count,
@@ -1565,6 +1795,7 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
         JOIN buildings b ON b.id = i.building_id
         JOIN rooms r ON r.id = i.room_id
         LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        LEFT JOIN users session_starter ON session_starter.id = s.started_by
         LEFT JOIN users creator ON creator.id = i.created_by
         LEFT JOIN users reviewer ON reviewer.id = i.reviewed_by
         LEFT JOIN users finalizer ON finalizer.id = i.finalized_by
@@ -1575,7 +1806,91 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
     )
 
 
-def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[str, Any]) -> Workbook:
+def task_action(role: str | None, field: str | None) -> str:
+    role_label = label_role(role)
+    field_label = label_field(field)
+    if role in {"Buchhaltung", "Auswertung"}:
+        return f"{field_label} nach der Raumaufnahme auswerten"
+    if role == "Erfasser":
+        return f"{field_label} im Raum ergänzen"
+    if role == "Technik":
+        return f"{field_label} technisch prüfen"
+    return f"{field_label} für {role_label} prüfen"
+
+
+def task_reason(role: str | None) -> str:
+    if role in {"Buchhaltung", "Auswertung"}:
+        return "Blockiert die schnelle Erfassung nicht; dient der späteren Auswertung."
+    if role == "Erfasser":
+        return "Fehlt für belastbaren Foto-/Objektnachweis im Raum."
+    if role == "Technik":
+        return "Technischer Nachweis oder Prüffrist ist noch offen."
+    return "Punkt ist für saubere Prüfung noch offen."
+
+
+def fetch_export_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    for item in rows:
+        if not item.get("id"):
+            continue
+        item_tasks = fetch_all(
+            """
+            SELECT *
+            FROM accounting_tasks
+            WHERE item_id = %s AND status = 'open'
+            ORDER BY created_at
+            """,
+            (item["id"],),
+        )
+        for task in item_tasks:
+            task["item"] = item
+            tasks.append(task)
+    return tasks
+
+
+def fetch_export_audit_rows(rows: list[dict[str, Any]], session_id: str | None, entity_id: str | None) -> list[dict[str, Any]]:
+    ids = [str(row["id"]) for row in rows if row.get("id")]
+    if session_id:
+        ids.append(session_id)
+    elif entity_id:
+        ids.append(entity_id)
+    audit_rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row_id in ids:
+        if row_id in seen:
+            continue
+        seen.add(row_id)
+        audit_rows.extend(fetch_all("SELECT * FROM audit_log WHERE entity_id = %s ORDER BY created_at ASC", (row_id,)))
+    return sorted(audit_rows, key=lambda row: row.get("created_at") or datetime.min)
+
+
+def audit_action_label(action: Any) -> str:
+    labels = {
+        "session_started": "Raum-Session gestartet",
+        "device_joined": "Handy gekoppelt",
+        "item_created": "Gegenstand angelegt",
+        "photo_uploaded": "Foto hochgeladen",
+        "audio_saved": "Sprachnotiz gespeichert",
+        "ai_job_queued": "KI gestartet",
+        "ai_result_created": "KI-Vorschlag erstellt",
+        "ai_deep_dive_created": "KI Deep Dive erstellt",
+        "item_changed": "Gegenstand manuell geändert",
+        "status_changed": "Status geändert",
+        "rework_requested": "Nacharbeit gesetzt",
+        "item_finalized": "Gegenstand finalisiert",
+        "session_closed": "Raum abgeschlossen",
+        "export_created": "Excel-Export erstellt",
+    }
+    return labels.get(str(action or ""), str(action or ""))
+
+
+def build_excel_workbook(
+    title: str,
+    rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+    session_id: str | None = None,
+    entity_id: str | None = None,
+) -> Workbook:
     wb = Workbook()
     ws = wb.active
     ws.title = "Inventur"
@@ -1585,15 +1900,18 @@ def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[s
         cell.fill = PatternFill("solid", fgColor="20343D")
 
     for row_index, row in enumerate(rows, start=2):
-        ws.append([excel_value(row.get(key)) for _, key in EXPORT_COLUMNS])
+        ws.append([excel_value(export_value(row, key)) for _, key in EXPORT_COLUMNS])
         insert_excel_photo(ws, row, row_index)
+        for column_index, (_, key) in enumerate(EXPORT_COLUMNS, start=1):
+            if key in {"value_provenance", "age_provenance", "ai_value_note", "latest_ai_at", "latest_deep_dive_at", "latest_ai_model"}:
+                ws.cell(row=row_index, column=column_index).fill = PatternFill("solid", fgColor="D9EAFE")
 
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions
     for index, (header, key) in enumerate(EXPORT_COLUMNS, start=1):
         max_length = len(header)
         for row in rows[:200]:
-            max_length = max(max_length, len(str(row.get(key) or "")))
+            max_length = max(max_length, len(str(export_value(row, key) or "")))
         ws.column_dimensions[get_column_letter(index)].width = 16 if key == "photo_cell" else min(max(max_length + 2, 12), 42)
 
     summary_ws = wb.create_sheet("Übersicht", 0)
@@ -1625,6 +1943,53 @@ def build_excel_workbook(title: str, rows: list[dict[str, Any]], summary: dict[s
     task_ws.auto_filter.ref = task_ws.dimensions
     for index in range(1, 9):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
+
+    if "Nacharbeiten" in wb.sheetnames:
+        del wb["Nacharbeiten"]
+    task_ws = wb.create_sheet("Nacharbeiten")
+    task_ws.append([
+        "Priorität", "Inventar-ID", "Objekt", "Klasse", "Raum", "Verantwortlich",
+        "Aufgabe", "Warum relevant", "Blockiert Finalisierung", "Status", "Erstellt am", "Erledigt am", "Hinweis"
+    ])
+    for task in fetch_export_tasks(rows):
+        item = task["item"]
+        role = task.get("assigned_role")
+        field = task.get("missing_field")
+        blocks = "ja" if role in {"Erfasser", "Prüfer", "Technik"} else "nein"
+        task_ws.append([
+            task.get("priority") or "normal",
+            item.get("inventory_id") or item.get("temporary_id"),
+            item.get("object_type") or "Unbekanntes Objekt",
+            item.get("object_class_name"),
+            item.get("room_name"),
+            label_role(role),
+            task_action(role, field),
+            task_reason(role),
+            blocks,
+            label_status(task.get("status")),
+            format_excel_datetime(task.get("created_at")),
+            format_excel_datetime(task.get("completed_at")),
+            task.get("comment") or "",
+        ])
+    task_ws.freeze_panes = "A2"
+    task_ws.auto_filter.ref = task_ws.dimensions
+    for index in range(1, 14):
+        task_ws.column_dimensions[get_column_letter(index)].width = 24
+
+    protocol_ws = wb.create_sheet("Protokoll")
+    protocol_ws.append(["Zeitpunkt", "Aktion", "Entität", "Benutzer", "Details"])
+    for audit_row in fetch_export_audit_rows(rows, session_id, entity_id):
+        protocol_ws.append([
+            format_excel_datetime(audit_row.get("created_at")),
+            audit_action_label(audit_row.get("action")),
+            audit_row.get("entity_type"),
+            audit_row.get("user_id") or "",
+            str(audit_row.get("new_value_json") or "")[:500],
+        ])
+    protocol_ws.freeze_panes = "A2"
+    protocol_ws.auto_filter.ref = protocol_ws.dimensions
+    for index, width in enumerate([22, 28, 22, 24, 80], start=1):
+        protocol_ws.column_dimensions[get_column_letter(index)].width = width
 
     return wb
 
@@ -1671,7 +2036,7 @@ def save_export(
 ) -> dict[str, Any]:
     ensure_upload_dirs()
     path = Path(settings.upload_root, "exports", filename)
-    wb = build_excel_workbook(title, rows, summary)
+    wb = build_excel_workbook(title, rows, summary, session_id=session_id, entity_id=entity_id)
     wb.save(path)
     export = execute(
         "INSERT INTO exports (session_id, export_type, file_path) VALUES (%s, %s, %s) RETURNING *",
@@ -1797,6 +2162,11 @@ def export_excel(session_id: str) -> dict[str, Any]:
             "Betrieb": session.get("location_name"),
             "Gebäude": session.get("building_name"),
             "Raum": session.get("room_name"),
+            "Aufnehmer": rows[0].get("session_started_by_name") if rows else None,
+            "Session gestartet am": format_excel_datetime(session.get("started_at") or session.get("created_at")),
+            "Erstes Objekt aufgenommen am": format_excel_datetime(min((row.get("created_at") for row in rows if row.get("created_at")), default=None)),
+            "Letzte Änderung am": format_excel_datetime(max((row.get("updated_at") for row in rows if row.get("updated_at")), default=None)),
+            "Prüfer": "siehe Inventur-Spalten Prüfer und Manuell geprüft am",
             "Objekte": len(rows),
             "Offene Nacharbeiten": sum(int(row.get("open_task_count") or 0) for row in rows),
         },
