@@ -161,7 +161,7 @@ Expected:
 Mobile input:
 
 ```text
-Nussbaum HebebÃ¼hne, Werkstattplatz 4, Zustand gut
+Nussbaum Hebebühne, Werkstattplatz 4, Zustand gut
 ```
 
 Actions:

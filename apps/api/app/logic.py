@@ -18,10 +18,14 @@ def next_inventory_id(location_code: str = "SIM") -> str:
     year = date.today().year
     prefix = f"SHR-{location_code}-{year}-"
     row = fetch_one(
-        "SELECT count(*)::int AS count FROM inventory_items WHERE inventory_id LIKE %s",
-        (prefix + "%",),
+        """
+        SELECT COALESCE(max(substring(inventory_id from %s)::int), 0)::int AS max_number
+        FROM inventory_items
+        WHERE inventory_id LIKE %s
+        """,
+        (len(prefix) + 1, prefix + "%"),
     )
-    return f"{prefix}{(row or {'count': 0})['count'] + 1:06d}"
+    return f"{prefix}{(row or {'max_number': 0})['max_number'] + 1:06d}"
 
 
 def audit(action: str, entity_type: str, entity_id: str | None, new_value: Any = None, reason: str | None = None):

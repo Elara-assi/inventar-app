@@ -1873,7 +1873,14 @@ def label_field(value: Any) -> str:
         "Modell": "Modell",
         "Foto/Nachweis": "Foto oder Nachweisfoto",
         "Typenschildfoto": "Typenschildfoto",
+        "object_front": "Objektfoto",
+        "object_back": "Rückseite/Detail",
+        "type_plate": "Typenschild",
+        "uvv_label": "UVV-Siegel",
+        "condition_detail": "Zustandsdetail",
+        "other": "Sonstiges Foto",
         "dot_photo": "DOT-Foto",
+        "dot": "DOT-Foto",
         "DOT-Foto": "DOT-Foto",
         "Anschaffungsdatum": "Anschaffungsdatum später klären",
         "Buchwert": "Wert später klären",
@@ -1883,7 +1890,8 @@ def label_field(value: Any) -> str:
     }
     if raw in replacements:
         return replacements[raw]
-    return raw.replace("_", " ").strip().capitalize() if raw else "offen"
+    label = raw.replace("_", " ").strip()
+    return f"{label[:1].upper()}{label[1:]}" if label else "offen"
 
 
 def label_field_list(value: Any) -> str:
