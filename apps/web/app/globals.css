@@ -2154,6 +2154,35 @@ body {
   margin: 0 0 8px;
 }
 
+.queue-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.queue-stats span,
+.capture-paused-note {
+  border: 1px solid #d8e2ef;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  color: #17324d;
+  font-weight: 800;
+}
+
+.queue-stats strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.capture-paused-note {
+  margin-top: 14px;
+  background: #eef6ff;
+  text-align: center;
+}
+
 .queue-warning-text {
   color: #9a3412;
   font-weight: 800;
