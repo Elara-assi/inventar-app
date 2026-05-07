@@ -4527,6 +4527,14 @@ body:has(.premium-session-page) {
   background: #fff1f2;
 }
 
+.mobile-app-version {
+  color: #5f6f86;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+}
+
 @media (max-width: 420px) {
   .bga-wizard-page {
     padding: 10px;

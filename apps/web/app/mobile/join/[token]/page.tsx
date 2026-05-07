@@ -146,6 +146,8 @@ const queueStatusLabels = {
   conflict: "Zuordnung prüfen",
 };
 
+const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "unbekannt";
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [deviceId, setDeviceId] = useState("");
@@ -914,6 +916,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         )) : null}
 
         {canCaptureInThisSession && !savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
+        <div className="mobile-app-version">App-Version: {appVersion}</div>
       </section>
     </main>
   );
