@@ -583,6 +583,8 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "Nutze special_tool_matches für exakte VAS-/V.A.G-/ASE-Nummern, Spezialwerkzeugnamen und bekannte Werkzeugbezeichnungen.",
             "Nutze inventory_history_matches für frühere Bestands-, Mängel-, UVV-, Wartungs- und Soll-Hinweise. Diese Hinweise sind prüfpflichtig und dürfen die schnelle Erfassung nicht blockieren.",
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
+            "Alter und Wert nur setzen, wenn eine belastbare Quelle sichtbar ist. Keine pauschalen Standardwerte wie 7 Jahre oder 11 Euro erfinden.",
+            "Wenn Alter oder Wert nur geraten wären: estimated_age_years=null, age_source=unbekannt, age_verification_status=offen.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
             "Reifenmontiermaschine: Montageteller, Montagearm, Abdrückschaufel und Pedale sprechen klar für Reifenmontiermaschine.",
             "Hebebühne: Säulen, Scherenhub, Tragarme, Plattform und Traglastschild sprechen klar für Hebebühne.",
@@ -759,6 +761,13 @@ def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug:
     oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
     if not oc:
         return
+    age_source = result.get("age_source") or "unbekannt"
+    age_verification_status = result.get("age_verification_status") or "offen"
+    estimated_age_years = result.get("estimated_age_years")
+    if age_source in {"schaetzung", "unbekannt"} or age_verification_status in {"geschaetzt", "nicht_ermittelbar"}:
+        age_source = "unbekannt"
+        age_verification_status = "offen"
+        estimated_age_years = None
     execute(
         """
         UPDATE inventory_items
@@ -781,9 +790,9 @@ def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug:
             bool(result.get("requires_accounting_review")),
             result.get("recommended_status") or "pruefen",
             result.get("confidence") or 0,
-            result.get("age_source") or "unbekannt",
-            result.get("age_verification_status") or "offen",
-            result.get("estimated_age_years"),
+            age_source,
+            age_verification_status,
+            estimated_age_years,
             item_id,
         ),
     )

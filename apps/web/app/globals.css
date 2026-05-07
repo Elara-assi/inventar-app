@@ -2134,6 +2134,12 @@ body {
   font-weight: 800;
 }
 
+.item-compact-grid span.ki-estimate-cell {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .item-compact-grid b {
   color: #52657e;
   font-size: 10px;

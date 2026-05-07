@@ -12,6 +12,7 @@ import {
   getOrCreateDeviceId,
   getQueueSummary,
   initQueue,
+  listQueueItems,
 } from "@/lib/offlineQueue";
 import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
 
@@ -40,14 +41,15 @@ type InspectionBook = "ja" | "nein" | "nicht_erforderlich" | "unklar";
 
 const steps = [
   "Objektfoto",
+  "Typenschild?",
+  "Typenschildfoto",
+  "KI-Vorschlag",
   "Bezeichnung",
   "Typ / Spezifikation",
-  "Typenschild",
   "Baujahr",
   "Zustand",
   "Funktion",
   "UVV",
-  "Prüfbuch",
   "Bemerkung",
   "Zusammenfassung",
 ];
@@ -84,6 +86,22 @@ type BgaForm = {
   type_plate_status: "vorhanden" | "nicht_vorhanden" | "uebersprungen" | "nicht_geprueft";
 };
 
+type ServerItemSuggestion = {
+  object_type?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  serial_number?: string | null;
+  specification?: string | null;
+  construction_year?: string | null;
+  condition?: string | null;
+  value_estimate?: number | string | null;
+  estimated_age_years?: number | string | null;
+  age_source?: string | null;
+  age_verification_status?: string | null;
+  confidence_score?: number | string | null;
+  status?: string | null;
+};
+
 const emptyForm: BgaForm = {
   object_type: "",
   specification: "",
@@ -93,7 +111,7 @@ const emptyForm: BgaForm = {
   function_ok: "nicht_geprueft",
   uvv_status: "unklar",
   uvv_valid_until: "",
-  inspection_book_available: "unklar",
+  inspection_book_available: "nicht_erforderlich",
   remark: "",
   type_plate_status: "nicht_geprueft",
 };
@@ -128,6 +146,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [isOnline, setIsOnline] = useState(true);
   const [syncMessage, setSyncMessage] = useState("");
   const [queueSummary, setQueueSummary] = useState<QueueSummary>(emptySummary);
+  const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
+  const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -359,6 +379,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setActiveItem(null);
       setForm(emptyForm);
       setPhotos([]);
+      setAiSuggestion(null);
+      setAiSuggestionMessage("");
       setStep(0);
       setMessage(`${savedLabel} lokal gespeichert. Bereit für nächstes Objekt.`);
       await runSync("Objekt wird synchronisiert.");
@@ -391,11 +413,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setActiveItem(null);
     setForm(emptyForm);
     setPhotos([]);
+    setAiSuggestion(null);
+    setAiSuggestionMessage("");
     setStep(0);
     setMessage("Bereit für nächstes Objekt");
   }
 
   const hasObjectPhoto = photos.some((photo) => photo.type === "object_front");
+  const hasTypePlatePhoto = photos.some((photo) => photo.type === "type_plate");
   const summaryBlockers = [
     !hasObjectPhoto ? "Objektfoto fehlt" : "",
     !form.object_type.trim() ? "Bezeichnung fehlt" : "",
@@ -407,8 +432,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     form.uvv_status === "nicht_vorhanden" ? "UVV nicht vorhanden" : "",
     form.uvv_status === "unklar" ? "UVV klären" : "",
     form.uvv_status === "vorhanden" && !form.uvv_valid_until ? "UVV-Datum offen" : "",
-    form.inspection_book_available === "nein" ? "Prüfbuch fehlt" : "",
-    form.inspection_book_available === "unklar" ? "Prüfbuch unklar" : "",
     form.type_plate_status === "vorhanden" && !photos.some((photo) => photo.type === "type_plate") ? "Typenschildfoto fehlt" : "",
   ].filter(Boolean);
   const syncText = !isOnline
@@ -417,7 +440,68 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       ? `Fehler – ${queueSummary.failed} Uploads erneut versuchen`
       : queueSummary.open
         ? `Upload läuft – ${queueSummary.open} Einträge offen`
-        : "Alles synchronisiert";
+      : "Alles synchronisiert";
+
+  async function findServerItemId(clientItemId: string) {
+    const entries = await listQueueItems();
+    return entries.find((entry) => entry.type === "item_draft" && entry.client_item_id === clientItemId && entry.server_item_id)?.server_item_id;
+  }
+
+  function applyAiSuggestion(item: ServerItemSuggestion) {
+    const specParts = [item.specification, item.brand, item.model, item.serial_number ? `SN ${item.serial_number}` : ""]
+      .filter(Boolean)
+      .map(String);
+    setForm((current) => ({
+      ...current,
+      object_type: current.object_type || item.object_type || "",
+      specification: current.specification || specParts.join(" · "),
+      construction_year: current.construction_year || item.construction_year || "",
+      condition: current.condition === "gebraucht" && item.condition ? item.condition : current.condition,
+      remark: current.remark || (item.status?.startsWith("ki_") ? "KI-Vorschlag vorhanden, bitte am Laptop/iPad prüfen." : current.remark),
+    }));
+    setAiSuggestion(item);
+    setAiSuggestionMessage("KI-Vorschlag übernommen. Bitte prüfen und bei Bedarf korrigieren.");
+  }
+
+  async function loadAiSuggestion() {
+    if (!activeItem || busy) return;
+    setBusy(true);
+    setAiSuggestionMessage("KI-Vorschlag wird vorbereitet.");
+    try {
+      await enqueueItemDraft({
+        session_id: joined?.session.id ?? "",
+        device_id: deviceId,
+        client_item_id: activeItem.id,
+        draft: buildDraft(activeItem.id),
+      });
+      await runSync("Fotos und Objekt werden für KI synchronisiert.");
+      let serverItemId = await findServerItemId(activeItem.id);
+      for (let attempt = 0; !serverItemId && attempt < 4; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+        serverItemId = await findServerItemId(activeItem.id);
+      }
+      if (!serverItemId) {
+        setAiSuggestionMessage("Objekt ist lokal gesichert. KI-Vorschlag kommt nach der Synchronisierung.");
+        return;
+      }
+      await api(`/items/${serverItemId}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
+      let serverItem: ServerItemSuggestion | null = null;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 900));
+        serverItem = await api<ServerItemSuggestion>(`/items/${serverItemId}`);
+        if (serverItem.object_type || serverItem.brand || serverItem.model || serverItem.serial_number || serverItem.status === "ki_fertig") break;
+      }
+      if (serverItem) {
+        applyAiSuggestion(serverItem);
+      } else {
+        setAiSuggestionMessage("Noch kein KI-Vorschlag verfügbar. Du kannst normal weiterarbeiten.");
+      }
+    } catch {
+      setAiSuggestionMessage("KI-Vorschlag ist gerade nicht verfügbar. Du kannst normal weiterarbeiten.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -484,7 +568,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </div> : null}
 
         {isBgaSession && !savedItem && step === 0 ? (
-          <WizardCard title="Objektfoto aufnehmen" hint="Objekt vollständig fotografieren. Pflichtfoto.">
+          <WizardCard title="Objektfoto aufnehmen" hint="Fotografiere das Objekt vollständig und gut erkennbar.">
             <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
               <span>Objektfoto aufnehmen</span>
               <small>{photos.filter((photo) => photo.type === "object_front").length ? "Objektfoto gespeichert" : "Pflichtfoto"}</small>
@@ -497,7 +581,46 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         ) : null}
 
         {isBgaSession && !savedItem && step === 1 ? (
-          <WizardCard title="Bezeichnung erfassen" hint="Kurz eintragen oder diktieren.">
+          <WizardCard title="Typenschild vorhanden?" hint="Falls sichtbar, direkt angeben. Das blockiert die Erfassung nicht.">
+            <div className="segmented">
+              <button className={form.type_plate_status === "vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "vorhanden")} type="button">Ja</button>
+              <button className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "nicht_vorhanden")} type="button">Nein</button>
+              <button className={form.type_plate_status === "uebersprungen" || form.type_plate_status === "nicht_geprueft" ? "is-active" : ""} onClick={() => update("type_plate_status", "uebersprungen")} type="button">Nicht erkennbar</button>
+            </div>
+          </WizardCard>
+        ) : null}
+
+        {isBgaSession && !savedItem && step === 2 ? (
+          <WizardCard title="Typenschild fotografieren" hint="Falls ein Typenschild vorhanden ist, bitte gut lesbar fotografieren.">
+            <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("type_plate")}>Typenschildfoto aufnehmen</button>
+            {form.type_plate_status !== "vorhanden" ? <p className="muted">Wenn kein Typenschild vorhanden oder erkennbar ist, einfach weitergehen.</p> : null}
+            {photos.some((photo) => photo.type === "type_plate") ? <PhotoPreviewList photos={photos.filter((photo) => photo.type === "type_plate")} labels={photoLabels} /> : null}
+          </WizardCard>
+        ) : null}
+
+        {isBgaSession && !savedItem && step === 3 ? (
+          <WizardCard title="KI-Vorschlag" hint="KI-Vorschlag starten, dann prüfen und korrigieren.">
+            <div className="summary-box info">
+              <strong>KI-Vorschlag – bitte prüfen</strong>
+              <span>Objektfoto und Typenschild helfen der KI. Ohne Netz oder ohne Sync kannst du normal weiterarbeiten.</span>
+              {aiSuggestionMessage ? <span>{aiSuggestionMessage}</span> : null}
+            </div>
+            {aiSuggestion ? (
+              <div className="summary-list">
+                <span><b>Vorschlag</b>{aiSuggestion.object_type || "offen"}</span>
+                <span><b>Typ/Spezifikation</b>{[aiSuggestion.specification, aiSuggestion.brand, aiSuggestion.model].filter(Boolean).join(" · ") || "offen"}</span>
+                <span><b>KI-Schätzung</b>{aiSuggestion.estimated_age_years || aiSuggestion.value_estimate ? `${aiSuggestion.estimated_age_years ?? "Alter offen"} Jahre · ${aiSuggestion.value_estimate ?? "Wert offen"} €` : "offen"}</span>
+              </div>
+            ) : null}
+            <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={() => void loadAiSuggestion()}>
+              KI-Vorschlag holen
+            </button>
+            {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
+          </WizardCard>
+        ) : null}
+
+        {isBgaSession && !savedItem && step === 4 ? (
+          <WizardCard title="Bezeichnung erfassen" hint="Kurz eintragen oder KI-Vorschlag prüfen.">
             <label className="field">
               <span>Bezeichnung</span>
               <input value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Ölschlucker" />
@@ -505,7 +628,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 2 ? (
+        {isBgaSession && !savedItem && step === 5 ? (
           <WizardCard title="Typ / Spezifikation" hint="Modell, Hersteller oder technische Daten erfassen.">
             <label className="field">
               <span>Typ / Spezifikation</span>
@@ -514,28 +637,17 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 3 ? (
-          <WizardCard title="Typenschild fotografieren" hint="Typenschild fotografieren, falls vorhanden.">
-            <div className="segmented">
-              <button className={form.type_plate_status === "vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "vorhanden")} type="button">vorhanden</button>
-              <button className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "nicht_vorhanden")} type="button">keines</button>
-              <button className={form.type_plate_status === "uebersprungen" ? "is-active" : ""} onClick={() => update("type_plate_status", "uebersprungen")} type="button">überspringen</button>
-            </div>
-            <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("type_plate")}>Typenschildfoto aufnehmen</button>
-            {photos.some((photo) => photo.type === "type_plate") ? <PhotoPreviewList photos={photos.filter((photo) => photo.type === "type_plate")} labels={photoLabels} /> : null}
-          </WizardCard>
-        ) : null}
-
-        {isBgaSession && !savedItem && step === 4 ? (
+        {isBgaSession && !savedItem && step === 6 ? (
           <WizardCard title="Baujahr erfassen" hint="Eintragen, wenn bekannt. Sonst leer lassen.">
             <label className="field">
               <span>Baujahr</span>
               <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
             </label>
+            {aiSuggestion?.estimated_age_years ? <p className="muted">KI-Schätzung: ca. {aiSuggestion.estimated_age_years} Jahre. Bitte nicht als gesichertes Baujahr übernehmen, wenn keine Quelle erkennbar ist.</p> : null}
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 5 ? (
+        {isBgaSession && !savedItem && step === 7 ? (
           <WizardCard title="Zustand erfassen" hint="Sichtbaren Zustand auswählen.">
             <label className="field">
               <span>Zustand</span>
@@ -557,7 +669,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 6 ? (
+        {isBgaSession && !savedItem && step === 8 ? (
           <WizardCard title="Funktion i. O." hint="Funktion kurz bewerten.">
             <div className="choice-grid">
               {[
@@ -571,7 +683,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 7 ? (
+        {isBgaSession && !savedItem && step === 9 ? (
           <WizardCard title="UVV / Prüffrist" hint="UVV-Siegel gut lesbar fotografieren.">
             <label className="field">
               <span>UVV Status</span>
@@ -591,21 +703,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 8 ? (
-          <WizardCard title="Prüfbuch vorhanden" hint="Prüfbuchstatus auswählen.">
-            <label className="field">
-              <span>Prüfbuch</span>
-              <select value={form.inspection_book_available} onChange={(event) => update("inspection_book_available", event.target.value as InspectionBook)}>
-                <option value="ja">Ja</option>
-                <option value="nein">Nein</option>
-                <option value="nicht_erforderlich">Nicht erforderlich</option>
-                <option value="unklar">Unklar</option>
-              </select>
-            </label>
-          </WizardCard>
-        ) : null}
-
-        {isBgaSession && !savedItem && step === 9 ? (
+        {isBgaSession && !savedItem && step === 10 ? (
           <WizardCard title="Bemerkung / Diktat" hint="Bemerkung diktieren oder eingeben.">
             <label className="field">
               <span>Bemerkung</span>
@@ -614,7 +712,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 10 ? (
+        {isBgaSession && !savedItem && step === 11 ? (
           <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
             <div className="summary-list">
               <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
@@ -623,7 +721,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <span><b>Zustand</b>{form.condition}</span>
               <span><b>Funktion</b>{form.function_ok}</span>
               <span><b>UVV</b>{form.uvv_status}{form.uvv_valid_until ? ` bis ${form.uvv_valid_until}` : ""}</span>
-              <span><b>Prüfbuch</b>{form.inspection_book_available}</span>
               <span><b>Fotos</b>{photos.length}/5</span>
             </div>
             {photos.length ? (

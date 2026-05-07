@@ -496,8 +496,13 @@ function ItemReviewRow({
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
-  const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : deepDive?.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen";
-  const compactKi = deepDive ? `${deepDive.estimated_age_years ?? "?"} Jahre · ${deepDive.estimated_value ?? "?"} €` : item.status?.startsWith("ki_") ? "KI läuft" : "";
+  const isAiEstimate = Boolean(deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt");
+  const compactValue = draft.value_estimate ? `${draft.value_estimate} €${isAiEstimate ? " (KI)" : ""}` : deepDive?.estimated_value ? `${deepDive.estimated_value} € (KI)` : "Wert offen";
+  const compactKi = deepDive
+    ? `${deepDive.estimated_age_years ?? "Alter offen"} Jahre · ${deepDive.estimated_value ?? "Wert offen"} €`
+    : isAiEstimate
+      ? `${item.estimated_age_years ?? "Alter offen"} Jahre · ${item.value_estimate ?? "Wert offen"} €`
+      : item.status?.startsWith("ki_") ? "KI läuft" : "";
 
   return (
     <div className="item-row">
@@ -529,7 +534,7 @@ function ItemReviewRow({
           <span><b>Funktion</b>{functionLabels[draft.function_ok] ?? draft.function_ok}</span>
           <span><b>UVV</b>{uvvLabels[draft.uvv_status] ?? draft.uvv_status}</span>
           <span><b>Schätzwert</b>{compactValue}</span>
-          {compactKi ? <span><b>KI</b>{compactKi}</span> : null}
+          {compactKi ? <span className={isAiEstimate ? "ki-estimate-cell" : ""}><b>{isAiEstimate ? "KI-Schätzung" : "KI"}</b>{compactKi}</span> : null}
         </div>
 
         {itemPhotos.length > 1 ? (
@@ -683,6 +688,7 @@ function ItemReviewRow({
                 {deepDive.web_search_performed ? " · Websuche" : ""}
               </span>
             </summary>
+            <p className="deep-dive-note">Schätzung – bitte prüfen. Manuelle Eingaben im Datensatz sind führend.</p>
             <div className="deep-dive-grid">
               <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
