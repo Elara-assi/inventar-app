@@ -355,7 +355,7 @@ export default function DashboardPage() {
       <section className="hero-strip">
         <div>
           <h1>Inventur starten</h1>
-          <p>Raum-Session anlegen, QR-Code anzeigen, Handy koppeln. Erfasser arbeitet mobil, Prüfer sieht Objekte live.</p>
+          <p>Mit dem Handy die Objekte schnell erfassen, mit dem Laptop/iPad bequem nacharbeiten.</p>
         </div>
         <div className="today-meta">
           <span>Heute</span>

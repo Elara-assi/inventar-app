@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="topbar-inner">
               <div className="brand">
                 Inventar Maschine
-                <span>Handy schnell erfassen. Prüfer entscheidet.</span>
+                <span>Mit dem Handy die Objekte schnell erfassen, mit dem Laptop/iPad bequem nacharbeiten.</span>
               </div>
               <span className="status ki_vorgefuellt">Phase 1</span>
             </div>
