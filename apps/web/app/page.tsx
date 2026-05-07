@@ -39,6 +39,10 @@ function sameName(left?: string | null, right?: string | null) {
   return cleanText(left).trim().toLowerCase() === cleanText(right).trim().toLowerCase();
 }
 
+function previewText(value: string) {
+  return value.trim() || "noch nicht angegeben";
+}
+
 function slugEmail(name: string) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9äöüß]+/gi, ".").replace(/^\.+|\.+$/g, "");
   return `${slug || "erfasser"}@example.local`;
@@ -152,36 +156,35 @@ export default function DashboardPage() {
     const buildingName = freeBuildingName.trim();
     const roomName = freeRoomName.trim();
 
-    const exactUser = bootstrap?.users.find((entry) => sameName(entry.display_name, userName));
-    const user = exactUser || bootstrap?.users.find((entry) => entry.id === selectedUser);
+    const exactUser = userName ? bootstrap?.users.find((entry) => sameName(entry.display_name, userName)) : undefined;
     const exactLocation = bootstrap?.locations.find((entry) => sameName(entry.name, locationName));
-    const location = exactLocation || bootstrap?.locations.find((entry) => entry.id === selectedLocation);
+    const location = exactLocation;
     const exactBuilding = bootstrap?.buildings.find((entry) => sameName(entry.name, buildingName) && (!location?.id || entry.location_id === location.id));
-    const building = exactBuilding || bootstrap?.buildings.find((entry) => entry.id === selectedBuilding && (!location?.id || entry.location_id === location.id));
+    const building = exactBuilding;
     const exactRoom = bootstrap?.rooms.find((entry) => {
       const candidateBuilding = bootstrap.buildings.find((buildingEntry) => buildingEntry.id === entry.building_id);
-      return sameName(entry.name, roomName) && (!location?.id || candidateBuilding?.location_id === location.id);
+      return sameName(entry.name, roomName)
+        && (!location?.id || candidateBuilding?.location_id === location.id)
+        && (!building?.id || entry.building_id === building.id);
     });
-    const room = exactRoom || bootstrap?.rooms.find((entry) => entry.id === selectedRoom);
-
-    if (!userName && !user) {
+    if (!userName) {
       setError("Bitte Erfasser aus den Vorschlägen wählen oder frei eingeben.");
       setMessage("");
       return;
     }
-    if (!roomName && !room) {
+    if (!roomName) {
       setError("Bitte Raum aus den Vorschlägen wählen oder frei eingeben.");
       setMessage("");
       return;
     }
-    if (!roomName && (!building || !location)) {
+    if ((!locationName || !buildingName) && !exactRoom) {
       setError("Kein Gebäude/Betrieb für den Raum gefunden.");
       setMessage("");
       return;
     }
 
     try {
-      let starterId = user?.id;
+      let starterId = exactUser?.id;
       if (userName && !exactUser) {
         const created = await createUser(userName);
         starterId = created?.id;
@@ -194,7 +197,7 @@ export default function DashboardPage() {
           location_name: locationName && !exactLocation ? locationName : undefined,
           building_id: buildingName && !exactBuilding ? undefined : building?.id,
           building_name: buildingName && !exactBuilding ? buildingName : undefined,
-          room_id: exactRoom ? exactRoom.id : roomName ? undefined : room?.id,
+          room_id: exactRoom ? exactRoom.id : undefined,
           room_name: exactRoom ? undefined : roomName || undefined,
           inventory_type: selectedInventoryType,
         }),
@@ -329,11 +332,11 @@ export default function DashboardPage() {
   }) ?? [];
   const roomOptions = selectedLocation ? selectedLocationRooms : (bootstrap?.rooms ?? []);
   const erfasserOptions = bootstrap?.users.filter((user) => user.roles?.includes("erfasser")) ?? [];
-  const selectedUserLabel = freeUserName || erfasserOptions.find((user) => user.id === selectedUser)?.display_name || "Erfasser offen";
-  const selectedLocationLabel = freeLocationName || bootstrap?.locations.find((location) => location.id === selectedLocation)?.name || "Betrieb offen";
-  const selectedBuildingLabel = freeBuildingName || bootstrap?.buildings.find((building) => building.id === selectedBuilding)?.name || "Gebäude offen";
-  const selectedRoomLabel = freeRoomName || roomOptions.find((room) => room.id === selectedRoom)?.name || "Raum offen";
+  const selectedUserLabel = previewText(freeUserName);
+  const selectedLocationLabel = previewText(freeLocationName);
   const selectedInventoryLabel = inventoryTypeLabel(selectedInventoryType);
+  const currentBuildingLabel = previewText(freeBuildingName);
+  const currentRoomLabel = previewText(freeRoomName);
   const summary: SessionSummary = {
     sessions: sessions.length,
     items: sessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0),
@@ -482,8 +485,8 @@ export default function DashboardPage() {
             <span>{selectedInventoryLabel}</span>
             <span>{selectedUserLabel}</span>
             <span>{selectedLocationLabel}</span>
-            <span>{selectedBuildingLabel}</span>
-            <span>{selectedRoomLabel}</span>
+            <span>{currentBuildingLabel}</span>
+            <span>{currentRoomLabel}</span>
           </div>
           <div className="qr-box">
             {activeSession ? <QRCodeSVG value={joinUrl(activeSession.join_token)} size={220} /> : <strong>QR erscheint nach Session-Start</strong>}
