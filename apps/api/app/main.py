@@ -2269,7 +2269,7 @@ def build_excel_workbook(
     summary_ws.column_dimensions["A"].width = 24
     summary_ws.column_dimensions["B"].width = 42
 
-    task_ws = wb.create_sheet("Offene Punkte / Nacharbeit")
+    task_ws = wb.create_sheet("Offene Punkte - Nacharbeit")
     task_ws.append(["Inventar-ID", "Objektart", "Rolle", "Feld / Thema", "Status", "Betrieb", "Gebäude", "Raum"])
     for row in rows:
         if not row.get("open_task_count"):
@@ -2289,9 +2289,9 @@ def build_excel_workbook(
     for index in range(1, 9):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
-    if "Offene Punkte / Nacharbeit" in wb.sheetnames:
-        del wb["Offene Punkte / Nacharbeit"]
-    task_ws = wb.create_sheet("Offene Punkte / Nacharbeit")
+    if "Offene Punkte - Nacharbeit" in wb.sheetnames:
+        del wb["Offene Punkte - Nacharbeit"]
+    task_ws = wb.create_sheet("Offene Punkte - Nacharbeit")
     task_ws.append([
         "Priorität", "Inventar-ID", "Objekt", "Klasse", "Raum", "Verantwortlich",
         "Aufgabe", "Warum relevant", "Blockiert Finalisierung", "Status", "Erstellt am", "Erledigt am", "Hinweis"
@@ -2321,7 +2321,7 @@ def build_excel_workbook(
     for index in range(1, 14):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
-    photos_ws = wb.create_sheet("Fotos / Nachweise")
+    photos_ws = wb.create_sheet("Fotos - Nachweise")
     photos_ws.append(["Objekt-ID", "Laufende Nr.", "Objekt", "Fotoart", "Dateiname", "Pfad/Link", "Aufgenommen am", "Hochgeladen am"])
     for photo in fetch_export_photos(rows):
         item = photo["item"]
