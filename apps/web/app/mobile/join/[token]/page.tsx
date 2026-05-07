@@ -16,6 +16,7 @@ import {
   getQueueSummary,
   initQueue,
   listQueueItems,
+  nextLocalSequenceNumber,
 } from "@/lib/offlineQueue";
 import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
 
@@ -35,6 +36,7 @@ type LocalItem = {
   inventory_id: string;
   temporary_id: string;
   server_item_id?: string;
+  sequence_number?: number;
 };
 
 type PhotoType = "object_front" | "object_back" | "type_plate" | "uvv_label" | "condition_detail" | "other";
@@ -305,16 +307,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     if (!isBgaSession) throw new Error(`${inventoryTypeLabel(inventoryType)} ist vorbereitet, aber noch nicht aktiv.`);
     if (!deviceId) throw new Error("Gerät wird noch vorbereitet");
     const clientItemId = createClientItemId();
+    const sequenceNumber = await nextLocalSequenceNumber(joined.session.id);
     const queued = await enqueueItemDraft({
       session_id: joined.session.id,
       device_id: deviceId,
       client_item_id: clientItemId,
+      sequence_number: sequenceNumber,
       draft: buildDraft(clientItemId),
     });
     const item: LocalItem = {
       id: queued.client_item_id,
       inventory_id: "",
-      temporary_id: `Lokal-${queued.client_item_id.slice(-6).toUpperCase()}`,
+      temporary_id: `Lokal-${sequenceNumber}`,
+      sequence_number: sequenceNumber,
     };
     setActiveItem(item);
     await refreshQueueSummary();
@@ -378,6 +383,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         device_id: deviceId,
         client_item_id: item.id,
         server_item_id: item.server_item_id,
+        sequence_number: item.sequence_number,
         photo_type: type,
         photo_blob: prepared,
         file_name: prepared.name,
@@ -410,6 +416,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         session_id: joined?.session.id ?? "",
         device_id: deviceId,
         client_item_id: item.id,
+        sequence_number: item.sequence_number,
         draft: buildDraft(item.id),
       });
       const savedLabel = form.object_type || item.inventory_id || item.temporary_id || "Entwurf";
@@ -552,6 +559,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         session_id: joined?.session.id ?? "",
         device_id: deviceId,
         client_item_id: activeItem.id,
+        sequence_number: activeItem.sequence_number,
         draft: buildDraft(activeItem.id),
       });
       await runSync("Fotos und Objekt werden für KI synchronisiert.");
@@ -603,9 +611,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <button
               className="btn secondary"
               type="button"
-              disabled={!isOnline}
-              onClick={() => void runSync("Synchronisierung läuft.")}
-              title={!isOnline ? "Synchronisierung startet, sobald Verbindung besteht." : undefined}
+              disabled={false}
+              onClick={() => void retrySync()}
+              title={!isOnline ? "Synchronisierung wird versucht. Wenn keine Verbindung besteht, bleiben die Daten lokal gesichert." : undefined}
             >
               Jetzt synchronisieren
             </button>
@@ -647,7 +655,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             )}
             <p className="muted">{syncDetail}</p>
             <div className="queue-actions">
-              <button className="btn accent" type="button" onClick={() => void runSync("Offene lokale Daten werden synchronisiert.")}>Jetzt synchronisieren</button>
+              <button className="btn accent" type="button" onClick={() => void retrySync()}>Jetzt synchronisieren</button>
               <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
             </div>
             {showQueueDetails ? (
@@ -938,9 +946,19 @@ function QueueDetailsPanel({
           <span>{queueTypeLabels[item.type]} {item.photo_type ? `· ${photoLabels[item.photo_type as PhotoType] ?? item.photo_type}` : ""}</span>
           <small>{queueStatusLabels[item.status]} · Session {item.session_id.slice(0, 8)} · {new Date(item.updated_at).toLocaleString("de-DE")}</small>
           {item.type === "photo_upload" ? (
-            <small>
-              Objekt-Zuordnung: {item.client_item_id ? "lokale ID vorhanden" : "lokale ID fehlt"} · Zielobjekt: {item.server_item_id ? item.server_item_id.slice(0, 8) : "noch nicht zugeordnet"}
-            </small>
+            <>
+              <small>
+                lokale Nr.: {item.sequence_number ?? "offen"} · Objekt-Zuordnung: {item.client_item_id ? "lokale ID vorhanden" : "lokale ID fehlt"} · Zielobjekt: {item.server_item_id ? item.server_item_id.slice(0, 8) : "noch nicht zugeordnet"}
+              </small>
+              <small>
+                Blob: {item.photo_blob ? "vorhanden" : "fehlt"} · Größe: {item.photo_blob?.size ?? item.file_size ?? 0} Byte · Typ: {item.photo_blob?.type || item.file_type || "unbekannt"}
+              </small>
+              <small>
+                Upload gestartet: {item.upload_started_at ? new Date(item.upload_started_at).toLocaleString("de-DE") : "nein"} · HTTP: {item.upload_response_status ?? "offen"}
+              </small>
+              {item.upload_debug ? <small>{item.upload_debug}</small> : null}
+              {item.upload_response_text ? <small>{item.upload_response_text}</small> : null}
+            </>
           ) : null}
           {item.last_error ? <small>{item.last_error}</small> : null}
         </div>

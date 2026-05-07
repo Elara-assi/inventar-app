@@ -17,6 +17,11 @@ export type QueueItem = {
   file_name?: string;
   file_type?: string;
   file_size?: number;
+  sequence_number?: number;
+  upload_started_at?: string;
+  upload_response_status?: number;
+  upload_response_text?: string;
+  upload_debug?: string;
   draft?: ItemDraftQueueData;
   created_at: string;
   updated_at: string;
@@ -123,6 +128,7 @@ export async function enqueueItemDraft(input: {
   session_id: string;
   device_id: string;
   client_item_id?: string;
+  sequence_number?: number;
   draft: ItemDraftQueueData;
 }): Promise<QueueItem> {
   const existing = input.client_item_id
@@ -136,6 +142,7 @@ export async function enqueueItemDraft(input: {
     device_id: input.device_id,
     client_item_id: input.client_item_id ?? createLocalId("client-item"),
     server_item_id: existing?.server_item_id,
+    sequence_number: input.sequence_number ?? existing?.sequence_number ?? (typeof input.draft.sequence_number === "number" ? input.draft.sequence_number : undefined),
     draft: input.draft,
     created_at: existing?.created_at ?? nowIso(),
     updated_at: nowIso(),
@@ -156,6 +163,7 @@ export async function enqueuePhotoUpload(input: {
   file_name: string;
   file_type: string;
   file_size: number;
+  sequence_number?: number;
   client_photo_id?: string;
 }): Promise<QueueItem> {
   const item: QueueItem = {
@@ -172,6 +180,7 @@ export async function enqueuePhotoUpload(input: {
     file_name: input.file_name,
     file_type: input.file_type,
     file_size: input.file_size,
+    sequence_number: input.sequence_number,
     created_at: nowIso(),
     updated_at: nowIso(),
     retry_count: 0,
@@ -241,7 +250,10 @@ export async function markUploadingAsPending(): Promise<void> {
 
 export async function markFailedAsPending(): Promise<void> {
   const failed = (await listQueueItems()).filter((item) => item.status === "failed");
-  await Promise.all(failed.map((item) => updateQueueStatus(item.id, "pending", { last_error: undefined })));
+  await Promise.all(failed.map((item) => updateQueueStatus(item.id, "pending", {
+    last_error: undefined,
+    upload_debug: "Fehler wurde für erneuten Versuch zurückgesetzt.",
+  })));
 }
 
 export async function discardQueueItems(ids?: string[]): Promise<void> {
@@ -300,4 +312,12 @@ export function createClientItemId() {
 
 export function createClientPhotoId() {
   return createLocalId("client-photo");
+}
+
+export async function nextLocalSequenceNumber(sessionId: string): Promise<number> {
+  const existingNumbers = (await listQueueItems())
+    .filter((item) => item.session_id === sessionId && item.type === "item_draft")
+    .map((item) => item.sequence_number ?? (typeof item.draft?.sequence_number === "number" ? item.draft.sequence_number : undefined))
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return existingNumbers.length ? Math.max(...existingNumbers) + 1 : 1;
 }
