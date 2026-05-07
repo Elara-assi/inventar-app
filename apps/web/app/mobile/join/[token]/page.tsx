@@ -937,6 +937,11 @@ function QueueDetailsPanel({
         <div className="queue-entry-row" key={item.id}>
           <span>{queueTypeLabels[item.type]} {item.photo_type ? `· ${photoLabels[item.photo_type as PhotoType] ?? item.photo_type}` : ""}</span>
           <small>{queueStatusLabels[item.status]} · Session {item.session_id.slice(0, 8)} · {new Date(item.updated_at).toLocaleString("de-DE")}</small>
+          {item.type === "photo_upload" ? (
+            <small>
+              Objekt-Zuordnung: {item.client_item_id ? "lokale ID vorhanden" : "lokale ID fehlt"} · Zielobjekt: {item.server_item_id ? item.server_item_id.slice(0, 8) : "noch nicht zugeordnet"}
+            </small>
+          ) : null}
           {item.last_error ? <small>{item.last_error}</small> : null}
         </div>
       ))}

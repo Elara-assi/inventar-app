@@ -1381,6 +1381,22 @@ def upsert_tire_wheel_data(item_id: str, data: dict[str, Any]) -> dict[str, Any]
     return row
 
 
+@app.get("/items/resolve-client")
+def resolve_client_item(session_id: str, source_device_id: str, client_item_id: str) -> dict[str, Any]:
+    row = fetch_one(
+        """
+        SELECT id, session_id, source_device_id, client_item_id
+        FROM inventory_items
+        WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+        LIMIT 1
+        """,
+        (session_id, source_device_id, client_item_id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Client item mapping not found")
+    return row
+
+
 @app.get("/items/{item_id}")
 def get_item(item_id: str) -> dict[str, Any]:
     row = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))

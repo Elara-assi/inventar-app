@@ -106,7 +106,19 @@ async function findServerItemId(item: QueueItem, allItems: QueueItem[]) {
       && entry.client_item_id === item.client_item_id
       && entry.server_item_id,
   );
-  return draft?.server_item_id;
+  if (draft?.server_item_id) return draft.server_item_id;
+  if (!item.session_id || !item.device_id || !item.client_item_id) return undefined;
+  try {
+    const params = new URLSearchParams({
+      session_id: item.session_id,
+      source_device_id: item.device_id,
+      client_item_id: item.client_item_id,
+    });
+    const resolved = await api<{ id: string }>(`/items/resolve-client?${params.toString()}`);
+    return resolved.id;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function syncPendingItems(): Promise<SyncResult> {
