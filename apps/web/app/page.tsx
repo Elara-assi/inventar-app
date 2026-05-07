@@ -14,6 +14,7 @@ type Session = {
   status: string;
   created_at?: string;
   item_count?: number;
+  started_by_name?: string | null;
 };
 
 type SessionSummary = {
@@ -613,7 +614,7 @@ export default function DashboardPage() {
                 <tr key={session.id}>
                   <td>
                     <strong>{session.room_name || "Raum"}</strong>
-                    <span>{session.room_id ? session.room_id.slice(0, 8) : "freie Session"}</span>
+                    <span title={session.id}>erfasst durch: {session.started_by_name || "nicht angegeben"}</span>
                   </td>
                   <td>
                     <strong>{session.location_name || "Betrieb"}</strong>
