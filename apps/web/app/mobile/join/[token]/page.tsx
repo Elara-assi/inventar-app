@@ -493,25 +493,34 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const openQueueIntro = openQueuePhotos
     ? `Es sind noch ${openQueuePhotos} Fotos auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`
     : `Es sind noch ${openQueueObjects} Objekte auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`;
-  const syncText = !isOnline
+  const otherSessionOpen = queueDetails?.otherSessionItems.length ?? 0;
+  const currentSessionOpen = queueDetails?.currentSessionItems.length ?? 0;
+  const hasQueueFailure = queueSummary.failed > 0;
+  const hasQueueConflict = queueSummary.conflict > 0;
+  const hasForeignQueue = otherSessionOpen > 0;
+  const shouldPauseForQueue = isBgaSession && (hasForeignQueue || hasQueueConflict);
+  const isCurrentSessionPendingOnly = hasOpenLocalQueue && currentSessionOpen > 0 && !hasForeignQueue && !hasQueueFailure && !hasQueueConflict;
+  const syncText = isCurrentSessionPendingOnly && !isOnline
+    ? "Offline-Erfassung aktiv"
+    : !isOnline
     ? "Offline – Daten werden lokal gespeichert"
-    : queueSummary.conflict
+    : hasQueueConflict
       ? `Übertragung prüfen – ${queueSummary.conflict} lokale Einträge`
-    : queueSummary.failed
+    : hasQueueFailure
       ? `Fehler – ${queueSummary.failed} Uploads erneut versuchen`
       : queueSummary.open
         ? `Upload läuft – ${queueSummary.open} Einträge offen`
       : "Alles synchronisiert";
-  const syncDetail = queueSummary.conflict
+  const syncDetail = isCurrentSessionPendingOnly
+    ? `${openQueueObjects} Objekte und ${openQueuePhotos} Fotos sind lokal auf diesem iPhone gesichert und werden später synchronisiert.`
+    : hasQueueConflict
     ? "Diese Daten gehören vermutlich zu einer alten oder gelöschten Session. Bitte Details prüfen. Testdaten kannst du bewusst verwerfen."
-    : queueSummary.failed
+    : hasQueueFailure
     ? "Die Fotos konnten noch nicht übertragen werden. Bitte WLAN/Mobilfunk prüfen und erneut synchronisieren."
     : queueSummary.pendingPhotos
       ? `${queueSummary.pendingPhotos} Fotos offen. Lokal gesichert, bis der Server den Upload bestätigt.`
       : syncMessage || "Lokale Queue ist leer.";
-  const otherSessionOpen = queueDetails?.otherSessionItems.length ?? 0;
-  const currentSessionOpen = queueDetails?.currentSessionItems.length ?? 0;
-  const canCaptureInThisSession = isBgaSession && !hasOpenLocalQueue;
+  const canCaptureInThisSession = isBgaSession && !shouldPauseForQueue;
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
@@ -585,20 +594,41 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <span className="live-indicator">Live</span>
         </div>
 
-        {isBgaSession && !hasOpenLocalQueue ? (
+        {isBgaSession && !shouldPauseForQueue ? (
           <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed || queueSummary.conflict ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
             <div>
               <strong>{syncText}</strong>
               <span>{syncDetail}</span>
             </div>
-            <button className="btn secondary" type="button" onClick={() => void runSync("Synchronisierung läuft.")}>Jetzt synchronisieren</button>
+            <button
+              className="btn secondary"
+              type="button"
+              disabled={!isOnline}
+              onClick={() => void runSync("Synchronisierung läuft.")}
+              title={!isOnline ? "Synchronisierung startet, sobald Verbindung besteht." : undefined}
+            >
+              Jetzt synchronisieren
+            </button>
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
+            {hasOpenLocalQueue ? <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button> : null}
           </div>
         ) : null}
 
-        {hasOpenLocalQueue && queueDetails ? (
+        {hasOpenLocalQueue && !shouldPauseForQueue && queueDetails && showQueueDetails ? (
+          <section className="wizard-card queue-detail-list">
+            <QueueDetailsPanel
+              queueDetails={queueDetails}
+              joinedSessionId={joined?.session.id}
+              discardConfirm={discardConfirm}
+              setDiscardConfirm={setDiscardConfirm}
+              discardOpenQueue={discardOpenQueue}
+            />
+          </section>
+        ) : null}
+
+        {shouldPauseForQueue && queueDetails ? (
           <section className="wizard-card queue-warning is-blocking">
-            <h2>Übertragung offen</h2>
+            <h2>Übertragung prüfen</h2>
             <p>
               {openQueueIntro} Bitte zuerst synchronisieren oder bewusst verwerfen, bevor du weiter erfasst.
             </p>
@@ -621,30 +651,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
             </div>
             {showQueueDetails ? (
-              <div className="queue-detail-list">
-                {queueDetails.sessions.map((session) => (
-                  <div className="queue-session-card" key={session.session_id}>
-                    <strong>{session.session_id === joined?.session.id ? "Aktuelle Session" : "Andere Session"}</strong>
-                    <span>Session: {session.session_id.slice(0, 8)}</span>
-                    <span>{session.objects} Objekte · {session.photos} Fotos · {session.failed} fehlgeschlagen · {session.conflict} zu prüfen</span>
-                  </div>
-                ))}
-                {queueDetails.openItems.slice(0, 12).map((item) => (
-                  <div className="queue-entry-row" key={item.id}>
-                    <span>{queueTypeLabels[item.type]} {item.photo_type ? `· ${photoLabels[item.photo_type as PhotoType] ?? item.photo_type}` : ""}</span>
-                    <small>{queueStatusLabels[item.status]} · Session {item.session_id.slice(0, 8)} · {new Date(item.updated_at).toLocaleString("de-DE")}</small>
-                    {item.last_error ? <small>{item.last_error}</small> : null}
-                  </div>
-                ))}
-                <div className="queue-discard-box">
-                  <strong>Lokale Daten verwerfen</strong>
-                  <span>Diese lokalen Daten wurden noch nicht vollständig übertragen. Nur verwenden, wenn es Testdaten sind oder die alte Session gelöscht wurde.</span>
-                  <input value={discardConfirm} onChange={(event) => setDiscardConfirm(event.target.value)} placeholder="VERWERFEN eingeben" />
-                  <button className="btn danger" type="button" disabled={discardConfirm !== "VERWERFEN"} onClick={() => void discardOpenQueue()}>
-                    Lokale Daten endgültig verwerfen
-                  </button>
-                </div>
-              </div>
+              <QueueDetailsPanel
+                queueDetails={queueDetails}
+                joinedSessionId={joined?.session.id}
+                discardConfirm={discardConfirm}
+                setDiscardConfirm={setDiscardConfirm}
+                discardOpenQueue={discardOpenQueue}
+              />
             ) : null}
             <div className="capture-paused-note">Erfassung pausiert, bis die lokale Übertragung geklärt ist.</div>
           </section>
@@ -895,6 +908,47 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         {canCaptureInThisSession && !savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
       </section>
     </main>
+  );
+}
+
+function QueueDetailsPanel({
+  queueDetails,
+  joinedSessionId,
+  discardConfirm,
+  setDiscardConfirm,
+  discardOpenQueue,
+}: {
+  queueDetails: QueueDetails;
+  joinedSessionId?: string;
+  discardConfirm: string;
+  setDiscardConfirm: (value: string) => void;
+  discardOpenQueue: () => void;
+}) {
+  return (
+    <div className="queue-detail-list">
+      {queueDetails.sessions.map((session) => (
+        <div className="queue-session-card" key={session.session_id}>
+          <strong>{session.session_id === joinedSessionId ? "Aktuelle Session" : "Andere Session"}</strong>
+          <span>Session: {session.session_id.slice(0, 8)}</span>
+          <span>{session.objects} Objekte · {session.photos} Fotos · {session.failed} fehlgeschlagen · {session.conflict} zu prüfen</span>
+        </div>
+      ))}
+      {queueDetails.openItems.slice(0, 12).map((item) => (
+        <div className="queue-entry-row" key={item.id}>
+          <span>{queueTypeLabels[item.type]} {item.photo_type ? `· ${photoLabels[item.photo_type as PhotoType] ?? item.photo_type}` : ""}</span>
+          <small>{queueStatusLabels[item.status]} · Session {item.session_id.slice(0, 8)} · {new Date(item.updated_at).toLocaleString("de-DE")}</small>
+          {item.last_error ? <small>{item.last_error}</small> : null}
+        </div>
+      ))}
+      <div className="queue-discard-box">
+        <strong>Lokale Daten verwerfen</strong>
+        <span>Diese lokalen Daten wurden noch nicht vollständig übertragen. Nur verwenden, wenn es Testdaten sind oder die alte Session gelöscht wurde.</span>
+        <input value={discardConfirm} onChange={(event) => setDiscardConfirm(event.target.value)} placeholder="VERWERFEN eingeben" />
+        <button className="btn danger" type="button" disabled={discardConfirm !== "VERWERFEN"} onClick={discardOpenQueue}>
+          Lokale Daten endgültig verwerfen
+        </button>
+      </div>
+    </div>
   );
 }
 
