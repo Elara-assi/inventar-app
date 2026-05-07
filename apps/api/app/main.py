@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import os
 import re
 import secrets
@@ -11,7 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
@@ -1610,6 +1611,23 @@ async def upload_photo(
     source_device_id: str | None = None,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
+    row, _ = await save_item_photo(
+        item_id=item_id,
+        file=file,
+        photo_type=photo_type,
+        client_photo_id=client_photo_id,
+        source_device_id=source_device_id,
+    )
+    return row
+
+
+async def save_item_photo(
+    item_id: str,
+    file: UploadFile,
+    photo_type: str = "object",
+    client_photo_id: str | None = None,
+    source_device_id: str | None = None,
+) -> tuple[dict[str, Any], bool]:
     ensure_upload_dirs()
     require_item_session_open(item_id)
     if client_photo_id and source_device_id:
@@ -1623,7 +1641,7 @@ async def upload_photo(
             (item_id, source_device_id, client_photo_id),
         )
         if existing:
-            return existing
+            return existing, True
     photo_count = fetch_one("SELECT count(*)::int AS count FROM item_photos WHERE item_id = %s", (item_id,))
     if photo_count and int(photo_count["count"]) >= 5:
         raise HTTPException(status_code=409, detail="Maximal 5 Fotos pro Gegenstand möglich")
@@ -1634,7 +1652,7 @@ async def upload_photo(
         (item_id, digest),
     )
     if duplicate:
-        return duplicate
+        return duplicate, True
     suffix = Path(file.filename or "upload.bin").suffix or ".bin"
     filename = f"{item_id}-{photo_type}-{digest[:12]}{suffix}"
     path = Path(settings.upload_root, "originals", filename)
@@ -1663,7 +1681,112 @@ async def upload_photo(
     )
     audit("photo_uploaded", "inventory_item", item_id, row)
     run_inventory_rework_check(item_id)
-    return row
+    return row, False
+
+
+@app.post("/offline-sync/items")
+async def offline_sync_item_bundle(payload: str = Form(...), files: list[UploadFile] = File(default=[])) -> dict[str, Any]:
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Sync-Paket ist kein gueltiges JSON") from exc
+    item_payload = parsed.get("item") if isinstance(parsed.get("item"), dict) else parsed
+    photo_meta = parsed.get("photos") if isinstance(parsed.get("photos"), list) else []
+    try:
+        body = ItemIn(**item_payload)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Sync-Paket ist unvollstaendig: {exc}") from exc
+    if not body.client_item_id or not body.source_device_id:
+        raise HTTPException(status_code=422, detail="client_item_id und source_device_id sind fuer Offline-Sync erforderlich")
+    session = get_session(body.session_id)
+    if session["status"] != "open":
+        raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
+    session_inventory_type = session.get("inventory_type") or "bga"
+    if body.inventory_type and body.inventory_type != session_inventory_type:
+        raise HTTPException(status_code=409, detail="Erfassungsart der Session kann nicht gemischt werden")
+
+    existing_before = fetch_one(
+        """
+        SELECT *
+        FROM inventory_items
+        WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+        LIMIT 1
+        """,
+        (body.session_id, body.source_device_id, body.client_item_id),
+    )
+    item = existing_before or create_item(body)
+    update_data = {
+        "object_type": body.object_type,
+        "brand": body.brand,
+        "model": body.model,
+        "serial_number": body.serial_number,
+        "condition": body.condition,
+        "condition_note": body.condition_note,
+        "created_by": body.created_by,
+        "specification": body.specification,
+        "construction_year": body.construction_year,
+        "function_ok": body.function_ok,
+        "uvv_status": body.uvv_status,
+        "uvv_valid_until": body.uvv_valid_until,
+        "inspection_book_available": body.inspection_book_available,
+        "remark": body.remark,
+        "type_plate_status": body.type_plate_status,
+    }
+    if body.object_class_id:
+        update_data["object_class_id"] = body.object_class_id
+    fields = list(update_data.keys())
+    item = execute(
+        f"""
+        UPDATE inventory_items
+        SET {", ".join(f"{field} = %s" for field in fields)}, updated_at = now()
+        WHERE id = %s
+        RETURNING *
+        """,
+        tuple(update_data[field] for field in fields) + (item["id"],),
+    )
+    audit("offline_item_synced", "inventory_item", str(item["id"]), {"client_item_id": body.client_item_id, "photos": len(photo_meta)})
+    run_inventory_rework_check(str(item["id"]))
+
+    photo_results: list[dict[str, Any]] = []
+    for index, meta in enumerate(photo_meta):
+        client_photo_id = str(meta.get("client_photo_id") or "") if isinstance(meta, dict) else ""
+        photo_type = str(meta.get("photo_type") or "object_front") if isinstance(meta, dict) else "object_front"
+        if index >= len(files):
+            photo_results.append({
+                "client_photo_id": client_photo_id,
+                "photo_type": photo_type,
+                "status": "failed",
+                "error": "Datei fehlt im Sync-Paket",
+            })
+            continue
+        try:
+            row, already_exists = await save_item_photo(
+                item_id=str(item["id"]),
+                file=files[index],
+                photo_type=photo_type,
+                client_photo_id=client_photo_id or None,
+                source_device_id=body.source_device_id,
+            )
+            photo_results.append({
+                "client_photo_id": client_photo_id,
+                "photo_type": photo_type,
+                "status": "already_exists" if already_exists else "synced",
+                "server_photo_id": str(row["id"]),
+            })
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            photo_results.append({
+                "client_photo_id": client_photo_id,
+                "photo_type": photo_type,
+                "status": "failed",
+                "error": detail,
+            })
+    return {
+        "server_item_id": str(item["id"]),
+        "client_item_id": body.client_item_id,
+        "created_or_updated": "updated" if existing_before else "created",
+        "photo_results": photo_results,
+    }
 
 
 @app.post("/items/{item_id}/audio")
