@@ -264,7 +264,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     });
   }, [joined, isBgaSession, refreshQueueSummary, runSync]);
 
-  const canSave = Boolean(activeItem && photos.some((photo) => photo.type === "object_front") && form.object_type.trim());
+  const hasManualInput = Boolean(
+    form.object_type.trim() ||
+    form.specification.trim() ||
+    form.construction_year.trim() ||
+    form.condition_note.trim() ||
+    form.uvv_valid_until ||
+    form.remark.trim() ||
+    form.type_plate_status !== "nicht_geprueft" ||
+    form.function_ok !== "nicht_geprueft" ||
+    form.uvv_status !== "unklar" ||
+    form.condition !== emptyForm.condition,
+  );
+  const canSaveDraft = Boolean(activeItem || photos.length || hasManualInput);
 
   function buildDraft(clientItemId: string) {
     return {
@@ -386,19 +398,21 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   async function saveObject() {
-    if (!canSave || !activeItem || busy) {
-      setMessage("Objektfoto und Bezeichnung sind erforderlich.");
+    if (!canSaveDraft || busy) {
+      setMessage("Noch keine Eingabe vorhanden. Bitte Foto aufnehmen oder eine Angabe erfassen.");
       return;
     }
     setBusy(true);
     try {
+      const item = activeItem ?? (await ensureItem());
+      const isCompleteCapture = photos.some((photo) => photo.type === "object_front") && Boolean(form.object_type.trim());
       await enqueueItemDraft({
         session_id: joined?.session.id ?? "",
         device_id: deviceId,
-        client_item_id: activeItem.id,
-        draft: { ...buildDraft(activeItem.id), review_status: "erfasst" },
+        client_item_id: item.id,
+        draft: buildDraft(item.id),
       });
-      const savedLabel = form.object_type || activeItem.inventory_id || activeItem.temporary_id || "Objekt";
+      const savedLabel = form.object_type || item.inventory_id || item.temporary_id || "Entwurf";
       setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
@@ -406,7 +420,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setAiSuggestion(null);
       setAiSuggestionMessage("");
       setStep(0);
-      setMessage(`${savedLabel} lokal gespeichert. Bereit für nächstes Objekt.`);
+      setMessage(
+        isCompleteCapture
+          ? `${savedLabel} lokal gespeichert. Bereit für nächstes Objekt.`
+          : "Offline oder Pflichtangaben fehlen. Das Objekt wurde lokal als Entwurf gesichert. Bitte später ergänzen und synchronisieren.",
+      );
       await runSync("Objekt wird synchronisiert.");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Objekt konnte lokal nicht gespeichert werden");
@@ -824,10 +842,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <div className="summary-checks">
               {summaryBlockers.length ? (
                 <div className="summary-box danger">
-                  <strong>Blockiert Speichern</strong>
+                  <strong>Fehlt für Abschluss</strong>
                   {summaryBlockers.map((entry) => <span key={entry}>{entry}</span>)}
+                  <span>Entwurf lokal speichern ist trotzdem möglich.</span>
                 </div>
-              ) : <div className="summary-box ok"><strong>Speichern möglich</strong><span>Pflichtfoto und Bezeichnung sind vorhanden.</span></div>}
+              ) : <div className="summary-box ok"><strong>Vollständig genug</strong><span>Pflichtfoto und Bezeichnung sind vorhanden.</span></div>}
               {summaryRework.length ? (
                 <div className="summary-box warn">
                   <strong>Erzeugt Nacharbeit</strong>
@@ -835,7 +854,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 </div>
               ) : <div className="summary-box ok"><strong>Keine automatische Nacharbeit</strong><span>Keine kritischen Hinweise in dieser Aufnahme.</span></div>}
             </div>
-            <button className="btn accent" type="button" disabled={!canSave || busy} onClick={saveObject}>Objekt speichern</button>
+            <button className="btn accent" type="button" disabled={!canSaveDraft || busy} onClick={saveObject}>
+              {summaryBlockers.length ? "Entwurf lokal speichern" : "Objekt speichern"}
+            </button>
             <button className="btn secondary" type="button" onClick={() => setStep(0)}>Zurück bearbeiten</button>
           </WizardCard>
         ) : null}
