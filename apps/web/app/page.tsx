@@ -31,6 +31,14 @@ type RoomDraft = {
   code: string;
 };
 
+type SessionPreviewSnapshot = {
+  inventoryType: InventoryType | string;
+  userName: string;
+  locationName: string;
+  buildingName: string;
+  roomName: string;
+};
+
 function cleanText(value?: string | null) {
   return value || "";
 }
@@ -69,8 +77,14 @@ export default function DashboardPage() {
   const [showRoomSuggestions, setShowRoomSuggestions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [activeSessionPreview, setActiveSessionPreview] = useState<SessionPreviewSnapshot | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
+  function beginNewPreparation() {
+    setActiveSession(null);
+    setActiveSessionPreview(null);
+  }
 
   async function load() {
     try {
@@ -167,6 +181,8 @@ export default function DashboardPage() {
         && (!location?.id || candidateBuilding?.location_id === location.id)
         && (!building?.id || entry.building_id === building.id);
     });
+    const roomBuilding = exactRoom ? bootstrap?.buildings.find((entry) => entry.id === exactRoom.building_id) : undefined;
+    const roomLocation = roomBuilding ? bootstrap?.locations.find((entry) => entry.id === roomBuilding.location_id) : undefined;
     if (!userName) {
       setError("Bitte Erfasser aus den Vorschlägen wählen oder frei eingeben.");
       setMessage("");
@@ -203,6 +219,13 @@ export default function DashboardPage() {
         }),
       });
       setActiveSession(session);
+      setActiveSessionPreview({
+        inventoryType: selectedInventoryType,
+        userName,
+        locationName: locationName || roomLocation?.name || session.location_name || "",
+        buildingName: buildingName || roomBuilding?.name || session.building_name || "",
+        roomName: roomName || session.room_name || "",
+      });
       setFreeUserName("");
       setFreeLocationName("");
       setFreeBuildingName("");
@@ -332,11 +355,12 @@ export default function DashboardPage() {
   }) ?? [];
   const roomOptions = selectedLocation ? selectedLocationRooms : (bootstrap?.rooms ?? []);
   const erfasserOptions = bootstrap?.users.filter((user) => user.roles?.includes("erfasser")) ?? [];
-  const selectedUserLabel = previewText(freeUserName);
-  const selectedLocationLabel = previewText(freeLocationName);
-  const selectedInventoryLabel = inventoryTypeLabel(selectedInventoryType);
-  const currentBuildingLabel = previewText(freeBuildingName);
-  const currentRoomLabel = previewText(freeRoomName);
+  const previewSource = activeSessionPreview;
+  const selectedUserLabel = previewText(previewSource?.userName ?? freeUserName);
+  const selectedLocationLabel = previewText(previewSource?.locationName ?? freeLocationName);
+  const selectedInventoryLabel = inventoryTypeLabel(previewSource?.inventoryType ?? selectedInventoryType);
+  const currentBuildingLabel = previewText(previewSource?.buildingName ?? freeBuildingName);
+  const currentRoomLabel = previewText(previewSource?.roomName ?? freeRoomName);
   const summary: SessionSummary = {
     sessions: sessions.length,
     items: sessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0),
@@ -386,7 +410,7 @@ export default function DashboardPage() {
             <div className="inventory-type-panel">
               <span><b>0</b> Was möchtest du erfassen?</span>
               <div className="inventory-type-grid">
-                <button className={selectedInventoryType === "bga" ? "is-active" : ""} type="button" onClick={() => setSelectedInventoryType("bga")}>
+                <button className={selectedInventoryType === "bga" ? "is-active" : ""} type="button" onClick={() => { beginNewPreparation(); setSelectedInventoryType("bga"); }}>
                   <strong>Betriebs- und Geschäftsausstattung</strong>
                   <small>Maschinen, Möbel, Geräte, Ausstattung</small>
                 </button>
@@ -408,6 +432,7 @@ export default function DashboardPage() {
                 value={freeUserName}
                 onChange={(event) => {
                   const name = event.target.value;
+                  beginNewPreparation();
                   setFreeUserName(name);
                   const exact = erfasserOptions.find((user) => sameName(user.display_name, name));
                   if (exact) setSelectedUser(exact.id);
@@ -423,6 +448,7 @@ export default function DashboardPage() {
                 value={freeLocationName}
                 onChange={(event) => {
                   const name = event.target.value;
+                  beginNewPreparation();
                   setFreeLocationName(name);
                   const exact = bootstrap?.locations.find((location) => sameName(location.name, name));
                   if (exact) {
@@ -442,6 +468,7 @@ export default function DashboardPage() {
                 value={freeBuildingName}
                 onChange={(event) => {
                   const name = event.target.value;
+                  beginNewPreparation();
                   setFreeBuildingName(name);
                   const exact = buildingOptions.find((building) => sameName(building.name, name));
                   if (exact) setSelectedBuilding(exact.id);
@@ -457,6 +484,7 @@ export default function DashboardPage() {
                 value={freeRoomName}
                 onChange={(event) => {
                   const name = event.target.value;
+                  beginNewPreparation();
                   setFreeRoomName(name);
                   const exact = roomOptions.find((room) => sameName(room.name, name));
                   if (exact) {
