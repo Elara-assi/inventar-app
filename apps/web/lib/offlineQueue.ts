@@ -21,6 +21,13 @@ export type QueueItem = {
   upload_started_at?: string;
   upload_url?: string;
   upload_debug_state?: string;
+  sync_run_id?: string;
+  sync_checked_at?: string;
+  health_checked?: boolean;
+  health_result?: string;
+  eligible_for_upload?: boolean;
+  skip_reason?: string;
+  fetch_started?: boolean;
   upload_response_status?: number;
   upload_response_text?: string;
   upload_debug?: string;

@@ -959,6 +959,11 @@ function QueueDetailsPanel({
               <small>
                 URL: {item.upload_url ?? "noch nicht gestartet"} · Status: {item.upload_debug_state ?? "offen"}
               </small>
+              <small>
+                Uploadfähig: {item.eligible_for_upload === undefined ? "offen" : item.eligible_for_upload ? "ja" : "nein"} · Health: {item.health_checked ? item.health_result ?? "geprüft" : "nicht geprüft"} · Fetch: {item.fetch_started ? "gestartet" : "nein"}
+              </small>
+              {item.sync_run_id ? <small>Sync: {item.sync_run_id} · geprüft: {item.sync_checked_at ? new Date(item.sync_checked_at).toLocaleString("de-DE") : "offen"}</small> : null}
+              {item.skip_reason ? <small>Grund: {item.skip_reason}</small> : null}
               {item.upload_debug ? <small>{item.upload_debug}</small> : null}
               {item.upload_response_text ? <small>{item.upload_response_text}</small> : null}
             </>
