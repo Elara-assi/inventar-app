@@ -4,6 +4,7 @@ import {
   clearOnlySyncedItems,
   getQueueSummary,
   listQueueItems,
+  markFailedAsPending,
   recoverInterruptedUploads,
   updateQueueStatus,
 } from "@/lib/offlineQueue";
@@ -26,6 +27,10 @@ export function limitConcurrentUploads() {
 }
 
 function cleanError(error?: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("Session not found") || message.includes("Item not found") || message.includes("Raum ist abgeschlossen")) {
+    return "Die ursprüngliche Session oder das Objekt ist nicht mehr verfügbar. Bitte Details prüfen oder lokale Daten bewusst verwerfen.";
+  }
   if (error instanceof Error && error.message.includes("Maximal 5 Fotos")) {
     return "Maximal 5 Fotos pro Gegenstand möglich.";
   }
@@ -33,6 +38,14 @@ function cleanError(error?: unknown) {
     return "Upload hat zu lange gedauert. Bitte Verbindung prüfen und erneut synchronisieren.";
   }
   return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
+}
+
+function isPermanentQueueError(error?: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return message.includes("Session not found")
+    || message.includes("Item not found")
+    || message.includes("Raum ist abgeschlossen")
+    || message.includes("Join token invalid");
 }
 
 async function postItemDraft(item: QueueItem) {
@@ -117,7 +130,7 @@ export async function syncPendingItems(): Promise<SyncResult> {
       await Promise.all(linkedPhotos.map((photo) => updateQueueStatus(photo.id, photo.status, { server_item_id: created.id })));
       synced += 1;
     } catch (error) {
-      await updateQueueStatus(item.id, "failed", { last_error: cleanError(error) });
+      await updateQueueStatus(item.id, isPermanentQueueError(error) ? "conflict" : "failed", { last_error: cleanError(error) });
       failed += 1;
     }
   }
@@ -133,10 +146,15 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
     (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading"),
   );
   for (const photo of photos) {
-    const serverItemId = await findServerItemId(photo, await listQueueItems());
+    const currentItems = await listQueueItems();
+    const serverItemId = await findServerItemId(photo, currentItems);
     if (!serverItemId) {
-      await updateQueueStatus(photo.id, "pending", {
-        last_error: "Objekt ist noch nicht vollständig synchronisiert. Foto bleibt lokal gespeichert.",
+      const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
+      const isUnrecoverable = !linkedDraft || linkedDraft.status === "failed" || linkedDraft.status === "conflict";
+      await updateQueueStatus(photo.id, isUnrecoverable ? "conflict" : "pending", {
+        last_error: isUnrecoverable
+          ? "Kein gültiges Server-Objekt für dieses Foto gefunden. Bitte Details prüfen oder lokale Daten bewusst verwerfen."
+          : "Objekt ist noch nicht vollständig synchronisiert. Foto bleibt lokal gespeichert.",
       });
       continue;
     }
@@ -147,7 +165,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       api(`/items/${serverItemId}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
       synced += 1;
     } catch (error) {
-      await updateQueueStatus(photo.id, "failed", { server_item_id: serverItemId, last_error: cleanError(error) });
+      await updateQueueStatus(photo.id, isPermanentQueueError(error) ? "conflict" : "failed", { server_item_id: serverItemId, last_error: cleanError(error) });
       failed += 1;
     }
   }
@@ -155,8 +173,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
 }
 
 export async function retryFailed(): Promise<SyncResult> {
-  const failedItems = (await listQueueItems()).filter((item) => item.status === "failed");
-  await Promise.all(failedItems.map((item) => updateQueueStatus(item.id, "pending", { last_error: undefined })));
+  await markFailedAsPending();
   return syncNow();
 }
 

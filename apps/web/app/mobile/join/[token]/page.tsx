@@ -5,11 +5,14 @@ import type { ChangeEvent, ReactNode, RefObject } from "react";
 import { Bootstrap, inventoryTypeLabel } from "@/lib/api";
 import { api } from "@/lib/api";
 import {
+  QueueDetails,
   QueueSummary,
   createClientItemId,
+  discardQueueItems,
   enqueueItemDraft,
   enqueuePhotoUpload,
   getOrCreateDeviceId,
+  getQueueDetails,
   getQueueSummary,
   initQueue,
   listQueueItems,
@@ -128,6 +131,19 @@ const emptySummary: QueueSummary = {
   failedPhotos: 0,
 };
 
+const queueTypeLabels = {
+  item_draft: "Objekt",
+  photo_upload: "Foto",
+};
+
+const queueStatusLabels = {
+  pending: "wartet",
+  uploading: "wird übertragen",
+  synced: "synchronisiert",
+  failed: "fehlgeschlagen",
+  conflict: "Konflikt",
+};
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [deviceId, setDeviceId] = useState("");
@@ -146,6 +162,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [isOnline, setIsOnline] = useState(true);
   const [syncMessage, setSyncMessage] = useState("");
   const [queueSummary, setQueueSummary] = useState<QueueSummary>(emptySummary);
+  const [queueDetails, setQueueDetails] = useState<QueueDetails | null>(null);
+  const [showQueueDetails, setShowQueueDetails] = useState(false);
+  const [discardConfirm, setDiscardConfirm] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
 
@@ -164,11 +183,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   const refreshQueueSummary = useCallback(async () => {
     try {
-      setQueueSummary(await getQueueSummary());
+      const [summary, details] = await Promise.all([
+        getQueueSummary(),
+        getQueueDetails(joined?.session.id),
+      ]);
+      setQueueSummary(summary);
+      setQueueDetails(details);
     } catch {
       setSyncMessage("Lokale Sync-Liste konnte nicht gelesen werden.");
     }
-  }, []);
+  }, [joined?.session.id]);
 
   useEffect(() => {
     initQueue()
@@ -404,6 +428,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
   }
 
+  async function discardOpenQueue() {
+    if (discardConfirm !== "VERWERFEN" || !queueDetails?.openItems.length) return;
+    await discardQueueItems(queueDetails.openItems.map((item) => item.id));
+    setDiscardConfirm("");
+    setShowQueueDetails(false);
+    setSyncMessage("Lokale Daten wurden bewusst verworfen.");
+    await refreshQueueSummary();
+  }
+
   function update<K extends keyof BgaForm>(key: K, value: BgaForm[K]) {
     setSavedItem(null);
     setForm((current) => ({ ...current, [key]: value }));
@@ -437,16 +470,24 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   ].filter(Boolean);
   const syncText = !isOnline
     ? "Offline – Daten werden lokal gespeichert"
+    : queueSummary.conflict
+      ? `Konflikt – ${queueSummary.conflict} lokale Einträge prüfen`
     : queueSummary.failed
       ? `Fehler – ${queueSummary.failed} Uploads erneut versuchen`
       : queueSummary.open
         ? `Upload läuft – ${queueSummary.open} Einträge offen`
       : "Alles synchronisiert";
-  const syncDetail = queueSummary.failed
+  const syncDetail = queueSummary.conflict
+    ? queueSummary.lastError || "Einträge können nicht sicher zugeordnet werden. Details prüfen oder bewusst verwerfen."
+    : queueSummary.failed
     ? `${queueSummary.failedPhotos} Fotos fehlgeschlagen. ${queueSummary.lastError || "Bitte Verbindung prüfen und erneut synchronisieren."}`
     : queueSummary.pendingPhotos
       ? `${queueSummary.pendingPhotos} Fotos offen. Lokal gesichert, bis der Server den Upload bestätigt.`
       : syncMessage || "Lokale Queue ist leer.";
+  const otherSessionOpen = queueDetails?.otherSessionItems.length ?? 0;
+  const currentSessionOpen = queueDetails?.currentSessionItems.length ?? 0;
+  const shouldPauseForOldQueue = Boolean(isBgaSession && otherSessionOpen > 0);
+  const canCaptureInThisSession = isBgaSession && !shouldPauseForOldQueue;
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
@@ -521,7 +562,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </div>
 
         {isBgaSession ? (
-          <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
+          <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed || queueSummary.conflict ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
             <div>
               <strong>{syncText}</strong>
               <span>{syncDetail}</span>
@@ -529,6 +570,52 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <button className="btn secondary" type="button" onClick={() => void runSync("Synchronisierung läuft.")}>Jetzt synchronisieren</button>
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
           </div>
+        ) : null}
+
+        {isBgaSession && queueDetails?.openItems.length ? (
+          <section className={`wizard-card queue-warning ${shouldPauseForOldQueue ? "is-blocking" : ""}`}>
+            <h2>Lokale Daten warten auf Synchronisierung</h2>
+            <p>
+              Es sind noch {queueDetails.openItems.length} nicht synchronisierte Einträge vorhanden:
+              {" "}{queueDetails.openItems.filter((item) => item.type === "item_draft").length} Objekte,
+              {" "}{queueDetails.openItems.filter((item) => item.type === "photo_upload").length} Fotos.
+            </p>
+            {shouldPauseForOldQueue ? (
+              <p className="queue-warning-text">Es gibt offene lokale Daten aus einer anderen Session. Bitte zuerst synchronisieren, Details prüfen oder bewusst verwerfen.</p>
+            ) : (
+              <p className="muted">Davon gehören {currentSessionOpen} Einträge zur aktuellen Session.</p>
+            )}
+            <div className="queue-actions">
+              <button className="btn accent" type="button" onClick={() => void runSync("Offene lokale Daten werden synchronisiert.")}>Jetzt synchronisieren</button>
+              <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
+            </div>
+            {showQueueDetails ? (
+              <div className="queue-detail-list">
+                {queueDetails.sessions.map((session) => (
+                  <div className="queue-session-card" key={session.session_id}>
+                    <strong>{session.session_id === joined?.session.id ? "Aktuelle Session" : "Andere Session"}</strong>
+                    <span>Session: {session.session_id.slice(0, 8)}</span>
+                    <span>{session.objects} Objekte · {session.photos} Fotos · {session.failed} fehlgeschlagen · {session.conflict} Konflikte</span>
+                  </div>
+                ))}
+                {queueDetails.openItems.slice(0, 12).map((item) => (
+                  <div className="queue-entry-row" key={item.id}>
+                    <span>{queueTypeLabels[item.type]} {item.photo_type ? `· ${photoLabels[item.photo_type as PhotoType] ?? item.photo_type}` : ""}</span>
+                    <small>{queueStatusLabels[item.status]} · Session {item.session_id.slice(0, 8)} · {new Date(item.updated_at).toLocaleString("de-DE")}</small>
+                    {item.last_error ? <small>{item.last_error}</small> : null}
+                  </div>
+                ))}
+                <div className="queue-discard-box">
+                  <strong>Lokale Daten verwerfen</strong>
+                  <span>Nur verwenden, wenn diese lokalen Daten nicht mehr benötigt werden oder die Session gelöscht wurde.</span>
+                  <input value={discardConfirm} onChange={(event) => setDiscardConfirm(event.target.value)} placeholder="VERWERFEN eingeben" />
+                  <button className="btn danger" type="button" disabled={discardConfirm !== "VERWERFEN"} onClick={() => void discardOpenQueue()}>
+                    Lokale Daten endgültig verwerfen
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
         ) : null}
 
         {joined && !isBgaSession ? (
@@ -539,18 +626,18 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </section>
         ) : null}
 
-        {isBgaSession ? <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
+        {canCaptureInThisSession ? <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
           <strong>{busy ? uploadState || "Bitte warten" : savedItem ? "Objekt gespeichert" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
           <span>{busy && uploadProgress ? `${uploadProgress}% lokal gesichert` : message}</span>
         </div> : null}
 
-        {isBgaSession && busy && uploadProgress ? (
+        {canCaptureInThisSession && busy && uploadProgress ? (
           <div className="upload-meter" aria-label="Upload-Fortschritt">
             <span style={{ width: `${uploadProgress}%` }} />
           </div>
         ) : null}
 
-        {isBgaSession && savedItem ? (
+        {canCaptureInThisSession && savedItem ? (
           <section className="wizard-card saved-card">
             <div className="saved-mark">✓</div>
             <h1>Objekt gespeichert</h1>
@@ -560,7 +647,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </section>
         ) : null}
 
-        {isBgaSession && !savedItem ? <div className="wizard-progress">
+        {canCaptureInThisSession && !savedItem ? <div className="wizard-progress">
           {steps.map((label, index) => (
             <button
               key={label}
@@ -573,7 +660,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           ))}
         </div> : null}
 
-        {isBgaSession && !savedItem && step === 0 ? (
+        {canCaptureInThisSession && !savedItem && step === 0 ? (
           <WizardCard title="Objektfoto aufnehmen" hint="Fotografiere das Objekt vollständig und gut erkennbar.">
             <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
               <span>Objektfoto aufnehmen</span>
@@ -586,7 +673,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 1 ? (
+        {canCaptureInThisSession && !savedItem && step === 1 ? (
           <WizardCard title="Typenschild vorhanden?" hint="Falls sichtbar, direkt angeben. Das blockiert die Erfassung nicht.">
             <div className="segmented">
               <button className={form.type_plate_status === "vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "vorhanden")} type="button">Ja</button>
@@ -596,7 +683,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 2 ? (
+        {canCaptureInThisSession && !savedItem && step === 2 ? (
           <WizardCard title="Typenschild fotografieren" hint="Falls ein Typenschild vorhanden ist, bitte gut lesbar fotografieren.">
             <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("type_plate")}>Typenschildfoto aufnehmen</button>
             {form.type_plate_status !== "vorhanden" ? <p className="muted">Wenn kein Typenschild vorhanden oder erkennbar ist, einfach weitergehen.</p> : null}
@@ -604,7 +691,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 3 ? (
+        {canCaptureInThisSession && !savedItem && step === 3 ? (
           <WizardCard title="KI-Vorschlag" hint="KI-Vorschlag starten, dann prüfen und korrigieren.">
             <div className="summary-box info">
               <strong>KI-Vorschlag – bitte prüfen</strong>
@@ -625,7 +712,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 4 ? (
+        {canCaptureInThisSession && !savedItem && step === 4 ? (
           <WizardCard title="Bezeichnung erfassen" hint="Kurz eintragen oder KI-Vorschlag prüfen.">
             <label className="field">
               <span>Bezeichnung</span>
@@ -634,7 +721,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 5 ? (
+        {canCaptureInThisSession && !savedItem && step === 5 ? (
           <WizardCard title="Typ / Spezifikation" hint="Modell, Hersteller oder technische Daten erfassen.">
             <label className="field">
               <span>Typ / Spezifikation</span>
@@ -643,7 +730,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 6 ? (
+        {canCaptureInThisSession && !savedItem && step === 6 ? (
           <WizardCard title="Baujahr erfassen" hint="Eintragen, wenn bekannt. Sonst leer lassen.">
             <label className="field">
               <span>Baujahr</span>
@@ -653,7 +740,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 7 ? (
+        {canCaptureInThisSession && !savedItem && step === 7 ? (
           <WizardCard title="Zustand erfassen" hint="Sichtbaren Zustand auswählen.">
             <label className="field">
               <span>Zustand</span>
@@ -675,7 +762,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 8 ? (
+        {canCaptureInThisSession && !savedItem && step === 8 ? (
           <WizardCard title="Funktion i. O." hint="Funktion kurz bewerten.">
             <div className="choice-grid">
               {[
@@ -689,7 +776,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 9 ? (
+        {canCaptureInThisSession && !savedItem && step === 9 ? (
           <WizardCard title="UVV / Prüffrist" hint="UVV-Siegel gut lesbar fotografieren.">
             <label className="field">
               <span>UVV Status</span>
@@ -709,7 +796,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 10 ? (
+        {canCaptureInThisSession && !savedItem && step === 10 ? (
           <WizardCard title="Bemerkung / Diktat" hint="Bemerkung diktieren oder eingeben.">
             <label className="field">
               <span>Bemerkung</span>
@@ -718,7 +805,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem && step === 11 ? (
+        {canCaptureInThisSession && !savedItem && step === 11 ? (
           <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
             <div className="summary-list">
               <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
@@ -753,12 +840,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {isBgaSession && !savedItem ? <div className="wizard-nav">
+        {canCaptureInThisSession && !savedItem ? <div className="wizard-nav">
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
           <button className="btn" type="button" disabled={step === steps.length - 1 || busy} onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>Weiter</button>
         </div> : null}
 
-        {isBgaSession ? (["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
+        {canCaptureInThisSession ? (["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
           <input
             key={type}
             ref={fileInputRefs[type]}
@@ -770,7 +857,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           />
         )) : null}
 
-        {isBgaSession && !savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
+        {canCaptureInThisSession && !savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
       </section>
     </main>
   );

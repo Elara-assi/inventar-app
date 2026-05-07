@@ -37,6 +37,22 @@ export type QueueSummary = {
   lastError?: string;
 };
 
+export type QueueDetails = {
+  openItems: QueueItem[];
+  currentSessionItems: QueueItem[];
+  otherSessionItems: QueueItem[];
+  sessions: Array<{
+    session_id: string;
+    total: number;
+    open: number;
+    objects: number;
+    photos: number;
+    failed: number;
+    conflict: number;
+    latest_at: string;
+  }>;
+};
+
 const DB_NAME = "inventar-offline-queue";
 const DB_VERSION = 1;
 const STORE_NAME = "queue_items";
@@ -175,6 +191,14 @@ export async function listQueueItems(): Promise<QueueItem[]> {
   });
 }
 
+export async function listOpenQueueItems(): Promise<QueueItem[]> {
+  return (await listQueueItems()).filter((item) => item.status !== "synced");
+}
+
+export async function listQueueItemsBySession(sessionId: string): Promise<QueueItem[]> {
+  return (await listQueueItems()).filter((item) => item.session_id === sessionId);
+}
+
 export async function updateQueueStatus(
   id: string,
   status: QueueStatus,
@@ -205,10 +229,49 @@ export async function clearOnlySyncedItems(): Promise<void> {
 }
 
 export async function recoverInterruptedUploads(): Promise<void> {
+  await markUploadingAsPending();
+}
+
+export async function markUploadingAsPending(): Promise<void> {
   const interrupted = (await listQueueItems()).filter((item) => item.status === "uploading");
   await Promise.all(interrupted.map((item) => updateQueueStatus(item.id, "pending", {
     last_error: "Synchronisierung wurde unterbrochen und wird erneut versucht.",
   })));
+}
+
+export async function markFailedAsPending(): Promise<void> {
+  const failed = (await listQueueItems()).filter((item) => item.status === "failed");
+  await Promise.all(failed.map((item) => updateQueueStatus(item.id, "pending", { last_error: undefined })));
+}
+
+export async function discardQueueItems(ids?: string[]): Promise<void> {
+  const items = ids?.length ? (await listQueueItems()).filter((item) => ids.includes(item.id)) : await listOpenQueueItems();
+  await Promise.all(items.map((item) => removeSyncedQueueItem(item.id)));
+}
+
+export async function getQueueDetails(currentSessionId?: string | null): Promise<QueueDetails> {
+  const openItems = await listOpenQueueItems();
+  const currentSessionItems = currentSessionId ? openItems.filter((item) => item.session_id === currentSessionId) : [];
+  const otherSessionItems = currentSessionId ? openItems.filter((item) => item.session_id !== currentSessionId) : openItems;
+  const grouped = new Map<string, QueueItem[]>();
+  for (const item of openItems) {
+    const key = item.session_id || "unbekannt";
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+  const sessions = Array.from(grouped.entries()).map(([session_id, items]) => {
+    const sortedDates = items.map((item) => item.updated_at).sort();
+    return {
+      session_id,
+      total: items.length,
+      open: items.filter((item) => item.status !== "synced").length,
+      objects: items.filter((item) => item.type === "item_draft").length,
+      photos: items.filter((item) => item.type === "photo_upload").length,
+      failed: items.filter((item) => item.status === "failed").length,
+      conflict: items.filter((item) => item.status === "conflict").length,
+      latest_at: sortedDates[sortedDates.length - 1] ?? "",
+    };
+  });
+  return { openItems, currentSessionItems, otherSessionItems, sessions };
 }
 
 export async function getQueueSummary(): Promise<QueueSummary> {
