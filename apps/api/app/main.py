@@ -108,6 +108,8 @@ class RoomPatch(BaseModel):
 class ItemIn(BaseModel):
     session_id: str
     inventory_type: str = "bga"
+    client_item_id: str | None = None
+    source_device_id: str | None = None
     object_type: str | None = None
     object_class_id: str | None = None
     inventory_id: str | None = None
@@ -1167,6 +1169,18 @@ def create_item(body: ItemIn) -> dict[str, Any]:
     session_inventory_type = session.get("inventory_type") or "bga"
     if body.inventory_type and body.inventory_type != session_inventory_type:
         raise HTTPException(status_code=409, detail="Erfassungsart der Session kann nicht gemischt werden")
+    if body.client_item_id and body.source_device_id:
+        existing = fetch_one(
+            """
+            SELECT *
+            FROM inventory_items
+            WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+            LIMIT 1
+            """,
+            (body.session_id, body.source_device_id, body.client_item_id),
+        )
+        if existing:
+            return existing
     inventory_id = body.inventory_id or next_inventory_id(session["location_code"])
     temporary_id = body.temporary_id or f"TEMP-{secrets.token_hex(4).upper()}"
     object_class_id = body.object_class_id
@@ -1179,6 +1193,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
         """
         INSERT INTO inventory_items (
           inventory_id, temporary_id, sequence_number, inventory_type,
+          client_item_id, source_device_id,
           session_id, location_id, building_id, room_id,
           object_type, object_class_id, category, brand, model, serial_number, condition,
           condition_note, commercial_category, requires_accounting_review,
@@ -1186,7 +1201,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
           function_ok, uvv_status, uvv_valid_until, inspection_book_available,
           remark, type_plate_status
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
@@ -1194,6 +1209,8 @@ def create_item(body: ItemIn) -> dict[str, Any]:
             temporary_id,
             sequence_number,
             session_inventory_type,
+            body.client_item_id,
+            body.source_device_id,
             body.session_id,
             session["location_id"],
             session["building_id"],
@@ -1570,9 +1587,27 @@ def save_learning_example(item_id: str, body: LearningExampleIn | None = None) -
 
 
 @app.post("/items/{item_id}/photos")
-async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_photo(
+    item_id: str,
+    photo_type: str = "object",
+    client_photo_id: str | None = None,
+    source_device_id: str | None = None,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
     ensure_upload_dirs()
     require_item_session_open(item_id)
+    if client_photo_id and source_device_id:
+        existing = fetch_one(
+            """
+            SELECT *
+            FROM item_photos
+            WHERE item_id = %s AND source_device_id = %s AND client_photo_id = %s
+            LIMIT 1
+            """,
+            (item_id, source_device_id, client_photo_id),
+        )
+        if existing:
+            return existing
     photo_count = fetch_one("SELECT count(*)::int AS count FROM item_photos WHERE item_id = %s", (item_id,))
     if photo_count and int(photo_count["count"]) >= 5:
         raise HTTPException(status_code=409, detail="Maximal 5 Fotos pro Gegenstand möglich")
@@ -1592,11 +1627,23 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
     stamped.write_bytes(data)
     row = execute(
         """
-        INSERT INTO item_photos (item_id, photo_type, original_path, stamped_path, original_hash, metadata_json)
-        VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+        INSERT INTO item_photos (
+          item_id, photo_type, original_path, stamped_path, original_hash,
+          client_photo_id, source_device_id, metadata_json
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
         RETURNING *
         """,
-        (item_id, photo_type, str(path), str(stamped), digest, '{"phase":"1","stamp":"pending-worker"}'),
+        (
+            item_id,
+            photo_type,
+            str(path),
+            str(stamped),
+            digest,
+            client_photo_id,
+            source_device_id,
+            '{"phase":"1","stamp":"pending-worker"}',
+        ),
     )
     audit("photo_uploaded", "inventory_item", item_id, row)
     run_inventory_rework_check(item_id)

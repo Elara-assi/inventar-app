@@ -1,8 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
-import { API_BASE, Bootstrap, api, inventoryTypeLabel } from "@/lib/api";
+import { Bootstrap, inventoryTypeLabel } from "@/lib/api";
+import { api } from "@/lib/api";
+import {
+  QueueSummary,
+  createClientItemId,
+  enqueueItemDraft,
+  enqueuePhotoUpload,
+  getOrCreateDeviceId,
+  getQueueSummary,
+  initQueue,
+} from "@/lib/offlineQueue";
+import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
 
 type Joined = {
   session: {
@@ -15,11 +26,11 @@ type Joined = {
   device: { id: string };
 };
 
-type Item = {
+type LocalItem = {
   id: string;
   inventory_id: string;
   temporary_id: string;
-  sequence_number?: number;
+  server_item_id?: string;
 };
 
 type PhotoType = "object_front" | "object_back" | "type_plate" | "uvv_label" | "condition_detail" | "other";
@@ -87,13 +98,26 @@ const emptyForm: BgaForm = {
   type_plate_status: "nicht_geprueft",
 };
 
+const emptySummary: QueueSummary = {
+  total: 0,
+  pending: 0,
+  uploading: 0,
+  synced: 0,
+  failed: 0,
+  conflict: 0,
+  open: 0,
+  pendingPhotos: 0,
+  failedPhotos: 0,
+};
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
+  const [deviceId, setDeviceId] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [objectClassId, setObjectClassId] = useState("");
   const [step, setStep] = useState(0);
-  const [activeItem, setActiveItem] = useState<Item | null>(null);
+  const [activeItem, setActiveItem] = useState<LocalItem | null>(null);
   const [form, setForm] = useState<BgaForm>(emptyForm);
   const [photos, setPhotos] = useState<Array<{ type: PhotoType; id?: string; name: string; size: number; previewUrl?: string }>>([]);
   const [savedItem, setSavedItem] = useState<{ label: string } | null>(null);
@@ -101,6 +125,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [busy, setBusy] = useState(false);
   const [uploadState, setUploadState] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [queueSummary, setQueueSummary] = useState<QueueSummary>(emptySummary);
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -115,6 +142,22 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     params.then((value) => setToken(value.token));
   }, [params]);
 
+  const refreshQueueSummary = useCallback(async () => {
+    try {
+      setQueueSummary(await getQueueSummary());
+    } catch {
+      setSyncMessage("Lokale Sync-Liste konnte nicht gelesen werden.");
+    }
+  }, []);
+
+  useEffect(() => {
+    initQueue()
+      .then(() => getOrCreateDeviceId())
+      .then(setDeviceId)
+      .then(refreshQueueSummary)
+      .catch(() => setSyncMessage("Lokale Speicherung ist auf diesem Gerät nicht verfügbar."));
+  }, [refreshQueueSummary]);
+
   useEffect(() => {
     api<Bootstrap>("/meta/bootstrap").then((boot) => {
       setBootstrap(boot);
@@ -123,12 +166,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !deviceId) return;
     api<Joined>("/sessions/join", {
       method: "POST",
-      body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA" }),
+      body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
     }).then(setJoined).catch((err) => setMessage(err instanceof Error ? err.message : "Join fehlgeschlagen"));
-  }, [token]);
+  }, [token, deviceId]);
 
   const roomName = useMemo(() => {
     const room = bootstrap?.rooms.find((entry) => entry.id === joined?.session.room_id);
@@ -137,28 +180,88 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const inventoryType = joined?.session.inventory_type || "bga";
   const isBgaSession = inventoryType === "bga";
 
+  const runSync = useCallback(async (label = "Synchronisierung läuft") => {
+    setSyncMessage(getOnlineStatus() ? label : "Offline – Daten werden lokal gespeichert.");
+    try {
+      if (getOnlineStatus()) {
+        await syncNow();
+        setSyncMessage("Synchronisierung abgeschlossen.");
+      }
+    } catch {
+      setSyncMessage("Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
+    } finally {
+      await refreshQueueSummary();
+      setIsOnline(getOnlineStatus());
+    }
+  }, [refreshQueueSummary]);
+
+  useEffect(() => {
+    setIsOnline(getOnlineStatus());
+    const handleOnline = () => {
+      setIsOnline(true);
+      void runSync("Verbindung wieder da. Synchronisierung läuft.");
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncMessage("Offline – Daten werden lokal gespeichert.");
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [runSync]);
+
+  useEffect(() => {
+    if (!joined || !isBgaSession) return;
+    refreshQueueSummary().then(() => {
+      if (getOnlineStatus()) void runSync("Offene lokale Einträge werden synchronisiert.");
+    });
+  }, [joined, isBgaSession, refreshQueueSummary, runSync]);
+
   const canSave = Boolean(activeItem && photos.some((photo) => photo.type === "object_front") && form.object_type.trim());
+
+  function buildDraft(clientItemId: string) {
+    return {
+      session_id: joined?.session.id,
+      inventory_type: "bga",
+      object_class_id: objectClassId || null,
+      object_type: form.object_type || null,
+      specification: form.specification || null,
+      construction_year: form.construction_year || null,
+      condition: form.condition,
+      condition_note: form.condition_note || null,
+      function_ok: form.function_ok,
+      uvv_status: form.uvv_status,
+      uvv_valid_until: form.uvv_valid_until || null,
+      inspection_book_available: form.inspection_book_available,
+      remark: form.remark || null,
+      type_plate_status: form.type_plate_status,
+      client_item_id: clientItemId,
+      source_device_id: deviceId,
+    };
+  }
 
   async function ensureItem() {
     if (activeItem) return activeItem;
     if (!joined) throw new Error("Session noch nicht gekoppelt");
     if (!isBgaSession) throw new Error(`${inventoryTypeLabel(inventoryType)} ist vorbereitet, aber noch nicht aktiv.`);
-    const item = await api<Item>("/items", {
-      method: "POST",
-      body: JSON.stringify({
-        session_id: joined.session.id,
-        inventory_type: "bga",
-        object_class_id: objectClassId || null,
-        object_type: form.object_type || null,
-        specification: form.specification || null,
-        condition: form.condition,
-        function_ok: form.function_ok,
-        uvv_status: form.uvv_status,
-        inspection_book_available: form.inspection_book_available,
-        type_plate_status: form.type_plate_status,
-      }),
+    if (!deviceId) throw new Error("Gerät wird noch vorbereitet");
+    const clientItemId = createClientItemId();
+    const queued = await enqueueItemDraft({
+      session_id: joined.session.id,
+      device_id: deviceId,
+      client_item_id: clientItemId,
+      draft: buildDraft(clientItemId),
     });
+    const item: LocalItem = {
+      id: queued.client_item_id,
+      inventory_id: "",
+      temporary_id: `Lokal-${queued.client_item_id.slice(-6).toUpperCase()}`,
+    };
     setActiveItem(item);
+    await refreshQueueSummary();
     return item;
   }
 
@@ -198,32 +301,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return new File([blob], name, { type: "image/jpeg", lastModified: Date.now() });
   }
 
-  function uploadWithProgress(itemId: string, photoType: PhotoType, file: File): Promise<{ id?: string }> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append("file", file);
-      xhr.open("POST", `${API_BASE}/items/${itemId}/photos?photo_type=${photoType}`);
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-        setUploadProgress(Math.round((event.loaded / event.total) * 100));
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch {
-            resolve({});
-          }
-          return;
-        }
-        reject(new Error(xhr.responseText || `Upload fehlgeschlagen (${xhr.status})`));
-      };
-      xhr.onerror = () => reject(new Error("Upload fehlgeschlagen"));
-      xhr.send(formData);
-    });
-  }
-
   async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
@@ -238,13 +315,25 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setUploadState("Foto wird verkleinert");
       const item = await ensureItem();
       const prepared = await compressPhoto(file, type);
-      setUploadState("Foto wird hochgeladen");
-      const uploaded = await uploadWithProgress(item.id, type, prepared);
-      setPhotos((current) => [...current, { type, id: uploaded.id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) }]);
-      setMessage(`${photoLabels[type]} gespeichert. KI-Schnellcheck startet im Hintergrund.`);
-      api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
+      setUploadState("Foto wird lokal gespeichert");
+      setUploadProgress(100);
+      const queuedPhoto = await enqueuePhotoUpload({
+        session_id: joined?.session.id ?? "",
+        device_id: deviceId,
+        client_item_id: item.id,
+        server_item_id: item.server_item_id,
+        photo_type: type,
+        photo_blob: prepared,
+        file_name: prepared.name,
+        file_type: prepared.type,
+        file_size: prepared.size,
+      });
+      setPhotos((current) => [...current, { type, id: queuedPhoto.client_photo_id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) }]);
+      setMessage(`${photoLabels[type]} lokal gespeichert. ${getOnlineStatus() ? "Synchronisierung läuft." : "Foto wird später übertragen."}`);
+      await refreshQueueSummary();
+      void runSync("Foto wird synchronisiert.");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Foto konnte nicht gespeichert werden");
+      setMessage(err instanceof Error ? err.message : "Foto ist lokal nicht gespeichert worden.");
     } finally {
       setBusy(false);
       setUploadState("");
@@ -259,41 +348,36 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
     setBusy(true);
     try {
-      await api(`/items/${activeItem.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          inventory_type: "bga",
-          object_class_id: objectClassId || null,
-          object_type: form.object_type || null,
-          specification: form.specification || null,
-          construction_year: form.construction_year || null,
-          condition: form.condition,
-          condition_note: form.condition_note || null,
-          function_ok: form.function_ok,
-          uvv_status: form.uvv_status,
-          uvv_valid_until: form.uvv_valid_until || null,
-          inspection_book_available: form.inspection_book_available,
-          remark: form.remark || null,
-          type_plate_status: form.type_plate_status,
-          review_status: "erfasst",
-        }),
+      await enqueueItemDraft({
+        session_id: joined?.session.id ?? "",
+        device_id: deviceId,
+        client_item_id: activeItem.id,
+        draft: { ...buildDraft(activeItem.id), review_status: "erfasst" },
       });
-      const note = [form.object_type, form.specification, form.remark].filter(Boolean).join(" | ");
-      if (note) {
-        await api(`/items/${activeItem.id}/audio?transcript=${encodeURIComponent(note)}`, { method: "POST" });
-      }
-      await api(`/items/${activeItem.id}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
       const savedLabel = form.object_type || activeItem.inventory_id || activeItem.temporary_id || "Objekt";
       setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
       setPhotos([]);
       setStep(0);
-      setMessage(`${savedLabel} gespeichert. Bereit für nächstes Objekt.`);
+      setMessage(`${savedLabel} lokal gespeichert. Bereit für nächstes Objekt.`);
+      await runSync("Objekt wird synchronisiert.");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Objekt konnte nicht gespeichert werden");
+      setMessage(err instanceof Error ? err.message : "Objekt konnte lokal nicht gespeichert werden");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function retrySync() {
+    setSyncMessage("Fehler werden erneut synchronisiert.");
+    try {
+      await retryFailed();
+      setSyncMessage("Synchronisierung abgeschlossen.");
+    } catch {
+      setSyncMessage("Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
+    } finally {
+      await refreshQueueSummary();
     }
   }
 
@@ -327,6 +411,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     form.inspection_book_available === "unklar" ? "Prüfbuch unklar" : "",
     form.type_plate_status === "vorhanden" && !photos.some((photo) => photo.type === "type_plate") ? "Typenschildfoto fehlt" : "",
   ].filter(Boolean);
+  const syncText = !isOnline
+    ? "Offline – Daten werden lokal gespeichert"
+    : queueSummary.failed
+      ? `Fehler – ${queueSummary.failed} Uploads erneut versuchen`
+      : queueSummary.open
+        ? `Upload läuft – ${queueSummary.open} Einträge offen`
+        : "Alles synchronisiert";
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -339,6 +430,17 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <span className="live-indicator">Live</span>
         </div>
 
+        {isBgaSession ? (
+          <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
+            <div>
+              <strong>{syncText}</strong>
+              <span>{syncMessage || (queueSummary.open ? `Fotos offen: ${queueSummary.pendingPhotos}` : "Lokale Queue ist leer.")}</span>
+            </div>
+            <button className="btn secondary" type="button" onClick={() => void runSync("Synchronisierung läuft.")}>Jetzt synchronisieren</button>
+            {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
+          </div>
+        ) : null}
+
         {joined && !isBgaSession ? (
           <section className="wizard-card saved-card">
             <h1>{inventoryTypeLabel(inventoryType)}</h1>
@@ -349,7 +451,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
         {isBgaSession ? <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
           <strong>{busy ? uploadState || "Bitte warten" : savedItem ? "Objekt gespeichert" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
-          <span>{busy && uploadProgress ? `${uploadProgress}% hochgeladen` : message}</span>
+          <span>{busy && uploadProgress ? `${uploadProgress}% lokal gesichert` : message}</span>
         </div> : null}
 
         {isBgaSession && busy && uploadProgress ? (
@@ -362,7 +464,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <section className="wizard-card saved-card">
             <div className="saved-mark">✓</div>
             <h1>Objekt gespeichert</h1>
-            <p>{savedItem.label} ist in der Prüfliste sichtbar.</p>
+            <p>{savedItem.label} ist lokal gesichert und wird synchronisiert.</p>
             <button className="btn accent" type="button" onClick={startNextObject}>Nächstes Objekt erfassen</button>
             {joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Zur Prüfliste</a> : null}
           </section>
