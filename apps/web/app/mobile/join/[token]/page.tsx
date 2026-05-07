@@ -956,6 +956,9 @@ function QueueDetailsPanel({
               <small>
                 Upload gestartet: {item.upload_started_at ? new Date(item.upload_started_at).toLocaleString("de-DE") : "nein"} · HTTP: {item.upload_response_status ?? "offen"}
               </small>
+              <small>
+                URL: {item.upload_url ?? "noch nicht gestartet"} · Status: {item.upload_debug_state ?? "offen"}
+              </small>
               {item.upload_debug ? <small>{item.upload_debug}</small> : null}
               {item.upload_response_text ? <small>{item.upload_response_text}</small> : null}
             </>

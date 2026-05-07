@@ -35,7 +35,7 @@ function cleanError(error?: unknown) {
     return "Maximal 5 Fotos pro Gegenstand möglich.";
   }
   if (error instanceof Error && error.name === "AbortError") {
-    return "Upload hat zu lange gedauert. Bitte Verbindung prüfen und erneut synchronisieren.";
+    return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prüfen und erneut synchronisieren.";
   }
   return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
 }
@@ -62,6 +62,41 @@ function describePhotoForLog(item: QueueItem, serverItemId?: string) {
     blob_size: item.photo_blob?.size ?? item.file_size ?? 0,
     blob_type: item.photo_blob?.type || item.file_type || "",
   };
+}
+
+function photoUploadUrl(item: QueueItem, serverItemId: string) {
+  const params = new URLSearchParams({
+    photo_type: item.photo_type ?? "object_front",
+    client_photo_id: item.client_photo_id ?? "",
+    source_device_id: item.device_id,
+  });
+  return `${API_BASE}/items/${serverItemId}/photos?${params.toString()}`;
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function assertApiHealth() {
+  const healthUrl = `${API_BASE}/health`;
+  try {
+    const response = await fetchWithTimeout(healthUrl, { method: "GET", cache: "no-store" }, 10_000);
+    if (!response.ok) {
+      throw new Error(`API Health HTTP ${response.status}`);
+    }
+    return { ok: true, url: healthUrl };
+  } catch (error) {
+    throw new Error(`API nicht erreichbar: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function postItemDraft(item: QueueItem) {
@@ -93,32 +128,17 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
   const fileName = item.file_name || `${item.client_photo_id}.jpg`;
   const file = new File([item.photo_blob], fileName, { type: item.file_type || item.photo_blob.type || "image/jpeg" });
   form.append("file", file);
-  const params = new URLSearchParams({
-    photo_type: item.photo_type,
-    client_photo_id: item.client_photo_id,
-    source_device_id: item.device_id,
+  const url = photoUploadUrl(item, serverItemId);
+  console.warn("[inventar-sync] POST Foto startet", {
+    url,
+    ...describePhotoForLog(item, serverItemId),
   });
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 45_000);
-  let response: Response;
-  try {
-    console.warn("[inventar-sync] POST Foto startet", {
-      url: `${API_BASE}/items/${serverItemId}/photos?${params.toString()}`,
-      ...describePhotoForLog(item, serverItemId),
-    });
-    response = await fetch(`${API_BASE}/items/${serverItemId}/photos?${params.toString()}`, {
-      method: "POST",
-      body: form,
-      signal: controller.signal,
-    });
-    console.warn("[inventar-sync] POST Foto Antwort", {
-      response_status: response.status,
-      ok: response.ok,
-      ...describePhotoForLog(item, serverItemId),
-    });
-  } finally {
-    window.clearTimeout(timeout);
-  }
+  const response = await fetchWithTimeout(url, { method: "POST", body: form }, 45_000);
+  console.warn("[inventar-sync] POST Foto Antwort", {
+    response_status: response.status,
+    ok: response.ok,
+    ...describePhotoForLog(item, serverItemId),
+  });
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -186,6 +206,23 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
     (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading"),
   );
   console.warn("[inventar-sync] Foto-Sync startet", { count: photos.length, online_hint: getOnlineStatus() });
+  if (photos.length) {
+    try {
+      const health = await assertApiHealth();
+      await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, photo.status, {
+        upload_debug_state: "api_health_ok",
+        upload_debug: `API erreichbar: ${health.url}`,
+      })));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, "failed", {
+        last_error: message,
+        upload_debug_state: "api_health_failed",
+        upload_debug: "Foto-Upload wurde nicht gestartet, weil die API nicht erreichbar war.",
+      })));
+      return { synced, failed: photos.length, open: (await getQueueSummary()).open };
+    }
+  }
   for (const photo of photos) {
     const currentItems = await listQueueItems();
     const serverItemId = await findServerItemId(photo, currentItems);
@@ -196,6 +233,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         last_error: isUnrecoverable
           ? "Kein gültiges Server-Objekt für dieses Foto gefunden. Bitte Details prüfen oder lokale Daten bewusst verwerfen."
           : "Objekt ist noch nicht vollständig synchronisiert. Foto bleibt lokal gespeichert.",
+        upload_debug_state: "guard_no_target_item",
         upload_debug: "Upload wurde nicht gestartet: Zielobjekt-ID fehlt.",
       });
       console.warn("[inventar-sync] Foto wird übersprungen: Zielobjekt fehlt", describePhotoForLog(photo));
@@ -205,6 +243,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       await updateQueueStatus(photo.id, "conflict", {
         server_item_id: serverItemId,
         last_error: "Upload wurde nicht gestartet: Lokales Foto fehlt.",
+        upload_debug_state: "guard_missing_blob",
         upload_debug: "Blob fehlt im lokalen Fotoeintrag.",
       });
       console.warn("[inventar-sync] Foto wird übersprungen: Blob fehlt", describePhotoForLog(photo, serverItemId));
@@ -214,6 +253,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       await updateQueueStatus(photo.id, "conflict", {
         server_item_id: serverItemId,
         last_error: "Upload wurde nicht gestartet: Fotoart oder lokale Foto-ID fehlt.",
+        upload_debug_state: "guard_missing_metadata",
         upload_debug: "client_photo_id oder photo_type fehlt im lokalen Fotoeintrag.",
       });
       console.warn("[inventar-sync] Foto wird übersprungen: Metadaten fehlen", describePhotoForLog(photo, serverItemId));
@@ -224,6 +264,8 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         server_item_id: serverItemId,
         last_error: undefined,
         upload_started_at: new Date().toISOString(),
+        upload_url: photoUploadUrl(photo, serverItemId),
+        upload_debug_state: "fetch_starting",
         upload_response_status: undefined,
         upload_response_text: undefined,
         upload_debug: `Upload gestartet: ${photo.photo_blob.size} Byte, ${photo.photo_blob.type || photo.file_type || "unbekannter Typ"}.`,
@@ -234,6 +276,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         last_error: undefined,
         upload_response_status: 200,
         upload_response_text: uploaded?.id ? `Foto gespeichert: ${uploaded.id}` : "Foto gespeichert.",
+        upload_debug_state: "response_received",
         upload_debug: "Upload erfolgreich abgeschlossen.",
       });
       api(`/items/${serverItemId}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
@@ -247,8 +290,12 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       await updateQueueStatus(photo.id, isPermanentQueueError(error) ? "conflict" : "failed", {
         server_item_id: serverItemId,
         last_error: cleanError(error),
+        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
+        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
-        upload_debug: "Upload wurde gestartet, aber nicht erfolgreich abgeschlossen.",
+        upload_debug: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+          ? "Keine Serverantwort nach 45 Sekunden."
+          : "Upload wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       });
       failed += 1;
     }

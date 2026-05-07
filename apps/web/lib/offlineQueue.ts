@@ -19,6 +19,8 @@ export type QueueItem = {
   file_size?: number;
   sequence_number?: number;
   upload_started_at?: string;
+  upload_url?: string;
+  upload_debug_state?: string;
   upload_response_status?: number;
   upload_response_text?: string;
   upload_debug?: string;
