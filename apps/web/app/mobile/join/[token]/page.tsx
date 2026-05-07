@@ -94,7 +94,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [step, setStep] = useState(0);
   const [activeItem, setActiveItem] = useState<Item | null>(null);
   const [form, setForm] = useState<BgaForm>(emptyForm);
-  const [photos, setPhotos] = useState<Array<{ type: PhotoType; id?: string; name: string; size: number }>>([]);
+  const [photos, setPhotos] = useState<Array<{ type: PhotoType; id?: string; name: string; size: number; previewUrl?: string }>>([]);
+  const [savedItem, setSavedItem] = useState<{ label: string } | null>(null);
   const [message, setMessage] = useState("Bereit");
   const [busy, setBusy] = useState(false);
   const [uploadState, setUploadState] = useState("");
@@ -222,6 +223,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   async function handlePhotoSelected(type: PhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
+    event.target.value = "";
     if (photos.length >= 5) {
       setMessage("Maximal 5 Fotos pro Gegenstand möglich");
       return;
@@ -234,7 +236,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       const prepared = await compressPhoto(file, type);
       setUploadState("Foto wird hochgeladen");
       const uploaded = await uploadWithProgress(item.id, type, prepared);
-      setPhotos((current) => [...current, { type, id: uploaded.id, name: prepared.name, size: prepared.size }]);
+      setPhotos((current) => [...current, { type, id: uploaded.id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) }]);
       setMessage(`${photoLabels[type]} gespeichert. KI-Schnellcheck startet im Hintergrund.`);
       api(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
     } catch (err) {
@@ -277,7 +279,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         await api(`/items/${activeItem.id}/audio?transcript=${encodeURIComponent(note)}`, { method: "POST" });
       }
       await api(`/items/${activeItem.id}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
-      const savedLabel = activeItem.inventory_id || activeItem.temporary_id || "Objekt";
+      const savedLabel = form.object_type || activeItem.inventory_id || activeItem.temporary_id || "Objekt";
+      setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
       setPhotos([]);
@@ -291,8 +294,35 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   function update<K extends keyof BgaForm>(key: K, value: BgaForm[K]) {
+    setSavedItem(null);
     setForm((current) => ({ ...current, [key]: value }));
   }
+
+  function startNextObject() {
+    setSavedItem(null);
+    setActiveItem(null);
+    setForm(emptyForm);
+    setPhotos([]);
+    setStep(0);
+    setMessage("Bereit für nächstes Objekt");
+  }
+
+  const hasObjectPhoto = photos.some((photo) => photo.type === "object_front");
+  const summaryBlockers = [
+    !hasObjectPhoto ? "Objektfoto fehlt" : "",
+    !form.object_type.trim() ? "Bezeichnung fehlt" : "",
+  ].filter(Boolean);
+  const summaryRework = [
+    form.condition === "unklar" ? "Zustand unklar" : "",
+    form.function_ok === "nein" ? "Funktion nicht in Ordnung" : "",
+    form.function_ok === "nicht_geprueft" ? "Funktion nicht geprüft" : "",
+    form.uvv_status === "nicht_vorhanden" ? "UVV nicht vorhanden" : "",
+    form.uvv_status === "unklar" ? "UVV klären" : "",
+    form.uvv_status === "vorhanden" && !form.uvv_valid_until ? "UVV-Datum offen" : "",
+    form.inspection_book_available === "nein" ? "Prüfbuch fehlt" : "",
+    form.inspection_book_available === "unklar" ? "Prüfbuch unklar" : "",
+    form.type_plate_status === "vorhanden" && !photos.some((photo) => photo.type === "type_plate") ? "Typenschildfoto fehlt" : "",
+  ].filter(Boolean);
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -305,12 +335,28 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <span className="live-indicator">Live</span>
         </div>
 
-        <div className={`capture-status ${busy ? "is-busy" : ""}`}>
-          <strong>{busy ? uploadState || "Bitte warten" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
+        <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
+          <strong>{busy ? uploadState || "Bitte warten" : savedItem ? "Objekt gespeichert" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
           <span>{busy && uploadProgress ? `${uploadProgress}% hochgeladen` : message}</span>
         </div>
 
-        <div className="wizard-progress">
+        {busy && uploadProgress ? (
+          <div className="upload-meter" aria-label="Upload-Fortschritt">
+            <span style={{ width: `${uploadProgress}%` }} />
+          </div>
+        ) : null}
+
+        {savedItem ? (
+          <section className="wizard-card saved-card">
+            <div className="saved-mark">✓</div>
+            <h1>Objekt gespeichert</h1>
+            <p>{savedItem.label} ist in der Prüfliste sichtbar.</p>
+            <button className="btn accent" type="button" onClick={startNextObject}>Nächstes Objekt erfassen</button>
+            {joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Zur Prüfliste</a> : null}
+          </section>
+        ) : null}
+
+        {!savedItem ? <div className="wizard-progress">
           {steps.map((label, index) => (
             <button
               key={label}
@@ -321,22 +367,23 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               {index + 1}
             </button>
           ))}
-        </div>
+        </div> : null}
 
-        {step === 0 ? (
-          <WizardCard title="Objektfoto aufnehmen" hint="Fotografiere das Objekt vollständig und gut erkennbar. Das Foto ist Pflicht.">
+        {!savedItem && step === 0 ? (
+          <WizardCard title="Objektfoto aufnehmen" hint="Objekt vollständig fotografieren. Pflichtfoto.">
             <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
               <span>Objektfoto aufnehmen</span>
               <small>{photos.filter((photo) => photo.type === "object_front").length ? "Objektfoto gespeichert" : "Pflichtfoto"}</small>
             </button>
             <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("object_back")}>
-              Rückseite / Detailansicht ergänzen
+              Rückseite/Detail ergänzen
             </button>
+            {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
           </WizardCard>
         ) : null}
 
-        {step === 1 ? (
-          <WizardCard title="Bezeichnung erfassen" hint="Sprich oder schreibe kurz, was erfasst wird, z. B. Ölschlucker, Hebebühne, Werkzeugwagen.">
+        {!savedItem && step === 1 ? (
+          <WizardCard title="Bezeichnung erfassen" hint="Kurz eintragen oder diktieren.">
             <label className="field">
               <span>Bezeichnung</span>
               <input value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Ölschlucker" />
@@ -344,8 +391,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 2 ? (
-          <WizardCard title="Typ / Spezifikation" hint="Falls vorhanden: Modell, Hersteller, Größe, technische Daten oder interne Bezeichnung erfassen.">
+        {!savedItem && step === 2 ? (
+          <WizardCard title="Typ / Spezifikation" hint="Modell, Hersteller oder technische Daten erfassen.">
             <label className="field">
               <span>Typ / Spezifikation</span>
               <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
@@ -353,19 +400,20 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 3 ? (
-          <WizardCard title="Typenschild fotografieren" hint="Falls ein Typenschild vorhanden ist, bitte fotografieren. Wenn keines vorhanden ist, überspringen.">
+        {!savedItem && step === 3 ? (
+          <WizardCard title="Typenschild fotografieren" hint="Typenschild fotografieren, falls vorhanden.">
             <div className="segmented">
               <button className={form.type_plate_status === "vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "vorhanden")} type="button">vorhanden</button>
               <button className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "nicht_vorhanden")} type="button">keines</button>
               <button className={form.type_plate_status === "uebersprungen" ? "is-active" : ""} onClick={() => update("type_plate_status", "uebersprungen")} type="button">überspringen</button>
             </div>
             <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("type_plate")}>Typenschildfoto aufnehmen</button>
+            {photos.some((photo) => photo.type === "type_plate") ? <PhotoPreviewList photos={photos.filter((photo) => photo.type === "type_plate")} labels={photoLabels} /> : null}
           </WizardCard>
         ) : null}
 
-        {step === 4 ? (
-          <WizardCard title="Baujahr erfassen" hint="Falls unbekannt, leer lassen oder „unbekannt“ auswählen.">
+        {!savedItem && step === 4 ? (
+          <WizardCard title="Baujahr erfassen" hint="Eintragen, wenn bekannt. Sonst leer lassen.">
             <label className="field">
               <span>Baujahr</span>
               <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
@@ -373,8 +421,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 5 ? (
-          <WizardCard title="Zustand erfassen" hint="Wähle den sichtbaren Zustand. Ergänze eine Bemerkung, wenn etwas auffällt.">
+        {!savedItem && step === 5 ? (
+          <WizardCard title="Zustand erfassen" hint="Sichtbaren Zustand auswählen.">
             <label className="field">
               <span>Zustand</span>
               <select value={form.condition} onChange={(event) => update("condition", event.target.value)}>
@@ -391,11 +439,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
             </label>
             <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("condition_detail")}>Zustandsfoto ergänzen</button>
+            {photos.some((photo) => photo.type === "condition_detail") ? <PhotoPreviewList photos={photos.filter((photo) => photo.type === "condition_detail")} labels={photoLabels} /> : null}
           </WizardCard>
         ) : null}
 
-        {step === 6 ? (
-          <WizardCard title="Funktion i. O." hint="Wenn Nein oder Nicht geprüft gewählt wird, erzeugt die App automatisch einen Prüfhinweis.">
+        {!savedItem && step === 6 ? (
+          <WizardCard title="Funktion i. O." hint="Funktion kurz bewerten.">
             <div className="choice-grid">
               {[
                 ["ja", "Ja"],
@@ -408,8 +457,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 7 ? (
-          <WizardCard title="UVV / Prüffrist" hint="Fotografiere das UVV-Siegel oder die Prüfplakette gut lesbar, wenn UVV vorhanden ist.">
+        {!savedItem && step === 7 ? (
+          <WizardCard title="UVV / Prüffrist" hint="UVV-Siegel gut lesbar fotografieren.">
             <label className="field">
               <span>UVV Status</span>
               <select value={form.uvv_status} onChange={(event) => update("uvv_status", event.target.value as UvvStatus)}>
@@ -424,11 +473,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
             </label>
             <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("uvv_label")}>UVV-Siegel fotografieren</button>
+            {photos.some((photo) => photo.type === "uvv_label") ? <PhotoPreviewList photos={photos.filter((photo) => photo.type === "uvv_label")} labels={photoLabels} /> : null}
           </WizardCard>
         ) : null}
 
-        {step === 8 ? (
-          <WizardCard title="Prüfbuch vorhanden" hint="Wenn Nein oder Unklar gewählt wird, erzeugt die App automatisch einen Prüfhinweis.">
+        {!savedItem && step === 8 ? (
+          <WizardCard title="Prüfbuch vorhanden" hint="Prüfbuchstatus auswählen.">
             <label className="field">
               <span>Prüfbuch</span>
               <select value={form.inspection_book_available} onChange={(event) => update("inspection_book_available", event.target.value as InspectionBook)}>
@@ -441,8 +491,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 9 ? (
-          <WizardCard title="Bemerkung / Diktat" hint="Ergänze alles, was später für Bewertung, Prüfung oder Nacharbeit wichtig ist.">
+        {!savedItem && step === 9 ? (
+          <WizardCard title="Bemerkung / Diktat" hint="Bemerkung diktieren oder eingeben.">
             <label className="field">
               <span>Bemerkung</span>
               <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
@@ -450,8 +500,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {step === 10 ? (
-          <WizardCard title="Zusammenfassung vor Speichern" hint="Prüfe die Angaben. Du kannst jeden Schritt oben korrigieren.">
+        {!savedItem && step === 10 ? (
+          <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
             <div className="summary-list">
               <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
               <span><b>Typ/Spezifikation</b>{form.specification || "offen"}</span>
@@ -467,15 +517,29 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 {photos.map((photo, index) => <span key={`${photo.type}-${index}`}>{photoLabels[photo.type]}</span>)}
               </div>
             ) : null}
+            <div className="summary-checks">
+              {summaryBlockers.length ? (
+                <div className="summary-box danger">
+                  <strong>Blockiert Speichern</strong>
+                  {summaryBlockers.map((entry) => <span key={entry}>{entry}</span>)}
+                </div>
+              ) : <div className="summary-box ok"><strong>Speichern möglich</strong><span>Pflichtfoto und Bezeichnung sind vorhanden.</span></div>}
+              {summaryRework.length ? (
+                <div className="summary-box warn">
+                  <strong>Erzeugt Nacharbeit</strong>
+                  {summaryRework.map((entry) => <span key={entry}>{entry}</span>)}
+                </div>
+              ) : <div className="summary-box ok"><strong>Keine automatische Nacharbeit</strong><span>Keine kritischen Hinweise in dieser Aufnahme.</span></div>}
+            </div>
             <button className="btn accent" type="button" disabled={!canSave || busy} onClick={saveObject}>Objekt speichern</button>
             <button className="btn secondary" type="button" onClick={() => setStep(0)}>Zurück bearbeiten</button>
           </WizardCard>
         ) : null}
 
-        <div className="wizard-nav">
+        {!savedItem ? <div className="wizard-nav">
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
           <button className="btn" type="button" disabled={step === steps.length - 1 || busy} onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>Weiter</button>
-        </div>
+        </div> : null}
 
         {(["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
           <input
@@ -489,7 +553,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           />
         ))}
 
-        {joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
+        {!savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
       </section>
     </main>
   );
@@ -504,5 +568,18 @@ function WizardCard({ title, hint, children }: { title: string; hint: string; ch
       </div>
       {children}
     </section>
+  );
+}
+
+function PhotoPreviewList({ photos, labels }: { photos: Array<{ type: PhotoType; previewUrl?: string; name: string }>; labels: Record<PhotoType, string> }) {
+  return (
+    <div className="mobile-photo-previews">
+      {photos.map((photo, index) => (
+        <div key={`${photo.type}-${photo.name}-${index}`}>
+          {photo.previewUrl ? <img src={photo.previewUrl} alt={labels[photo.type]} /> : null}
+          <span>{labels[photo.type]}</span>
+        </div>
+      ))}
+    </div>
   );
 }
