@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
+import { API_BASE, Bootstrap, InventoryType, api, inventoryTypeLabel, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -15,6 +15,7 @@ type Session = {
   created_at?: string;
   item_count?: number;
   started_by_name?: string | null;
+  inventory_type?: InventoryType | string | null;
 };
 
 type SessionSummary = {
@@ -51,6 +52,7 @@ export default function DashboardPage() {
   const [selectedLocation, setSelectedLocation] = useState("");
   const [selectedBuilding, setSelectedBuilding] = useState("");
   const [selectedRoom, setSelectedRoom] = useState("");
+  const [selectedInventoryType, setSelectedInventoryType] = useState<InventoryType>("bga");
   const [freeLocationName, setFreeLocationName] = useState("");
   const [freeBuildingName, setFreeBuildingName] = useState("");
   const [freeRoomName, setFreeRoomName] = useState("");
@@ -194,6 +196,7 @@ export default function DashboardPage() {
           building_name: buildingName && !exactBuilding ? buildingName : undefined,
           room_id: exactRoom ? exactRoom.id : roomName ? undefined : room?.id,
           room_name: exactRoom ? undefined : roomName || undefined,
+          inventory_type: selectedInventoryType,
         }),
       });
       setActiveSession(session);
@@ -330,6 +333,7 @@ export default function DashboardPage() {
   const selectedLocationLabel = freeLocationName || bootstrap?.locations.find((location) => location.id === selectedLocation)?.name || "Betrieb offen";
   const selectedBuildingLabel = freeBuildingName || bootstrap?.buildings.find((building) => building.id === selectedBuilding)?.name || "Gebäude offen";
   const selectedRoomLabel = freeRoomName || roomOptions.find((room) => room.id === selectedRoom)?.name || "Raum offen";
+  const selectedInventoryLabel = inventoryTypeLabel(selectedInventoryType);
   const summary: SessionSummary = {
     sessions: sessions.length,
     items: sessions.reduce((sum, session) => sum + (session.item_count ?? 0), 0),
@@ -376,6 +380,24 @@ export default function DashboardPage() {
           {message ? <p className="muted">{message}</p> : null}
 
           <div className="flow-grid">
+            <div className="inventory-type-panel">
+              <span><b>0</b> Was möchtest du erfassen?</span>
+              <div className="inventory-type-grid">
+                <button className={selectedInventoryType === "bga" ? "is-active" : ""} type="button" onClick={() => setSelectedInventoryType("bga")}>
+                  <strong>Betriebs- und Geschäftsausstattung</strong>
+                  <small>Maschinen, Möbel, Geräte, Ausstattung</small>
+                </button>
+                <button disabled className={selectedInventoryType === "tires_wheels" ? "is-active" : ""} type="button" title="in Vorbereitung">
+                  <strong>Reifen und Räder</strong>
+                  <small>Radsätze, Einzelreifen, Felgen, DOT, Profiltiefe · in Vorbereitung</small>
+                </button>
+                <button disabled className={selectedInventoryType === "special_tools" ? "is-active" : ""} type="button" title="in Vorbereitung">
+                  <strong>Spezialwerkzeuge</strong>
+                  <small>VAS-Werkzeuge, Spezialgeräte, Koffer, Kalibrierung · in Vorbereitung</small>
+                </button>
+              </div>
+            </div>
+
             <label className="field flow-field">
               <span><b>1</b> Erfasser</span>
               <input
@@ -457,6 +479,7 @@ export default function DashboardPage() {
         <aside className="qr-panel">
           <div className="session-preview">
             <strong>Aktuelle Vorbereitung</strong>
+            <span>{selectedInventoryLabel}</span>
             <span>{selectedUserLabel}</span>
             <span>{selectedLocationLabel}</span>
             <span>{selectedBuildingLabel}</span>
@@ -600,10 +623,11 @@ export default function DashboardPage() {
         <div className="session-table-wrap">
           <table className="session-table">
             <thead>
-              <tr>
-                <th>Raum</th>
-                <th>Betrieb / Gebäude</th>
-                <th>Objekte</th>
+                <tr>
+                  <th>Raum</th>
+                  <th>Erfassungsart</th>
+                  <th>Betrieb / Gebäude</th>
+                  <th>Objekte</th>
                 <th>Status</th>
                 <th>Start</th>
                 <th>Aktionen</th>
@@ -616,6 +640,7 @@ export default function DashboardPage() {
                     <strong>{session.room_name || "Raum"}</strong>
                     <span title={session.id}>erfasst durch: {session.started_by_name || "nicht angegeben"}</span>
                   </td>
+                  <td><span>{inventoryTypeLabel(session.inventory_type)}</span></td>
                   <td>
                     <strong>{session.location_name || "Betrieb"}</strong>
                     <span>{session.building_name || "Gebäude"}</span>
@@ -641,7 +666,7 @@ export default function DashboardPage() {
               ))}
               {!sessions.length ? (
                 <tr>
-                  <td colSpan={6} className="empty-table">Noch keine Raum-Session gestartet.</td>
+                  <td colSpan={7} className="empty-table">Noch keine Raum-Session gestartet.</td>
                 </tr>
               ) : null}
             </tbody>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
-import { API_BASE, Bootstrap, api } from "@/lib/api";
+import { API_BASE, Bootstrap, api, inventoryTypeLabel } from "@/lib/api";
 
 type Joined = {
   session: {
@@ -10,6 +10,7 @@ type Joined = {
     location_id: string;
     building_id: string;
     room_id: string;
+    inventory_type?: string | null;
   };
   device: { id: string };
 };
@@ -133,12 +134,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     const room = bootstrap?.rooms.find((entry) => entry.id === joined?.session.room_id);
     return room?.name ?? "Raum";
   }, [bootstrap, joined]);
+  const inventoryType = joined?.session.inventory_type || "bga";
+  const isBgaSession = inventoryType === "bga";
 
   const canSave = Boolean(activeItem && photos.some((photo) => photo.type === "object_front") && form.object_type.trim());
 
   async function ensureItem() {
     if (activeItem) return activeItem;
     if (!joined) throw new Error("Session noch nicht gekoppelt");
+    if (!isBgaSession) throw new Error(`${inventoryTypeLabel(inventoryType)} ist vorbereitet, aber noch nicht aktiv.`);
     const item = await api<Item>("/items", {
       method: "POST",
       body: JSON.stringify({
@@ -330,23 +334,31 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         <div className="mobile-room-bar">
           <div>
             <strong>{roomName}</strong>
-            <span>Betriebs- und Geschäftsausstattung</span>
+            <span>{inventoryTypeLabel(inventoryType)}</span>
           </div>
           <span className="live-indicator">Live</span>
         </div>
 
-        <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
+        {joined && !isBgaSession ? (
+          <section className="wizard-card saved-card">
+            <h1>{inventoryTypeLabel(inventoryType)}</h1>
+            <p>{inventoryTypeLabel(inventoryType)}-Erfassung ist vorbereitet, aber in der Handy-Erfassung noch nicht aktiv.</p>
+            <a className="btn secondary" href={`/session/${joined.session.id}`}>Zur Session-Ansicht</a>
+          </section>
+        ) : null}
+
+        {isBgaSession ? <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
           <strong>{busy ? uploadState || "Bitte warten" : savedItem ? "Objekt gespeichert" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
           <span>{busy && uploadProgress ? `${uploadProgress}% hochgeladen` : message}</span>
-        </div>
+        </div> : null}
 
-        {busy && uploadProgress ? (
+        {isBgaSession && busy && uploadProgress ? (
           <div className="upload-meter" aria-label="Upload-Fortschritt">
             <span style={{ width: `${uploadProgress}%` }} />
           </div>
         ) : null}
 
-        {savedItem ? (
+        {isBgaSession && savedItem ? (
           <section className="wizard-card saved-card">
             <div className="saved-mark">✓</div>
             <h1>Objekt gespeichert</h1>
@@ -356,7 +368,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </section>
         ) : null}
 
-        {!savedItem ? <div className="wizard-progress">
+        {isBgaSession && !savedItem ? <div className="wizard-progress">
           {steps.map((label, index) => (
             <button
               key={label}
@@ -369,7 +381,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           ))}
         </div> : null}
 
-        {!savedItem && step === 0 ? (
+        {isBgaSession && !savedItem && step === 0 ? (
           <WizardCard title="Objektfoto aufnehmen" hint="Objekt vollständig fotografieren. Pflichtfoto.">
             <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
               <span>Objektfoto aufnehmen</span>
@@ -382,7 +394,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 1 ? (
+        {isBgaSession && !savedItem && step === 1 ? (
           <WizardCard title="Bezeichnung erfassen" hint="Kurz eintragen oder diktieren.">
             <label className="field">
               <span>Bezeichnung</span>
@@ -391,7 +403,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 2 ? (
+        {isBgaSession && !savedItem && step === 2 ? (
           <WizardCard title="Typ / Spezifikation" hint="Modell, Hersteller oder technische Daten erfassen.">
             <label className="field">
               <span>Typ / Spezifikation</span>
@@ -400,7 +412,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 3 ? (
+        {isBgaSession && !savedItem && step === 3 ? (
           <WizardCard title="Typenschild fotografieren" hint="Typenschild fotografieren, falls vorhanden.">
             <div className="segmented">
               <button className={form.type_plate_status === "vorhanden" ? "is-active" : ""} onClick={() => update("type_plate_status", "vorhanden")} type="button">vorhanden</button>
@@ -412,7 +424,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 4 ? (
+        {isBgaSession && !savedItem && step === 4 ? (
           <WizardCard title="Baujahr erfassen" hint="Eintragen, wenn bekannt. Sonst leer lassen.">
             <label className="field">
               <span>Baujahr</span>
@@ -421,7 +433,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 5 ? (
+        {isBgaSession && !savedItem && step === 5 ? (
           <WizardCard title="Zustand erfassen" hint="Sichtbaren Zustand auswählen.">
             <label className="field">
               <span>Zustand</span>
@@ -443,7 +455,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 6 ? (
+        {isBgaSession && !savedItem && step === 6 ? (
           <WizardCard title="Funktion i. O." hint="Funktion kurz bewerten.">
             <div className="choice-grid">
               {[
@@ -457,7 +469,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 7 ? (
+        {isBgaSession && !savedItem && step === 7 ? (
           <WizardCard title="UVV / Prüffrist" hint="UVV-Siegel gut lesbar fotografieren.">
             <label className="field">
               <span>UVV Status</span>
@@ -477,7 +489,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 8 ? (
+        {isBgaSession && !savedItem && step === 8 ? (
           <WizardCard title="Prüfbuch vorhanden" hint="Prüfbuchstatus auswählen.">
             <label className="field">
               <span>Prüfbuch</span>
@@ -491,7 +503,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 9 ? (
+        {isBgaSession && !savedItem && step === 9 ? (
           <WizardCard title="Bemerkung / Diktat" hint="Bemerkung diktieren oder eingeben.">
             <label className="field">
               <span>Bemerkung</span>
@@ -500,7 +512,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem && step === 10 ? (
+        {isBgaSession && !savedItem && step === 10 ? (
           <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
             <div className="summary-list">
               <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
@@ -536,12 +548,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </WizardCard>
         ) : null}
 
-        {!savedItem ? <div className="wizard-nav">
+        {isBgaSession && !savedItem ? <div className="wizard-nav">
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
           <button className="btn" type="button" disabled={step === steps.length - 1 || busy} onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>Weiter</button>
         </div> : null}
 
-        {(["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
+        {isBgaSession ? (["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
           <input
             key={type}
             ref={fileInputRefs[type]}
@@ -551,9 +563,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             capture="environment"
             onChange={(event) => handlePhotoSelected(type, event)}
           />
-        ))}
+        )) : null}
 
-        {!savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
+        {isBgaSession && !savedItem && joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Tablet-Liste bearbeiten</a> : null}
       </section>
     </main>
   );

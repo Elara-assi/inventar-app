@@ -836,6 +836,11 @@ def finalization_blockers(item_id: str) -> list[str]:
     photos = fetch_all("SELECT photo_type FROM item_photos WHERE item_id = %s", (item_id,))
     photo_types = {p["photo_type"] for p in photos}
     current = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,)) or {}
+    tire_data = (
+        fetch_one("SELECT * FROM item_tire_wheel_data WHERE item_id = %s", (item_id,))
+        if current.get("inventory_type") == "tires_wheels"
+        else None
+    ) or {}
     ai_row = fetch_one(
         "SELECT result_json FROM ai_results WHERE item_id = %s AND status = 'completed' ORDER BY created_at DESC LIMIT 1",
         (item_id,),
@@ -854,6 +859,27 @@ def finalization_blockers(item_id: str) -> list[str]:
         field = row["field_name"]
         if field == "object_photo":
             if not ({"object", "object_front"} & photo_types):
+                blockers.append(row["field_label"])
+            continue
+        if current.get("inventory_type") == "tires_wheels" and field in {"tire_size", "dot", "season"}:
+            value = tire_data.get(field)
+            if value in (None, "", "unklar"):
+                blockers.append(row["field_label"])
+            continue
+        if current.get("inventory_type") == "tires_wheels" and field == "tread_depth":
+            if tire_data.get("set_type") == "einzelreifen":
+                missing_tread = tire_data.get("tread_depth_single") is None
+            else:
+                missing_tread = any(
+                    tire_data.get(name) is None
+                    for name in [
+                        "tread_depth_front_left",
+                        "tread_depth_front_right",
+                        "tread_depth_rear_left",
+                        "tread_depth_rear_right",
+                    ]
+                )
+            if missing_tread:
                 blockers.append(row["field_label"])
             continue
         if row["evidence_photo_type"]:

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { ItemReviewList, ReviewItem } from "@/components/ItemReviewList";
-import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
+import { API_BASE, Bootstrap, api, inventoryTypeLabel, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -13,6 +13,7 @@ type Session = {
   building_name: string;
   room_name: string;
   status: string;
+  inventory_type?: string | null;
 };
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -111,6 +112,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <div>
             <span className="eyebrow">{session?.location_name || "Betrieb"} · {session?.building_name || "Gebäude"}</span>
             <h1>{session?.room_name || "Live-Prüfung"}</h1>
+            <p className="module-label">Erfassungsart: {inventoryTypeLabel(session?.inventory_type)}</p>
             <p className="muted">
               {items.length
                 ? `Automatische Aktualisierung · zuletzt ${lastUpdated?.toLocaleTimeString("de-DE") ?? "-"}`

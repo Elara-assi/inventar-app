@@ -43,6 +43,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+INVENTORY_TYPE_LABELS = {
+    "bga": "Betriebs- und Geschäftsausstattung",
+    "tires_wheels": "Reifen und Räder",
+    "special_tools": "Spezialwerkzeuge",
+}
+
+
+def inventory_type_label(value: Any) -> str:
+    return INVENTORY_TYPE_LABELS.get(str(value or "bga"), INVENTORY_TYPE_LABELS["bga"])
+
 
 class LoginIn(BaseModel):
     email: str
@@ -57,6 +67,7 @@ class SessionIn(BaseModel):
     room_id: str | None = None
     room_name: str | None = None
     started_by: str | None = None
+    inventory_type: str = "bga"
 
 
 class JoinIn(BaseModel):
@@ -141,6 +152,48 @@ class ItemPatch(BaseModel):
     type_plate_status: str | None = None
 
 
+class TireWheelDataBase(BaseModel):
+    set_type: str | None = None
+    season: str | None = None
+    manufacturer: str | None = None
+    profile_model: str | None = None
+    tire_size: str | None = None
+    load_index: str | None = None
+    speed_index: str | None = None
+    dot: str | None = None
+    production_week: int | None = None
+    production_year: int | None = None
+    tread_depth_front_left: float | None = None
+    tread_depth_front_right: float | None = None
+    tread_depth_rear_left: float | None = None
+    tread_depth_rear_right: float | None = None
+    tread_depth_single: float | None = None
+    rim_present: bool | None = None
+    rim_type: str | None = None
+    rim_condition: str | None = None
+    tire_condition: str | None = None
+    damage_note: str | None = None
+    set_complete: bool | None = None
+    storage_location: str | None = None
+    remark: str | None = None
+
+
+class TireWheelDataCreate(TireWheelDataBase):
+    set_type: str = "satz"
+    season: str = "unklar"
+
+
+class TireWheelDataUpdate(TireWheelDataBase):
+    pass
+
+
+class TireWheelDataResponse(TireWheelDataBase):
+    id: str | None = None
+    item_id: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class LearningExampleIn(BaseModel):
     notes: str | None = None
 
@@ -194,11 +247,13 @@ def next_sequence_number(session_id: str) -> int:
 
 def photo_type_aliases(kind: str) -> tuple[str, ...]:
     if kind == "object":
-        return ("object", "object_front")
+        return ("object", "object_front", "tire_overview")
     if kind == "nameplate":
         return ("nameplate", "type_plate")
     if kind == "condition":
         return ("condition", "condition_detail", "object_back")
+    if kind == "tire_overview":
+        return ("tire_overview",)
     return (kind,)
 
 
@@ -213,18 +268,91 @@ def has_photo_type(item_id: str, kind: str) -> bool:
 
 
 def upsert_rework_task(item_id: str, role: str, field: str, priority: str = "normal", comment: str | None = None) -> None:
+    upsert_rework_task_for_type(item_id, "bga_check", role, field, priority, comment)
+
+
+def upsert_rework_task_for_type(
+    item_id: str,
+    task_type: str,
+    role: str,
+    field: str,
+    priority: str = "normal",
+    comment: str | None = None,
+) -> None:
     execute(
         """
         INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)
-        SELECT %s, 'bga_check', %s, %s, %s, %s
+        SELECT %s, %s, %s, %s, %s, %s
         WHERE NOT EXISTS (
           SELECT 1 FROM accounting_tasks
-          WHERE item_id = %s AND missing_field = %s AND status = 'open'
+          WHERE item_id = %s AND task_type = %s AND missing_field = %s AND status = 'open'
         )
         RETURNING id
         """,
-        (item_id, role, field, priority, comment or field, item_id, field),
+        (item_id, task_type, role, field, priority, comment or field, item_id, task_type, field),
     )
+
+
+def parse_dot_week_year(value: str | None) -> tuple[int | None, int | None, bool]:
+    raw = re.sub(r"\D", "", value or "")
+    if len(raw) < 4:
+        return None, None, False
+    token = raw[-4:]
+    week = int(token[:2])
+    year_suffix = int(token[2:])
+    current_year = date.today().year
+    current_suffix = current_year % 100
+    year = 2000 + year_suffix if year_suffix <= current_suffix + 1 else 1900 + year_suffix
+    if week < 1 or week > 53:
+        return None, None, False
+    if year < 1980 or year > current_year + 1:
+        return None, None, False
+    return week, year, True
+
+
+def normalize_tire_wheel_payload(data: dict[str, Any]) -> dict[str, Any]:
+    if "dot" in data:
+        week, year, valid = parse_dot_week_year(data.get("dot"))
+        data["production_week"] = week if valid else None
+        data["production_year"] = year if valid else None
+    return data
+
+
+def tire_tread_values(data: dict[str, Any]) -> list[float]:
+    fields = [
+        "tread_depth_front_left",
+        "tread_depth_front_right",
+        "tread_depth_rear_left",
+        "tread_depth_rear_right",
+        "tread_depth_single",
+    ]
+    values = []
+    for field in fields:
+        value = data.get(field)
+        if value is None:
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return values
+
+
+def tire_tread_missing(data: dict[str, Any]) -> bool:
+    if data.get("set_type") == "einzelreifen":
+        return data.get("tread_depth_single") is None
+    if data.get("set_type") == "satz":
+        return any(data.get(field) is None for field in [
+            "tread_depth_front_left",
+            "tread_depth_front_right",
+            "tread_depth_rear_left",
+            "tread_depth_rear_right",
+        ])
+    return True
+
+
+def tire_warning_limit(season: str | None) -> float:
+    return 3.0 if season == "sommer" else 4.0
 
 
 def run_bga_rework_check(item_id: str) -> None:
@@ -293,6 +421,105 @@ def run_bga_rework_check(item_id: str) -> None:
             """,
             (item_id,),
         )
+
+
+def run_tire_wheel_rework_check(item_id: str) -> None:
+    item = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not item or item.get("inventory_type") != "tires_wheels":
+        return
+    execute(
+        """
+        UPDATE accounting_tasks
+        SET status = 'completed', completed_at = now()
+        WHERE item_id = %s AND task_type = 'tire_wheel_check' AND status = 'open'
+        RETURNING id
+        """,
+        (item_id,),
+    )
+    data = fetch_one("SELECT * FROM item_tire_wheel_data WHERE item_id = %s", (item_id,)) or {}
+
+    def add(role: str, field: str, priority: str = "normal", comment: str | None = None) -> None:
+        upsert_rework_task_for_type(item_id, "tire_wheel_check", role, field, priority, comment)
+
+    if not has_photo_type(item_id, "tire_overview"):
+        add("Erfasser", "Gesamtfoto Reifen/Radsatz fehlt", "hoch", "Pflichtfoto für Reifen/Räder fehlt.")
+
+    dot = str(data.get("dot") or "").strip()
+    _, _, dot_valid = parse_dot_week_year(dot)
+    if not dot or not dot_valid:
+        add("Erfasser", "DOT fehlt oder unklar", "hoch", "DOT muss als WWYY plausibel erfasst werden.")
+
+    if not str(data.get("tire_size") or "").strip():
+        add("Erfasser", "Reifengröße fehlt", "hoch", "Reifengröße muss erfasst oder per Foto nachgewiesen werden.")
+
+    if data.get("season") in {None, "", "unklar"}:
+        add("Erfasser", "Saison unklar", "normal", "Sommer, Winter oder Ganzjahr muss eingeordnet werden.")
+
+    if tire_tread_missing(data):
+        add("Erfasser", "Profiltiefe fehlt", "hoch", "Profiltiefe muss für Satz oder Einzelreifen erfasst werden.")
+    else:
+        values = tire_tread_values(data)
+        if any(value < 1.6 for value in values):
+            add("Technik", "Profiltiefe unter gesetzlicher Mindestgrenze", "hoch", "Mindestens ein Reifen liegt unter 1,6 mm.")
+        elif any(value < tire_warning_limit(data.get("season")) for value in values):
+            add("Prüfer", "Profiltiefe unter fachlichem Warnwert", "normal", "Reifen liegt unter dem internen Warnwert.")
+
+    if data.get("set_complete") is False:
+        add("Erfasser", "Satz unvollständig", "hoch", "Radsatz ist nicht vollständig erfasst.")
+
+    if str(data.get("damage_note") or "").strip():
+        add("Technik", "Schaden vorhanden", "hoch", "Schaden muss fachlich bewertet werden.")
+
+    if data.get("rim_present") is True and data.get("rim_type") in {None, "", "unklar"}:
+        add("Erfasser", "Felgentyp unklar", "normal", "Felgentyp Stahl, Alu oder unklar prüfen.")
+
+    if data.get("rim_present") is True and str(data.get("rim_condition") or "").strip().lower() in {"", "unklar"}:
+        add("Erfasser", "Felgenzustand unklar", "normal", "Felgenzustand muss eingeordnet werden.")
+
+    open_critical = fetch_one(
+        """
+        SELECT count(*)::int AS count
+        FROM accounting_tasks
+        WHERE item_id = %s AND status = 'open' AND assigned_role IN ('Erfasser', 'Technik')
+        """,
+        (item_id,),
+    )
+    if open_critical and int(open_critical["count"]) > 0:
+        execute(
+            """
+            UPDATE inventory_items
+            SET review_status = CASE
+                  WHEN review_status = 'finalisiert' THEN review_status
+                  ELSE 'nacharbeit_erfasser'
+                END,
+                status = CASE WHEN status = 'finalisiert' THEN status ELSE 'nacharbeit_noetig' END,
+                updated_at = now()
+            WHERE id = %s
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    else:
+        execute(
+            """
+            UPDATE inventory_items
+            SET review_status = CASE WHEN review_status IN ('erfasst', 'nacharbeit_erfasser', 'nacharbeit_technik') THEN 'finalisierbar' ELSE review_status END,
+                updated_at = now()
+            WHERE id = %s
+            RETURNING id
+            """,
+            (item_id,),
+        )
+
+
+def run_inventory_rework_check(item_id: str) -> None:
+    item = fetch_one("SELECT inventory_type FROM inventory_items WHERE id = %s", (item_id,))
+    if not item:
+        return
+    if item.get("inventory_type") == "bga":
+        run_bga_rework_check(item_id)
+    elif item.get("inventory_type") == "tires_wheels":
+        run_tire_wheel_rework_check(item_id)
 
 
 def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -687,6 +914,7 @@ def delete_room(room_id: str, force: bool = False) -> dict[str, Any]:
 @app.post("/sessions")
 def create_session(body: SessionIn) -> dict[str, Any]:
     token = secrets.token_urlsafe(18)
+    inventory_type = body.inventory_type if body.inventory_type in {"bga", "tires_wheels", "special_tools"} else "bga"
     room_id = body.room_id
     building_id = body.building_id
     location_id = body.location_id
@@ -770,11 +998,11 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 
     row = execute(
         """
-        INSERT INTO inventory_sessions (location_id, building_id, room_id, join_token, started_by)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO inventory_sessions (location_id, building_id, room_id, join_token, started_by, inventory_type)
+        VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (location_id, building_id, room_id, token, body.started_by),
+        (location_id, building_id, room_id, token, body.started_by, inventory_type),
     )
     audit("session_started", "inventory_session", str(row["id"]), row)
     return row
@@ -786,6 +1014,7 @@ def list_sessions() -> list[dict[str, Any]]:
         """
         SELECT s.*, l.name AS location_name, b.name AS building_name, r.name AS room_name,
           starter.display_name AS started_by_name,
+          COALESCE(s.inventory_type, 'bga') AS inventory_type,
           count(i.id)::int AS item_count
         FROM inventory_sessions s
         JOIN locations l ON l.id = s.location_id
@@ -803,7 +1032,8 @@ def list_sessions() -> list[dict[str, Any]]:
 def get_session(session_id: str) -> dict[str, Any]:
     row = fetch_one(
         """
-        SELECT s.*, l.name AS location_name, l.code AS location_code, b.name AS building_name, r.name AS room_name
+        SELECT s.*, COALESCE(s.inventory_type, 'bga') AS inventory_type,
+          l.name AS location_name, l.code AS location_code, b.name AS building_name, r.name AS room_name
         FROM inventory_sessions s
         JOIN locations l ON l.id = s.location_id
         JOIN buildings b ON b.id = s.building_id
@@ -934,12 +1164,15 @@ def create_item(body: ItemIn) -> dict[str, Any]:
     session = get_session(body.session_id)
     if session["status"] != "open":
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
+    session_inventory_type = session.get("inventory_type") or "bga"
+    if body.inventory_type and body.inventory_type != session_inventory_type:
+        raise HTTPException(status_code=409, detail="Erfassungsart der Session kann nicht gemischt werden")
     inventory_id = body.inventory_id or next_inventory_id(session["location_code"])
     temporary_id = body.temporary_id or f"TEMP-{secrets.token_hex(4).upper()}"
     object_class_id = body.object_class_id
-    if not object_class_id and body.inventory_type == "bga":
-        bga = fetch_one("SELECT id FROM object_classes WHERE slug = 'bga'")
-        object_class_id = str(bga["id"]) if bga else None
+    if not object_class_id and session_inventory_type in {"bga", "tires_wheels", "special_tools"}:
+        object_class = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (session_inventory_type,))
+        object_class_id = str(object_class["id"]) if object_class else None
     oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (object_class_id,)) if object_class_id else None
     sequence_number = next_sequence_number(body.session_id)
     row = execute(
@@ -960,14 +1193,14 @@ def create_item(body: ItemIn) -> dict[str, Any]:
             inventory_id,
             temporary_id,
             sequence_number,
-            body.inventory_type,
+            session_inventory_type,
             body.session_id,
             session["location_id"],
             session["building_id"],
             session["room_id"],
             body.object_type,
             object_class_id,
-            body.inventory_type,
+            session_inventory_type,
             body.brand,
             body.model,
             body.serial_number,
@@ -996,7 +1229,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
         (row["id"], row["commercial_category"], row["accounting_status"]),
     )
     audit("item_created", "inventory_item", str(row["id"]), row)
-    run_bga_rework_check(str(row["id"]))
+    run_inventory_rework_check(str(row["id"]))
     return row
 
 
@@ -1065,6 +1298,72 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+TIRE_WHEEL_FIELDS = [
+    "set_type",
+    "season",
+    "manufacturer",
+    "profile_model",
+    "tire_size",
+    "load_index",
+    "speed_index",
+    "dot",
+    "production_week",
+    "production_year",
+    "tread_depth_front_left",
+    "tread_depth_front_right",
+    "tread_depth_rear_left",
+    "tread_depth_rear_right",
+    "tread_depth_single",
+    "rim_present",
+    "rim_type",
+    "rim_condition",
+    "tire_condition",
+    "damage_note",
+    "set_complete",
+    "storage_location",
+    "remark",
+]
+
+
+def require_tire_wheel_item(item_id: str, require_open: bool = False) -> dict[str, Any]:
+    item = require_item_session_open(item_id) if require_open else fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not item:
+        raise HTTPException(status_code=404, detail="Gegenstand nicht gefunden")
+    if item.get("inventory_type") != "tires_wheels":
+        raise HTTPException(status_code=409, detail="Gegenstand ist kein Reifen/Räder-Datensatz")
+    return item
+
+
+def upsert_tire_wheel_data(item_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    payload = normalize_tire_wheel_payload({key: value for key, value in data.items() if key in TIRE_WHEEL_FIELDS})
+    if not payload:
+        row = fetch_one("SELECT * FROM item_tire_wheel_data WHERE item_id = %s", (item_id,))
+        if row:
+            return row
+        payload = {}
+
+    insert_fields = ["item_id", *payload.keys()]
+    placeholders = ", ".join(["%s"] * len(insert_fields))
+    update_fields = [field for field in payload.keys() if field != "item_id"]
+    update_sql = ", ".join([f"{field} = EXCLUDED.{field}" for field in update_fields])
+    if update_sql:
+        update_sql += ", updated_at = now()"
+    else:
+        update_sql = "updated_at = now()"
+    row = execute(
+        f"""
+        INSERT INTO item_tire_wheel_data ({", ".join(insert_fields)})
+        VALUES ({placeholders})
+        ON CONFLICT (item_id) DO UPDATE SET {update_sql}
+        RETURNING *
+        """,
+        (item_id, *payload.values()),
+    )
+    audit("tire_wheel_data_saved", "inventory_item", item_id, row)
+    run_tire_wheel_rework_check(item_id)
+    return row
+
+
 @app.get("/items/{item_id}")
 def get_item(item_id: str) -> dict[str, Any]:
     row = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
@@ -1078,8 +1377,31 @@ def get_item(item_id: str) -> dict[str, Any]:
         (item_id,),
     )
     row["accounting"] = fetch_one("SELECT * FROM item_accounting_data WHERE item_id = %s", (item_id,))
+    if row.get("inventory_type") == "tires_wheels":
+        row["tire_wheel_data"] = fetch_one("SELECT * FROM item_tire_wheel_data WHERE item_id = %s", (item_id,))
     row["blockers"] = finalization_blockers(item_id)
     return row
+
+
+@app.get("/items/{item_id}/tires-wheels")
+def get_tire_wheel_data(item_id: str) -> dict[str, Any]:
+    require_tire_wheel_item(item_id)
+    row = fetch_one("SELECT * FROM item_tire_wheel_data WHERE item_id = %s", (item_id,))
+    return row or {"item_id": item_id}
+
+
+@app.post("/items/{item_id}/tires-wheels")
+def create_tire_wheel_data(item_id: str, body: TireWheelDataCreate) -> dict[str, Any]:
+    require_tire_wheel_item(item_id, require_open=True)
+    data = body.model_dump(exclude_unset=True)
+    return upsert_tire_wheel_data(item_id, data)
+
+
+@app.patch("/items/{item_id}/tires-wheels")
+def patch_tire_wheel_data(item_id: str, body: TireWheelDataUpdate) -> dict[str, Any]:
+    require_tire_wheel_item(item_id, require_open=True)
+    data = body.model_dump(exclude_unset=True)
+    return upsert_tire_wheel_data(item_id, data)
 
 
 @app.patch("/items/{item_id}")
@@ -1101,7 +1423,7 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     audit("item_changed", "inventory_item", item_id, data)
-    run_bga_rework_check(item_id)
+    run_inventory_rework_check(item_id)
     return row
 
 
@@ -1277,7 +1599,7 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
         (item_id, photo_type, str(path), str(stamped), digest, '{"phase":"1","stamp":"pending-worker"}'),
     )
     audit("photo_uploaded", "inventory_item", item_id, row)
-    run_bga_rework_check(item_id)
+    run_inventory_rework_check(item_id)
     return row
 
 
@@ -1880,6 +2202,11 @@ def label_field(value: Any) -> str:
         "uvv_label": "UVV-Siegel",
         "condition_detail": "Zustandsdetail",
         "other": "Sonstiges Foto",
+        "tire_overview": "Gesamtfoto Reifen/Radsatz",
+        "tread": "Profilbild",
+        "tire_size": "Reifengröße",
+        "rim": "Felge",
+        "damage": "Schaden",
         "dot_photo": "DOT-Foto",
         "dot": "DOT-Foto",
         "DOT-Foto": "DOT-Foto",
@@ -2183,7 +2510,7 @@ def fetch_export_audit_rows(rows: list[dict[str, Any]], session_id: str | None, 
     return sorted(audit_rows, key=lambda row: row.get("created_at") or datetime.min)
 
 
-EXCEL_DETAIL_PHOTO_TYPES = {"type_plate", "nameplate", "uvv_label", "condition_detail"}
+EXCEL_DETAIL_PHOTO_TYPES = {"type_plate", "nameplate", "uvv_label", "condition_detail", "dot", "tread", "tire_size", "damage"}
 
 
 def excel_photo_limit(photo_type: Any) -> int:
@@ -2583,6 +2910,12 @@ def patch_item_accounting(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 @app.post("/sessions/{session_id}/export/excel")
 def export_excel(session_id: str) -> dict[str, Any]:
     session = get_session(session_id)
+    session_inventory_type = session.get("inventory_type") or "bga"
+    if session_inventory_type != "bga":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Excel-Export für {inventory_type_label(session_inventory_type)} ist vorbereitet, aber noch nicht aktiv.",
+        )
     rows = export_query("WHERE i.session_id = %s", (session_id,))
     return save_export(
         title=f"Raumaufnahme {session.get('room_name') or session_id}",

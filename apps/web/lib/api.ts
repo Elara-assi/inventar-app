@@ -8,6 +8,18 @@ export type Bootstrap = {
   object_classes: Array<{ id: string; name: string; slug: string }>;
 };
 
+export type InventoryType = "bga" | "tires_wheels" | "special_tools";
+
+export const inventoryTypeLabels: Record<InventoryType, string> = {
+  bga: "Betriebs- und Geschäftsausstattung",
+  tires_wheels: "Reifen und Räder",
+  special_tools: "Spezialwerkzeuge",
+};
+
+export function inventoryTypeLabel(value?: string | null) {
+  return inventoryTypeLabels[(value || "bga") as InventoryType] ?? inventoryTypeLabels.bga;
+}
+
 export type ItemTemplate = {
   id: string;
   source: string;
