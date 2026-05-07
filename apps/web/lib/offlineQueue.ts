@@ -34,6 +34,7 @@ export type QueueSummary = {
   open: number;
   pendingPhotos: number;
   failedPhotos: number;
+  lastError?: string;
 };
 
 const DB_NAME = "inventar-offline-queue";
@@ -203,8 +204,18 @@ export async function clearOnlySyncedItems(): Promise<void> {
   await Promise.all(synced.map((item) => removeSyncedQueueItem(item.id)));
 }
 
+export async function recoverInterruptedUploads(): Promise<void> {
+  const interrupted = (await listQueueItems()).filter((item) => item.status === "uploading");
+  await Promise.all(interrupted.map((item) => updateQueueStatus(item.id, "pending", {
+    last_error: "Synchronisierung wurde unterbrochen und wird erneut versucht.",
+  })));
+}
+
 export async function getQueueSummary(): Promise<QueueSummary> {
   const items = await listQueueItems();
+  const lastFailed = items
+    .filter((item) => item.status === "failed" && item.last_error)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
   const summary: QueueSummary = {
     total: items.length,
     pending: items.filter((item) => item.status === "pending").length,
@@ -215,6 +226,7 @@ export async function getQueueSummary(): Promise<QueueSummary> {
     open: items.filter((item) => item.status !== "synced").length,
     pendingPhotos: items.filter((item) => item.type === "photo_upload" && item.status !== "synced").length,
     failedPhotos: items.filter((item) => item.type === "photo_upload" && item.status === "failed").length,
+    lastError: lastFailed?.last_error,
   };
   return summary;
 }

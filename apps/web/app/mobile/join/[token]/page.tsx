@@ -395,7 +395,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setSyncMessage("Fehler werden erneut synchronisiert.");
     try {
       await retryFailed();
-      setSyncMessage("Synchronisierung abgeschlossen.");
+      const summary = await getQueueSummary();
+      setSyncMessage(summary.open ? `${summary.pendingPhotos} Fotos warten noch auf Synchronisierung.` : "Synchronisierung abgeschlossen.");
     } catch {
       setSyncMessage("Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
     } finally {
@@ -441,6 +442,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       : queueSummary.open
         ? `Upload läuft – ${queueSummary.open} Einträge offen`
       : "Alles synchronisiert";
+  const syncDetail = queueSummary.failed
+    ? `${queueSummary.failedPhotos} Fotos fehlgeschlagen. ${queueSummary.lastError || "Bitte Verbindung prüfen und erneut synchronisieren."}`
+    : queueSummary.pendingPhotos
+      ? `${queueSummary.pendingPhotos} Fotos offen. Lokal gesichert, bis der Server den Upload bestätigt.`
+      : syncMessage || "Lokale Queue ist leer.";
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
@@ -518,7 +524,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
             <div>
               <strong>{syncText}</strong>
-              <span>{syncMessage || (queueSummary.open ? `Fotos offen: ${queueSummary.pendingPhotos}` : "Lokale Queue ist leer.")}</span>
+              <span>{syncDetail}</span>
             </div>
             <button className="btn secondary" type="button" onClick={() => void runSync("Synchronisierung läuft.")}>Jetzt synchronisieren</button>
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}

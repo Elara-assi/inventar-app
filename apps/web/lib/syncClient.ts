@@ -4,6 +4,7 @@ import {
   clearOnlySyncedItems,
   getQueueSummary,
   listQueueItems,
+  recoverInterruptedUploads,
   updateQueueStatus,
 } from "@/lib/offlineQueue";
 
@@ -24,7 +25,13 @@ export function limitConcurrentUploads() {
   return 1;
 }
 
-function cleanError() {
+function cleanError(error?: unknown) {
+  if (error instanceof Error && error.message.includes("Maximal 5 Fotos")) {
+    return "Maximal 5 Fotos pro Gegenstand möglich.";
+  }
+  if (error instanceof Error && error.name === "AbortError") {
+    return "Upload hat zu lange gedauert. Bitte Verbindung prüfen und erneut synchronisieren.";
+  }
   return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
 }
 
@@ -61,10 +68,18 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
     client_photo_id: item.client_photo_id,
     source_device_id: item.device_id,
   });
-  const response = await fetch(`${API_BASE}/items/${serverItemId}/photos?${params.toString()}`, {
-    method: "POST",
-    body: form,
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 45_000);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/items/${serverItemId}/photos?${params.toString()}`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -101,8 +116,8 @@ export async function syncPendingItems(): Promise<SyncResult> {
       const linkedPhotos = (await listQueueItems()).filter((entry) => entry.client_item_id === item.client_item_id && entry.type === "photo_upload");
       await Promise.all(linkedPhotos.map((photo) => updateQueueStatus(photo.id, photo.status, { server_item_id: created.id })));
       synced += 1;
-    } catch {
-      await updateQueueStatus(item.id, "failed", { last_error: cleanError() });
+    } catch (error) {
+      await updateQueueStatus(item.id, "failed", { last_error: cleanError(error) });
       failed += 1;
     }
   }
@@ -115,19 +130,24 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
   let failed = 0;
   const allItems = await listQueueItems();
   const photos = allItems.filter(
-    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed"),
+    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading"),
   );
   for (const photo of photos) {
     const serverItemId = await findServerItemId(photo, await listQueueItems());
-    if (!serverItemId) continue;
+    if (!serverItemId) {
+      await updateQueueStatus(photo.id, "pending", {
+        last_error: "Objekt ist noch nicht vollständig synchronisiert. Foto bleibt lokal gespeichert.",
+      });
+      continue;
+    }
     try {
       await updateQueueStatus(photo.id, "uploading", { server_item_id: serverItemId, last_error: undefined });
       await uploadPhoto(photo, serverItemId);
       await updateQueueStatus(photo.id, "synced", { server_item_id: serverItemId, last_error: undefined });
       api(`/items/${serverItemId}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
       synced += 1;
-    } catch {
-      await updateQueueStatus(photo.id, "failed", { server_item_id: serverItemId, last_error: cleanError() });
+    } catch (error) {
+      await updateQueueStatus(photo.id, "failed", { server_item_id: serverItemId, last_error: cleanError(error) });
       failed += 1;
     }
   }
@@ -145,6 +165,7 @@ export async function syncNow(): Promise<SyncResult> {
   if (!getOnlineStatus()) return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
   syncRunning = true;
   try {
+    await recoverInterruptedUploads();
     const items = await syncPendingItems();
     const photos = await syncPendingPhotos();
     const summary = await getQueueSummary();
