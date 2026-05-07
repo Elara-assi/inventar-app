@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as ExcelImage
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 
@@ -255,9 +255,6 @@ def run_bga_rework_check(item_id: str) -> None:
         upsert_rework_task(item_id, "Technik", "UVV abgelaufen", "hoch", "UVV-Datum liegt in der Vergangenheit.")
     if item.get("uvv_status") == "vorhanden" and not has_photo_type(item_id, "uvv_label"):
         upsert_rework_task(item_id, "Erfasser", "UVV-Siegel fotografieren", "normal", "UVV-Siegel oder Prüfplakette als Nachweis ergänzen.")
-    if item.get("inspection_book_available") in {"nein", "unklar"}:
-        label = "Prüfbuch fehlt" if item.get("inspection_book_available") == "nein" else "Prüfbuch unklar"
-        upsert_rework_task(item_id, "Technik", label, "normal", "Prüfbuchstatus muss später geklärt werden.")
     if item.get("type_plate_status") == "vorhanden" and not has_photo_type(item_id, "nameplate"):
         upsert_rework_task(item_id, "Erfasser", "Typenschildfoto fehlt", "normal", "Typenschild wurde als vorhanden markiert, Foto fehlt.")
 
@@ -1900,6 +1897,19 @@ def label_field_list(value: Any) -> str:
 
 
 def export_value(row: dict[str, Any], key: str) -> Any:
+    if key == "lfd_photo":
+        return row.get("sequence_number") or row.get("inventory_id") or row.get("temporary_id") or ""
+    if key == "function_ok_yes":
+        return "X" if row.get("function_ok") == "ja" else ""
+    if key == "function_ok_no":
+        return "X" if row.get("function_ok") == "nein" else ""
+    if key == "bga_remark":
+        notes = [str(row.get("condition_note") or "").strip(), str(row.get("remark") or "").strip()]
+        if row.get("function_ok") == "nicht_geprueft":
+            notes.append("Funktion nicht geprüft")
+        if row.get("uvv_status") in {"nicht_vorhanden", "unklar"}:
+            notes.append(export_value(row, "uvv_status_label"))
+        return " | ".join(note for note in notes if note)
     if key == "captured_by_name":
         return row.get("created_by_name") or row.get("session_started_by_name") or "Nicht erfasst"
     if key == "reviewed_by_name":
@@ -1987,122 +1997,15 @@ def filename_part(value: str | None, fallback: str) -> str:
 
 
 EXPORT_COLUMNS = [
-    ("Foto", "photo_cell"),
-    ("Betrieb", "location_name"),
-    ("Gebäude", "building_name"),
-    ("Raum", "room_name"),
-    ("Session-Status", "session_status"),
-    ("Session-Start", "session_created_at"),
-    ("Erfassungsart", "inventory_type"),
-    ("Inventar-ID", "inventory_id"),
-    ("Temporäre ID", "temporary_id"),
-    ("Laufende Nr.", "sequence_number"),
-    ("Objektart", "object_type"),
-    ("Objektklasse", "object_class_name"),
-    ("Typ/Spezifikation", "specification"),
+    ("lfd. Nr. / Foto", "lfd_photo"),
+    ("Bezeichnung", "object_type"),
+    ("Typ / Spezifikation", "specification"),
     ("Baujahr", "construction_year"),
-    ("Kategorie", "category"),
-    ("Marke", "brand"),
-    ("Modell", "model"),
-    ("Seriennummer", "serial_number"),
-    ("Zustand", "condition"),
-    ("Funktion i. O.", "function_ok_label"),
-    ("UVV Status", "uvv_status_label"),
-    ("UVV gültig bis", "uvv_valid_until"),
-    ("Prüfbuch vorhanden", "inspection_book_label"),
-    ("Typenschild", "type_plate_status_label"),
-    ("Bemerkung", "condition_note"),
-    ("Bemerkung Erfassung", "remark"),
-    ("Schätzwert", "value_estimate"),
-    ("Altersquelle", "age_source"),
-    ("Altersprüfung", "age_verification_status"),
-    ("Geschätztes Alter", "estimated_age_years"),
-    ("Herstellungsdatum", "manufacturing_date"),
-    ("Anschaffungsdatum", "acquisition_date"),
-    ("Inbetriebnahme", "commissioning_date"),
-    ("Kostenstelle", "cost_center"),
-    ("Kaufmännische Kategorie", "commercial_category"),
-    ("Buchhaltungsrelevanz", "accounting_relevance"),
-    ("Buchhaltungsstatus", "accounting_status"),
-    ("Buchhaltung prüfen", "requires_accounting_review"),
-    ("Status", "status"),
-    ("Bearbeitung", "review_status"),
-    ("Lebenszyklus", "lifecycle_status"),
-    ("KI-Konfidenz", "confidence_score"),
-    ("Objektfoto", "has_object_photo"),
-    ("Typenschildfoto", "has_nameplate_photo"),
-    ("DOT-Foto", "has_dot_photo"),
-    ("Weitere Fotos", "photo_count"),
-    ("Sprachnotizen", "audio_count"),
-    ("Offene Nacharbeiten", "open_task_count"),
-    ("Nacharbeit Rollen", "open_task_roles"),
-    ("Nacharbeit Felder", "open_task_fields"),
-    ("Erfasst von", "created_by_name"),
-    ("Geprüft von", "reviewed_by_name"),
-    ("Finalisiert von", "finalized_by_name"),
-    ("Erfasst am", "created_at"),
-    ("Aktualisiert am", "updated_at"),
-    ("Finalisiert am", "finalized_at"),
-]
-
-
-EXPORT_COLUMNS = [
-    ("Foto", "photo_cell"),
-    ("Betrieb", "location_name"),
-    ("Gebäude", "building_name"),
-    ("Raum", "room_name"),
-    ("Session-Status", "session_status_label"),
-    ("Session gestartet am", "session_started_at"),
-    ("Session gestartet von", "session_started_by_name"),
-    ("Inventar-ID", "inventory_id"),
-    ("Temporäre ID", "temporary_id"),
-    ("Objektart", "object_type"),
-    ("Objektklasse", "object_class_name"),
-    ("Kategorie", "category"),
-    ("Marke", "brand"),
-    ("Modell", "model"),
-    ("Seriennummer", "serial_number"),
     ("Zustand", "condition_label"),
-    ("Bemerkung", "condition_note"),
-    ("Schätzwert EUR", "value_estimate"),
-    ("Schätzwert Herkunft", "value_provenance"),
-    ("KI-Wert Hinweis", "ai_value_note"),
-    ("Altersquelle", "age_source"),
-    ("Alter Herkunft", "age_provenance"),
-    ("Altersprüfung", "age_verification_status"),
-    ("Geschätztes Alter", "estimated_age_years"),
-    ("Herstellungsdatum", "manufacturing_date"),
-    ("Anschaffungsdatum", "acquisition_date"),
-    ("Inbetriebnahme", "commissioning_date"),
-    ("Kostenstelle", "cost_center"),
-    ("Kaufmännische Kategorie", "commercial_category"),
-    ("Buchhaltungsrelevanz", "accounting_relevance"),
-    ("Buchhaltungsstatus", "accounting_status"),
-    ("Später auswerten", "requires_accounting_review"),
-    ("Status", "status_label"),
-    ("Bearbeitung", "review_status_label"),
-    ("Lebenszyklus", "lifecycle_status"),
-    ("KI-Konfidenz", "confidence_score"),
-    ("KI zuletzt am", "latest_ai_at"),
-    ("KI Deep Dive am", "latest_deep_dive_at"),
-    ("KI Modell/Quelle", "latest_ai_model"),
-    ("Objektfoto", "has_object_photo"),
-    ("Typenschildfoto", "has_nameplate_photo"),
-    ("DOT-Foto", "has_dot_photo"),
-    ("Weitere Fotos", "photo_count"),
-    ("Sprachnotizen", "audio_count"),
-    ("Erstes Foto am", "first_photo_uploaded_at"),
-    ("Letztes Foto am", "last_photo_uploaded_at"),
-    ("Offene Nacharbeiten", "open_task_count"),
-    ("Nacharbeit Rollen", "open_task_roles_label"),
-    ("Nacharbeit Themen", "open_task_fields_label"),
-    ("Aufnehmer", "captured_by_name"),
-    ("Aufgenommen am", "created_at"),
-    ("Prüfer", "reviewed_by_name"),
-    ("Manuell geprüft am", "manual_reviewed_at"),
-    ("Finalisiert von", "finalized_by_name"),
-    ("Aktualisiert am", "updated_at"),
-    ("Finalisiert am", "finalized_at"),
+    ("Funktion i. O. Ja", "function_ok_yes"),
+    ("Funktion i. O. Nein", "function_ok_no"),
+    ("UVV bis", "uvv_valid_until"),
+    ("Bemerkung", "bga_remark"),
 ]
 
 
@@ -2233,6 +2136,8 @@ def fetch_export_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             (item["id"],),
         )
         for task in item_tasks:
+            if item.get("inventory_type") == "bga" and "prüfbuch" in label_field(task.get("missing_field")).lower():
+                continue
             task["item"] = item
             tasks.append(task)
     return tasks
@@ -2304,25 +2209,55 @@ def build_excel_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = "Inventurliste"
-    ws.append([header for header, _ in EXPORT_COLUMNS])
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="20343D")
+    header_fill = PatternFill("solid", fgColor="D9E2D6")
+    thin_side = Side(style="thin", color="6B7280")
+    list_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
 
-    for row_index, row in enumerate(rows, start=2):
+    ws.merge_cells("A1:I1")
+    ws["A1"] = "Manuelle Zählliste"
+    ws["A1"].font = Font(bold=True, size=18)
+    ws["A1"].alignment = Alignment(horizontal="center")
+    ws.merge_cells("A2:I2")
+    ws["A2"] = "Betriebs- und Geschäftsausstattung"
+    ws["A2"].font = Font(bold=True, size=14)
+    ws["A2"].alignment = Alignment(horizontal="center")
+
+    captured_by = next((export_value(row, "captured_by_name") for row in rows if row.get("id")), summary.get("erfasst durch") or summary.get("Aufnehmer") or "")
+    captured_at = summary.get("Datum") or summary.get("Erstes Objekt aufgenommen am") or format_excel_datetime(datetime.now())
+    ws["A4"] = "Standort"
+    ws["B4"] = " / ".join(str(part) for part in [summary.get("Betrieb"), summary.get("Gebäude"), summary.get("Raum")] if part)
+    ws["D4"] = "erfasst durch"
+    ws["E4"] = captured_by
+    ws["G4"] = "Datum"
+    ws["H4"] = captured_at
+    for cell_ref in ["A4", "D4", "G4"]:
+        ws[cell_ref].font = Font(bold=True)
+
+    header_row = 7
+    for column_index, (header, _) in enumerate(EXPORT_COLUMNS, start=1):
+        cell = ws.cell(row=header_row, column=column_index, value=header)
+        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.border = list_border
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    for row_index, row in enumerate(rows, start=header_row + 1):
         ws.append([excel_value(export_value(row, key)) for _, key in EXPORT_COLUMNS])
         insert_excel_photo(ws, row, row_index)
         for column_index, (_, key) in enumerate(EXPORT_COLUMNS, start=1):
             if key in {"value_provenance", "age_provenance", "ai_value_note", "latest_ai_at", "latest_deep_dive_at", "latest_ai_model"}:
                 ws.cell(row=row_index, column=column_index).fill = PatternFill("solid", fgColor="D9EAFE")
+            cell = ws.cell(row=row_index, column=column_index)
+            cell.border = list_border
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        ws.row_dimensions[row_index].height = max(ws.row_dimensions[row_index].height or 0, 46)
 
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    for index, (header, key) in enumerate(EXPORT_COLUMNS, start=1):
-        max_length = len(header)
-        for row in rows[:200]:
-            max_length = max(max_length, len(str(export_value(row, key) or "")))
-        ws.column_dimensions[get_column_letter(index)].width = 16 if key == "photo_cell" else min(max(max_length + 2, 12), 42)
+    ws.freeze_panes = "A8"
+    if rows:
+        ws.auto_filter.ref = f"A{header_row}:I{header_row + len(rows)}"
+    widths = [18, 28, 34, 12, 16, 16, 16, 16, 48]
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
 
     summary_ws = wb.create_sheet("Übersicht", 0)
     summary_ws.append(["Export", title])
@@ -2334,7 +2269,7 @@ def build_excel_workbook(
     summary_ws.column_dimensions["A"].width = 24
     summary_ws.column_dimensions["B"].width = 42
 
-    task_ws = wb.create_sheet("Offene Punkte")
+    task_ws = wb.create_sheet("Offene Punkte / Nacharbeit")
     task_ws.append(["Inventar-ID", "Objektart", "Rolle", "Feld / Thema", "Status", "Betrieb", "Gebäude", "Raum"])
     for row in rows:
         if not row.get("open_task_count"):
@@ -2354,9 +2289,9 @@ def build_excel_workbook(
     for index in range(1, 9):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
-    if "Offene Punkte" in wb.sheetnames:
-        del wb["Offene Punkte"]
-    task_ws = wb.create_sheet("Offene Punkte")
+    if "Offene Punkte / Nacharbeit" in wb.sheetnames:
+        del wb["Offene Punkte / Nacharbeit"]
+    task_ws = wb.create_sheet("Offene Punkte / Nacharbeit")
     task_ws.append([
         "Priorität", "Inventar-ID", "Objekt", "Klasse", "Raum", "Verantwortlich",
         "Aufgabe", "Warum relevant", "Blockiert Finalisierung", "Status", "Erstellt am", "Erledigt am", "Hinweis"
@@ -2386,7 +2321,7 @@ def build_excel_workbook(
     for index in range(1, 14):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
-    photos_ws = wb.create_sheet("Fotos Nachweise")
+    photos_ws = wb.create_sheet("Fotos / Nachweise")
     photos_ws.append(["Objekt-ID", "Laufende Nr.", "Objekt", "Fotoart", "Dateiname", "Pfad/Link", "Aufgenommen am", "Hochgeladen am"])
     for photo in fetch_export_photos(rows):
         item = photo["item"]
@@ -2425,18 +2360,19 @@ def build_excel_workbook(
 
 
 def insert_excel_photo(ws: Any, row: dict[str, Any], row_index: int) -> None:
+    cell = ws.cell(row=row_index, column=1)
+    current_value = cell.value
     photo_path = row.get("object_photo_path")
     if not photo_path:
-        ws.cell(row=row_index, column=1, value="kein Foto")
         return
     path = Path(str(photo_path))
     if not path.exists():
-        ws.cell(row=row_index, column=1, value="Foto fehlt")
+        cell.value = f"{current_value or ''} / Foto fehlt".strip()
         return
     try:
         image = ExcelImage(str(path))
     except Exception:
-        ws.cell(row=row_index, column=1, value="Foto nicht lesbar")
+        cell.value = f"{current_value or ''} / Foto nicht lesbar".strip()
         return
 
     max_side = 82
@@ -2446,8 +2382,7 @@ def insert_excel_photo(ws: Any, row: dict[str, Any], row_index: int) -> None:
     image.anchor = f"A{row_index}"
     ws.add_image(image)
     ws.row_dimensions[row_index].height = 68
-    cell = ws.cell(row=row_index, column=1)
-    cell.value = " "
+    cell.value = current_value
     if row.get("object_photo_id"):
         cell.hyperlink = f"/uploads/photos/{row['object_photo_id']}"
         cell.style = "Hyperlink"
