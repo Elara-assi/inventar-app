@@ -1873,6 +1873,7 @@ def label_field(value: Any) -> str:
         "Modell": "Modell",
         "Foto/Nachweis": "Foto oder Nachweisfoto",
         "Typenschildfoto": "Typenschildfoto",
+        "object": "Objektfoto",
         "object_front": "Objektfoto",
         "object_back": "Rückseite/Detail",
         "type_plate": "Typenschild",
