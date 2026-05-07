@@ -189,8 +189,8 @@ const evidencePhotoTypes = [
 
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
   if (!file.type.startsWith("image/")) return file;
-  const maxSide = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" ? 1600 : 1200;
-  const quality = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" ? 0.82 : 0.76;
+  const maxSide = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" || photoType === "condition_detail" ? 2400 : 1600;
+  const quality = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" || photoType === "condition_detail" ? 0.9 : 0.86;
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));

@@ -50,12 +50,12 @@ const photoLabels: Record<PhotoType, string> = {
 };
 
 const photoMaxSide: Record<PhotoType, number> = {
-  object_front: 1200,
-  object_back: 1200,
-  condition_detail: 1200,
+  object_front: 1600,
+  object_back: 1600,
+  condition_detail: 2400,
   other: 1200,
-  type_plate: 1600,
-  uvv_label: 1600,
+  type_plate: 2400,
+  uvv_label: 2400,
 };
 
 type BgaForm = {
@@ -169,7 +169,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   async function compressPhoto(file: File, photoType: PhotoType) {
     if (!file.type.startsWith("image/")) return file;
     const maxSide = photoMaxSide[photoType];
-    const quality = photoType === "type_plate" || photoType === "uvv_label" ? 0.82 : 0.72;
+    const quality = photoType === "type_plate" || photoType === "uvv_label" || photoType === "condition_detail" ? 0.9 : 0.86;
     let bitmap: ImageBitmap;
     try {
       bitmap = await createImageBitmap(file);

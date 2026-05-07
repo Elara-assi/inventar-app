@@ -18,6 +18,7 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from PIL import Image as PillowImage, ImageOps
 from pydantic import BaseModel
 
 from .db import execute, fetch_all, fetch_one
@@ -2063,7 +2064,7 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
             LIMIT 1
           ) AS object_photo_id,
           (
-            SELECT COALESCE(p.stamped_path, p.original_path)
+            SELECT COALESCE(p.original_path, p.stamped_path)
             FROM item_photos p
             WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')
             ORDER BY p.uploaded_at DESC
@@ -2179,6 +2180,47 @@ def fetch_export_audit_rows(rows: list[dict[str, Any]], session_id: str | None, 
         seen.add(row_id)
         audit_rows.extend(fetch_all("SELECT * FROM audit_log WHERE entity_id = %s ORDER BY created_at ASC", (row_id,)))
     return sorted(audit_rows, key=lambda row: row.get("created_at") or datetime.min)
+
+
+EXCEL_DETAIL_PHOTO_TYPES = {"type_plate", "nameplate", "uvv_label", "condition_detail"}
+
+
+def excel_photo_limit(photo_type: Any) -> int:
+    return 2400 if str(photo_type or "") in EXCEL_DETAIL_PHOTO_TYPES else 1600
+
+
+def excel_photo_source(photo: dict[str, Any]) -> Path | None:
+    raw_path = photo.get("original_path") or photo.get("stamped_path")
+    if not raw_path:
+        return None
+    try:
+        path = safe_upload_path(str(raw_path))
+    except HTTPException:
+        return None
+    return path if path.exists() else None
+
+
+def prepare_excel_photo(photo: dict[str, Any]) -> tuple[Path | None, int | None, int | None, str]:
+    source = excel_photo_source(photo)
+    if not source:
+        return None, None, None, "Original fehlt"
+    limit = excel_photo_limit(photo.get("photo_type"))
+    digest = hashlib.sha256(f"{source}-{source.stat().st_mtime_ns}-{limit}".encode("utf-8")).hexdigest()[:16]
+    target = Path(settings.upload_root, "temp", f"excel-{digest}.jpg")
+    try:
+        if target.exists():
+            with PillowImage.open(target) as cached:
+                return target, cached.width, cached.height, "Original für Excel optimiert"
+        with PillowImage.open(source) as image:
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((limit, limit), PillowImage.Resampling.LANCZOS)
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            image.save(target, format="JPEG", quality=90, optimize=True)
+            return target, image.width, image.height, "Original für Excel optimiert"
+    except Exception:
+        return source, None, None, "Original unverändert eingebettet"
 
 
 def audit_action_label(action: Any) -> str:
@@ -2324,23 +2366,46 @@ def build_excel_workbook(
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
     photos_ws = wb.create_sheet("Fotos - Nachweise")
-    photos_ws.append(["Objekt-ID", "Laufende Nr.", "Objekt", "Fotoart", "Dateiname", "Pfad/Link", "Aufgenommen am", "Hochgeladen am"])
-    for photo in fetch_export_photos(rows):
+    photos_ws.append([
+        "Bild", "Objekt-ID", "Laufende Nr.", "Objekt", "Fotoart", "Dateiname",
+        "Original-Link/Pfad", "Excel-Bildquelle", "Pixel", "Aufgenommen am", "Hochgeladen am"
+    ])
+    for row_index, photo in enumerate(fetch_export_photos(rows), start=2):
         item = photo["item"]
-        photo_path = photo.get("stamped_path") or photo.get("original_path") or ""
+        source_path = excel_photo_source(photo)
+        image_path, width, height, source_note = prepare_excel_photo(photo)
         photos_ws.append([
+            " ",
             item.get("inventory_id") or item.get("temporary_id"),
             item.get("sequence_number"),
             item.get("object_type"),
             label_field(photo.get("photo_type")),
-            Path(str(photo_path)).name if photo_path else "",
-            photo_path,
+            source_path.name if source_path else "",
+            str(source_path) if source_path else "",
+            source_note,
+            f"{width} x {height}" if width and height else "",
             format_excel_datetime(photo.get("taken_at")),
             format_excel_datetime(photo.get("uploaded_at")),
         ])
+        if source_path:
+            link_cell = photos_ws.cell(row=row_index, column=7)
+            link_cell.hyperlink = f"/uploads/photos/{photo['id']}"
+            link_cell.style = "Hyperlink"
+        if image_path and image_path.exists():
+            try:
+                image = ExcelImage(str(image_path))
+                max_width, max_height = 300, 210
+                scale = min(max_width / image.width, max_height / image.height, 1)
+                image.width = int(image.width * scale)
+                image.height = int(image.height * scale)
+                image.anchor = f"A{row_index}"
+                photos_ws.add_image(image)
+                photos_ws.row_dimensions[row_index].height = 168
+            except Exception:
+                photos_ws.cell(row=row_index, column=1, value="Bild nicht lesbar")
     photos_ws.freeze_panes = "A2"
     photos_ws.auto_filter.ref = photos_ws.dimensions
-    for index, width in enumerate([24, 12, 28, 18, 36, 72, 22, 22], start=1):
+    for index, width in enumerate([34, 24, 12, 28, 18, 36, 72, 28, 18, 22, 22], start=1):
         photos_ws.column_dimensions[get_column_letter(index)].width = width
 
     protocol_ws = wb.create_sheet("Protokoll")
@@ -2372,7 +2437,8 @@ def insert_excel_photo(ws: Any, row: dict[str, Any], row_index: int) -> None:
         cell.value = f"{current_value or ''} / Foto fehlt".strip()
         return
     try:
-        image = ExcelImage(str(path))
+        image_path, _, _, _ = prepare_excel_photo({"original_path": str(path), "photo_type": "object_front"})
+        image = ExcelImage(str(image_path or path))
     except Exception:
         cell.value = f"{current_value or ''} / Foto nicht lesbar".strip()
         return
