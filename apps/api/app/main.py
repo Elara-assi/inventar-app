@@ -5,7 +5,7 @@ import html
 import os
 import re
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -95,6 +95,7 @@ class RoomPatch(BaseModel):
 
 class ItemIn(BaseModel):
     session_id: str
+    inventory_type: str = "bga"
     object_type: str | None = None
     object_class_id: str | None = None
     inventory_id: str | None = None
@@ -105,6 +106,14 @@ class ItemIn(BaseModel):
     model: str | None = None
     serial_number: str | None = None
     created_by: str | None = None
+    specification: str | None = None
+    construction_year: str | None = None
+    function_ok: str = "nicht_geprueft"
+    uvv_status: str = "unklar"
+    uvv_valid_until: date | None = None
+    inspection_book_available: str = "unklar"
+    remark: str | None = None
+    type_plate_status: str = "nicht_geprueft"
 
 
 class ItemPatch(BaseModel):
@@ -120,10 +129,23 @@ class ItemPatch(BaseModel):
     review_status: str | None = None
     commercial_category: str | None = None
     accounting_status: str | None = None
+    inventory_type: str | None = None
+    specification: str | None = None
+    construction_year: str | None = None
+    function_ok: str | None = None
+    uvv_status: str | None = None
+    uvv_valid_until: date | None = None
+    inspection_book_available: str | None = None
+    remark: str | None = None
+    type_plate_status: str | None = None
 
 
 class LearningExampleIn(BaseModel):
     notes: str | None = None
+
+
+class ReopenIn(BaseModel):
+    reason: str | None = None
 
 
 def ensure_upload_dirs() -> None:
@@ -159,6 +181,120 @@ def require_item_session_open(item_id: str) -> dict[str, Any]:
     if row["session_status"] != "open":
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
     return row
+
+
+def next_sequence_number(session_id: str) -> int:
+    row = fetch_one(
+        "SELECT COALESCE(max(sequence_number), 0)::int + 1 AS next_number FROM inventory_items WHERE session_id = %s",
+        (session_id,),
+    )
+    return int((row or {"next_number": 1})["next_number"])
+
+
+def photo_type_aliases(kind: str) -> tuple[str, ...]:
+    if kind == "object":
+        return ("object", "object_front")
+    if kind == "nameplate":
+        return ("nameplate", "type_plate")
+    if kind == "condition":
+        return ("condition", "condition_detail", "object_back")
+    return (kind,)
+
+
+def has_photo_type(item_id: str, kind: str) -> bool:
+    aliases = photo_type_aliases(kind)
+    placeholders = ", ".join(["%s"] * len(aliases))
+    row = fetch_one(
+        f"SELECT 1 AS ok FROM item_photos WHERE item_id = %s AND photo_type IN ({placeholders}) LIMIT 1",
+        (item_id, *aliases),
+    )
+    return bool(row)
+
+
+def upsert_rework_task(item_id: str, role: str, field: str, priority: str = "normal", comment: str | None = None) -> None:
+    execute(
+        """
+        INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)
+        SELECT %s, 'bga_check', %s, %s, %s, %s
+        WHERE NOT EXISTS (
+          SELECT 1 FROM accounting_tasks
+          WHERE item_id = %s AND missing_field = %s AND status = 'open'
+        )
+        RETURNING id
+        """,
+        (item_id, role, field, priority, comment or field, item_id, field),
+    )
+
+
+def run_bga_rework_check(item_id: str) -> None:
+    item = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not item or item.get("inventory_type") != "bga":
+        return
+    execute(
+        """
+        UPDATE accounting_tasks
+        SET status = 'completed', completed_at = now()
+        WHERE item_id = %s AND task_type = 'bga_check' AND status = 'open'
+        RETURNING id
+        """,
+        (item_id,),
+    )
+
+    if not has_photo_type(item_id, "object"):
+        upsert_rework_task(item_id, "Erfasser", "Objektfoto fehlt", "hoch", "Pflichtfoto aus der Zählliste fehlt.")
+    if not str(item.get("object_type") or "").strip():
+        upsert_rework_task(item_id, "Erfasser", "Bezeichnung fehlt", "hoch", "Bezeichnung aus der Zählliste fehlt.")
+    if item.get("condition") in {None, "", "unklar"}:
+        upsert_rework_task(item_id, "Erfasser", "Zustand unklar", "normal", "Zustand muss für die Aufnahme eingeordnet werden.")
+    if item.get("function_ok") in {"nein", "nicht_geprueft"}:
+        label = "Funktion nicht in Ordnung" if item.get("function_ok") == "nein" else "Funktion nicht geprüft"
+        upsert_rework_task(item_id, "Technik", label, "hoch", "Funktionsstatus muss technisch geklärt werden.")
+    if item.get("uvv_status") in {"nicht_vorhanden", "unklar"}:
+        upsert_rework_task(item_id, "Technik", "UVV klären", "hoch", "UVV-Status ist für prüfpflichtige Gegenstände offen.")
+    if item.get("uvv_valid_until") and item.get("uvv_valid_until") < date.today():
+        upsert_rework_task(item_id, "Technik", "UVV abgelaufen", "hoch", "UVV-Datum liegt in der Vergangenheit.")
+    if item.get("uvv_status") == "vorhanden" and not has_photo_type(item_id, "uvv_label"):
+        upsert_rework_task(item_id, "Erfasser", "UVV-Siegel fotografieren", "normal", "UVV-Siegel oder Prüfplakette als Nachweis ergänzen.")
+    if item.get("inspection_book_available") in {"nein", "unklar"}:
+        label = "Prüfbuch fehlt" if item.get("inspection_book_available") == "nein" else "Prüfbuch unklar"
+        upsert_rework_task(item_id, "Technik", label, "normal", "Prüfbuchstatus muss später geklärt werden.")
+    if item.get("type_plate_status") == "vorhanden" and not has_photo_type(item_id, "nameplate"):
+        upsert_rework_task(item_id, "Erfasser", "Typenschildfoto fehlt", "normal", "Typenschild wurde als vorhanden markiert, Foto fehlt.")
+
+    open_critical = fetch_one(
+        """
+        SELECT count(*)::int AS count
+        FROM accounting_tasks
+        WHERE item_id = %s AND status = 'open' AND assigned_role IN ('Erfasser', 'Technik')
+        """,
+        (item_id,),
+    )
+    if open_critical and int(open_critical["count"]) > 0:
+        execute(
+            """
+            UPDATE inventory_items
+            SET review_status = CASE
+                  WHEN review_status = 'finalisiert' THEN review_status
+                  ELSE 'nacharbeit_erfasser'
+                END,
+                status = CASE WHEN status = 'finalisiert' THEN status ELSE 'nacharbeit_noetig' END,
+                updated_at = now()
+            WHERE id = %s
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    else:
+        execute(
+            """
+            UPDATE inventory_items
+            SET review_status = CASE WHEN review_status IN ('erfasst', 'nacharbeit_erfasser', 'nacharbeit_technik') THEN 'finalisierbar' ELSE review_status END,
+                updated_at = now()
+            WHERE id = %s
+            RETURNING id
+            """,
+            (item_id,),
+        )
 
 
 def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -732,7 +868,7 @@ def close_session(session_id: str) -> dict[str, Any]:
 
 
 @app.post("/sessions/{session_id}/reopen")
-def reopen_session(session_id: str) -> dict[str, Any]:
+def reopen_session(session_id: str, body: ReopenIn | None = None) -> dict[str, Any]:
     current = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))
     if not current:
         raise HTTPException(status_code=404, detail="Session nicht gefunden")
@@ -761,7 +897,9 @@ def reopen_session(session_id: str) -> dict[str, Any]:
         """,
         (session_id,),
     )
-    audit("session_reopened", "inventory_session", session_id, row)
+    reason = (body.reason if body else None) or "Raum wurde für Korrekturen wieder geöffnet"
+    execute("UPDATE inventory_items SET reopened_reason = %s WHERE session_id = %s RETURNING id", (reason, session_id))
+    audit("session_reopened", "inventory_session", session_id, row, reason=reason)
     return row
 
 
@@ -798,27 +936,38 @@ def create_item(body: ItemIn) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
     inventory_id = body.inventory_id or next_inventory_id(session["location_code"])
     temporary_id = body.temporary_id or f"TEMP-{secrets.token_hex(4).upper()}"
-    oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (body.object_class_id,)) if body.object_class_id else None
+    object_class_id = body.object_class_id
+    if not object_class_id and body.inventory_type == "bga":
+        bga = fetch_one("SELECT id FROM object_classes WHERE slug = 'bga'")
+        object_class_id = str(bga["id"]) if bga else None
+    oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (object_class_id,)) if object_class_id else None
+    sequence_number = next_sequence_number(body.session_id)
     row = execute(
         """
         INSERT INTO inventory_items (
-          inventory_id, temporary_id, session_id, location_id, building_id, room_id,
-          object_type, object_class_id, brand, model, serial_number, condition,
+          inventory_id, temporary_id, sequence_number, inventory_type,
+          session_id, location_id, building_id, room_id,
+          object_type, object_class_id, category, brand, model, serial_number, condition,
           condition_note, commercial_category, requires_accounting_review,
-          accounting_relevance, created_by
+          accounting_relevance, created_by, specification, construction_year,
+          function_ok, uvv_status, uvv_valid_until, inspection_book_available,
+          remark, type_plate_status
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
             inventory_id,
             temporary_id,
+            sequence_number,
+            body.inventory_type,
             body.session_id,
             session["location_id"],
             session["building_id"],
             session["room_id"],
             body.object_type,
-            body.object_class_id,
+            object_class_id,
+            body.inventory_type,
             body.brand,
             body.model,
             body.serial_number,
@@ -828,6 +977,14 @@ def create_item(body: ItemIn) -> dict[str, Any]:
             oc["requires_accounting_review"] if oc else False,
             oc["requires_accounting_review"] if oc else False,
             body.created_by,
+            body.specification,
+            body.construction_year,
+            body.function_ok,
+            body.uvv_status,
+            body.uvv_valid_until,
+            body.inspection_book_available,
+            body.remark,
+            body.type_plate_status,
         ),
     )
     execute(
@@ -839,6 +996,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
         (row["id"], row["commercial_category"], row["accounting_status"]),
     )
     audit("item_created", "inventory_item", str(row["id"]), row)
+    run_bga_rework_check(str(row["id"]))
     return row
 
 
@@ -847,13 +1005,13 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
     rows = fetch_all(
         """
         SELECT i.*, oc.name AS object_class_name,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')) AS has_object_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type IN ('nameplate','type_plate')) AS has_nameplate_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
           (
             SELECT p.id
             FROM item_photos p
-            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')
             ORDER BY p.uploaded_at DESC
             LIMIT 1
           ) AS object_photo_id
@@ -943,6 +1101,7 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
     audit("item_changed", "inventory_item", item_id, data)
+    run_bga_rework_check(item_id)
     return row
 
 
@@ -1097,6 +1256,12 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
         raise HTTPException(status_code=409, detail="Maximal 5 Fotos pro Gegenstand möglich")
     data = await file.read()
     digest = hashlib.sha256(data).hexdigest()
+    duplicate = fetch_one(
+        "SELECT * FROM item_photos WHERE item_id = %s AND original_hash = %s LIMIT 1",
+        (item_id, digest),
+    )
+    if duplicate:
+        return duplicate
     suffix = Path(file.filename or "upload.bin").suffix or ".bin"
     filename = f"{item_id}-{photo_type}-{digest[:12]}{suffix}"
     path = Path(settings.upload_root, "originals", filename)
@@ -1112,6 +1277,7 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
         (item_id, photo_type, str(path), str(stamped), digest, '{"phase":"1","stamp":"pending-worker"}'),
     )
     audit("photo_uploaded", "inventory_item", item_id, row)
+    run_bga_rework_check(item_id)
     return row
 
 
@@ -1738,6 +1904,33 @@ def export_value(row: dict[str, Any], key: str) -> Any:
         return label_status(row.get("session_status"))
     if key == "condition_label":
         return str(row.get("condition") or "").replace("_", " ")
+    if key == "function_ok_label":
+        return {
+            "ja": "Ja",
+            "nein": "Nein",
+            "nicht_geprueft": "Nicht geprüft",
+        }.get(str(row.get("function_ok") or ""), row.get("function_ok"))
+    if key == "uvv_status_label":
+        return {
+            "vorhanden": "UVV vorhanden",
+            "nicht_vorhanden": "UVV nicht vorhanden",
+            "nicht_uvv_pflichtig": "nicht UVV-pflichtig",
+            "unklar": "unklar",
+        }.get(str(row.get("uvv_status") or ""), row.get("uvv_status"))
+    if key == "inspection_book_label":
+        return {
+            "ja": "Ja",
+            "nein": "Nein",
+            "nicht_erforderlich": "Nicht erforderlich",
+            "unklar": "Unklar",
+        }.get(str(row.get("inspection_book_available") or ""), row.get("inspection_book_available"))
+    if key == "type_plate_status_label":
+        return {
+            "vorhanden": "vorhanden",
+            "nicht_vorhanden": "nicht vorhanden",
+            "uebersprungen": "übersprungen",
+            "nicht_geprueft": "nicht geprüft",
+        }.get(str(row.get("type_plate_status") or ""), row.get("type_plate_status"))
     if key == "value_provenance":
         if row.get("latest_deep_dive_at") and row.get("value_estimate") is not None:
             return "KI-Schätzung, konservativ"
@@ -1767,6 +1960,8 @@ def export_value(row: dict[str, Any], key: str) -> Any:
         "manual_reviewed_at",
         "first_photo_uploaded_at",
         "last_photo_uploaded_at",
+        "captured_at",
+        "uvv_valid_until",
     }:
         return format_excel_datetime(row.get(key))
     value = row.get(key)
@@ -1790,16 +1985,26 @@ EXPORT_COLUMNS = [
     ("Raum", "room_name"),
     ("Session-Status", "session_status"),
     ("Session-Start", "session_created_at"),
+    ("Erfassungsart", "inventory_type"),
     ("Inventar-ID", "inventory_id"),
     ("Temporäre ID", "temporary_id"),
+    ("Laufende Nr.", "sequence_number"),
     ("Objektart", "object_type"),
     ("Objektklasse", "object_class_name"),
+    ("Typ/Spezifikation", "specification"),
+    ("Baujahr", "construction_year"),
     ("Kategorie", "category"),
     ("Marke", "brand"),
     ("Modell", "model"),
     ("Seriennummer", "serial_number"),
     ("Zustand", "condition"),
+    ("Funktion i. O.", "function_ok_label"),
+    ("UVV Status", "uvv_status_label"),
+    ("UVV gültig bis", "uvv_valid_until"),
+    ("Prüfbuch vorhanden", "inspection_book_label"),
+    ("Typenschild", "type_plate_status_label"),
     ("Bemerkung", "condition_note"),
+    ("Bemerkung Erfassung", "remark"),
     ("Schätzwert", "value_estimate"),
     ("Altersquelle", "age_source"),
     ("Altersprüfung", "age_verification_status"),
@@ -1934,20 +2139,20 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
             ORDER BY al.created_at DESC
             LIMIT 1
           ) AS manual_reviewed_at,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')) AS has_object_photo,
+          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type IN ('nameplate','type_plate')) AS has_nameplate_photo,
           EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo,
           (
             SELECT p.id
             FROM item_photos p
-            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')
             ORDER BY p.uploaded_at DESC
             LIMIT 1
           ) AS object_photo_id,
           (
             SELECT COALESCE(p.stamped_path, p.original_path)
             FROM item_photos p
-            WHERE p.item_id = i.id AND p.photo_type = 'object'
+            WHERE p.item_id = i.id AND p.photo_type IN ('object','object_front')
             ORDER BY p.uploaded_at DESC
             LIMIT 1
           ) AS object_photo_path,
@@ -2025,6 +2230,26 @@ def fetch_export_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return tasks
 
 
+def fetch_export_photos(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    photos: list[dict[str, Any]] = []
+    for item in rows:
+        if not item.get("id"):
+            continue
+        item_photos = fetch_all(
+            """
+            SELECT id, photo_type, original_path, stamped_path, uploaded_at, taken_at
+            FROM item_photos
+            WHERE item_id = %s
+            ORDER BY uploaded_at ASC
+            """,
+            (item["id"],),
+        )
+        for photo in item_photos:
+            photo["item"] = item
+            photos.append(photo)
+    return photos
+
+
 def fetch_export_audit_rows(rows: list[dict[str, Any]], session_id: str | None, entity_id: str | None) -> list[dict[str, Any]]:
     ids = [str(row["id"]) for row in rows if row.get("id")]
     if session_id:
@@ -2070,7 +2295,7 @@ def build_excel_workbook(
 ) -> Workbook:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Inventur"
+    ws.title = "Inventurliste"
     ws.append([header for header, _ in EXPORT_COLUMNS])
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -2101,7 +2326,7 @@ def build_excel_workbook(
     summary_ws.column_dimensions["A"].width = 24
     summary_ws.column_dimensions["B"].width = 42
 
-    task_ws = wb.create_sheet("Nacharbeiten")
+    task_ws = wb.create_sheet("Offene Punkte")
     task_ws.append(["Inventar-ID", "Objektart", "Rolle", "Feld / Thema", "Status", "Betrieb", "Gebäude", "Raum"])
     for row in rows:
         if not row.get("open_task_count"):
@@ -2121,9 +2346,9 @@ def build_excel_workbook(
     for index in range(1, 9):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
 
-    if "Nacharbeiten" in wb.sheetnames:
-        del wb["Nacharbeiten"]
-    task_ws = wb.create_sheet("Nacharbeiten")
+    if "Offene Punkte" in wb.sheetnames:
+        del wb["Offene Punkte"]
+    task_ws = wb.create_sheet("Offene Punkte")
     task_ws.append([
         "Priorität", "Inventar-ID", "Objekt", "Klasse", "Raum", "Verantwortlich",
         "Aufgabe", "Warum relevant", "Blockiert Finalisierung", "Status", "Erstellt am", "Erledigt am", "Hinweis"
@@ -2152,6 +2377,26 @@ def build_excel_workbook(
     task_ws.auto_filter.ref = task_ws.dimensions
     for index in range(1, 14):
         task_ws.column_dimensions[get_column_letter(index)].width = 24
+
+    photos_ws = wb.create_sheet("Fotos Nachweise")
+    photos_ws.append(["Objekt-ID", "Laufende Nr.", "Objekt", "Fotoart", "Dateiname", "Pfad/Link", "Aufgenommen am", "Hochgeladen am"])
+    for photo in fetch_export_photos(rows):
+        item = photo["item"]
+        photo_path = photo.get("stamped_path") or photo.get("original_path") or ""
+        photos_ws.append([
+            item.get("inventory_id") or item.get("temporary_id"),
+            item.get("sequence_number"),
+            item.get("object_type"),
+            label_field(photo.get("photo_type")),
+            Path(str(photo_path)).name if photo_path else "",
+            photo_path,
+            format_excel_datetime(photo.get("taken_at")),
+            format_excel_datetime(photo.get("uploaded_at")),
+        ])
+    photos_ws.freeze_panes = "A2"
+    photos_ws.auto_filter.ref = photos_ws.dimensions
+    for index, width in enumerate([24, 12, 28, 18, 36, 72, 22, 22], start=1):
+        photos_ws.column_dimensions[get_column_letter(index)].width = width
 
     protocol_ws = wb.create_sheet("Protokoll")
     protocol_ws.append(["Zeitpunkt", "Aktion", "Entität", "Benutzer", "Details"])

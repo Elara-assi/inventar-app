@@ -70,6 +70,16 @@ export type ReviewItem = {
   brand?: string;
   model?: string;
   serial_number?: string;
+  specification?: string;
+  construction_year?: string;
+  function_ok?: string;
+  uvv_status?: string;
+  uvv_valid_until?: string;
+  inspection_book_available?: string;
+  remark?: string;
+  type_plate_status?: string;
+  sequence_number?: number;
+  inventory_type?: string;
   condition?: string;
   value_estimate?: number | string | null;
   estimated_age_years?: number | string | null;
@@ -88,7 +98,7 @@ export type ReviewItem = {
   ai_summary?: AiSummary;
 };
 
-const conditions = ["neu", "sehr_gut", "gut", "gebraucht", "reparaturbeduerftig", "defekt", "aussondern"];
+const conditions = ["neu", "sehr_gut", "gut", "gebraucht", "reparaturbeduerftig", "defekt", "unklar", "aussondern"];
 const reviewStatuses = [
   "erfasst",
   "ki_vorgefuellt",
@@ -115,6 +125,37 @@ const reviewStatusLabels: Record<string, string> = {
   abweichung: "Abweichung",
 };
 
+const conditionLabels: Record<string, string> = {
+  neu: "neu",
+  sehr_gut: "sehr gut",
+  gut: "gut",
+  gebraucht: "gebraucht",
+  reparaturbeduerftig: "reparaturbedürftig",
+  defekt: "defekt",
+  aussondern: "aussondern",
+  unklar: "unklar",
+};
+
+const functionLabels: Record<string, string> = {
+  ja: "Ja",
+  nein: "Nein",
+  nicht_geprueft: "Nicht geprüft",
+};
+
+const uvvLabels: Record<string, string> = {
+  vorhanden: "vorhanden",
+  nicht_vorhanden: "nicht vorhanden",
+  nicht_uvv_pflichtig: "nicht UVV-pflichtig",
+  unklar: "unklar",
+};
+
+const inspectionBookLabels: Record<string, string> = {
+  ja: "Ja",
+  nein: "Nein",
+  nicht_erforderlich: "Nicht erforderlich",
+  unklar: "Unklar",
+};
+
 const reworkOptions = [
   { role: "Erfasser", label: "Erfasser: Foto/Nachweis", missingField: "Foto/Nachweis" },
   { role: "Technik", label: "Technik: UVV/Wartung/Prüfbuch", missingField: "UVV/Wartung/Prüfbuch" },
@@ -138,17 +179,18 @@ function displayTaskField(field?: string) {
 }
 
 const evidencePhotoTypes = [
-  { type: "object", label: "Objektfoto", hint: "Gesamtansicht" },
-  { type: "nameplate", label: "Typenschild", hint: "Seriennummer" },
-  { type: "condition", label: "Rückseite/Zustand", hint: "Nachweis" },
+  { type: "object_front", label: "Objektfoto", hint: "Gesamtansicht" },
+  { type: "type_plate", label: "Typenschild", hint: "Seriennummer" },
+  { type: "object_back", label: "Rückseite/Detail", hint: "Nachweis" },
+  { type: "uvv_label", label: "UVV-Siegel", hint: "Prüfplakette" },
   { type: "dot", label: "DOT", hint: "Reifen" },
   { type: "other", label: "Sonstiges", hint: "Zusatzfoto" },
 ] as const;
 
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
   if (!file.type.startsWith("image/")) return file;
-  const maxSide = photoType === "nameplate" || photoType === "dot" ? 1600 : 1200;
-  const quality = photoType === "nameplate" || photoType === "dot" ? 0.82 : 0.76;
+  const maxSide = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" ? 1600 : 1200;
+  const quality = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" ? 0.82 : 0.76;
   try {
     const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
@@ -238,6 +280,14 @@ function ItemReviewRow({
     brand: item.brand ?? "",
     model: item.model ?? "",
     serial_number: item.serial_number ?? "",
+    specification: item.specification ?? "",
+    construction_year: item.construction_year ?? "",
+    function_ok: item.function_ok ?? "nicht_geprueft",
+    uvv_status: item.uvv_status ?? "unklar",
+    uvv_valid_until: item.uvv_valid_until ?? "",
+    inspection_book_available: item.inspection_book_available ?? "unklar",
+    remark: item.remark ?? "",
+    type_plate_status: item.type_plate_status ?? "nicht_geprueft",
     value_estimate: item.value_estimate?.toString() ?? "",
     object_class_id: item.object_class_id ?? "",
     condition: item.condition ?? "gebraucht",
@@ -256,6 +306,14 @@ function ItemReviewRow({
       brand: item.brand ?? "",
       model: item.model ?? "",
       serial_number: item.serial_number ?? "",
+      specification: item.specification ?? "",
+      construction_year: item.construction_year ?? "",
+      function_ok: item.function_ok ?? "nicht_geprueft",
+      uvv_status: item.uvv_status ?? "unklar",
+      uvv_valid_until: item.uvv_valid_until ?? "",
+      inspection_book_available: item.inspection_book_available ?? "unklar",
+      remark: item.remark ?? "",
+      type_plate_status: item.type_plate_status ?? "nicht_geprueft",
       value_estimate: item.value_estimate?.toString() ?? "",
       object_class_id: item.object_class_id ?? "",
       condition: item.condition ?? "gebraucht",
@@ -299,6 +357,14 @@ function ItemReviewRow({
         brand: draft.brand || null,
         model: draft.model || null,
         serial_number: draft.serial_number || null,
+        specification: draft.specification || null,
+        construction_year: draft.construction_year || null,
+        function_ok: draft.function_ok,
+        uvv_status: draft.uvv_status,
+        uvv_valid_until: draft.uvv_valid_until || null,
+        inspection_book_available: draft.inspection_book_available,
+        remark: draft.remark || null,
+        type_plate_status: draft.type_plate_status,
         value_estimate: draft.value_estimate ? Number(draft.value_estimate) : null,
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
@@ -425,11 +491,11 @@ function ItemReviewRow({
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
   const deepDive = item.ai_summary?.deep_dive;
   const itemPhotos = item.photos ?? [];
-  const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object") ?? itemPhotos[0];
+  const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoUrl = mainPhoto ? `${API_BASE}/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
-  const itemMeta = [draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
+  const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
   const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : deepDive?.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen";
   const compactKi = deepDive ? `${deepDive.estimated_age_years ?? "?"} Jahre · ${deepDive.estimated_value ?? "?"} €` : item.status?.startsWith("ki_") ? "KI läuft" : "";
 
@@ -450,7 +516,7 @@ function ItemReviewRow({
         <div className="item-title-line">
           <div className="item-identity">
             <strong>{itemName}</strong>
-            <span>{item.inventory_id || item.temporary_id} · {itemMeta}</span>
+          <span>{item.inventory_id || item.temporary_id} · {item.sequence_number ? `Nr. ${item.sequence_number} · ` : ""}{itemMeta}</span>
           </div>
           <StatusBadge value={item.review_status} />
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>{itemPhotos.length || (item.has_object_photo ? 1 : 0)}/5 Fotos</span>
@@ -458,8 +524,10 @@ function ItemReviewRow({
 
         <div className="item-compact-grid">
           <span><b>Klasse</b>{objectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen"}</span>
-          <span><b>Zustand</b>{reviewStatusLabels[draft.condition] ?? draft.condition}</span>
+          <span><b>Zustand</b>{conditionLabels[draft.condition] ?? draft.condition}</span>
           <span><b>Bearbeitung</b>{reviewStatusLabels[draft.review_status] ?? draft.review_status}</span>
+          <span><b>Funktion</b>{functionLabels[draft.function_ok] ?? draft.function_ok}</span>
+          <span><b>UVV</b>{uvvLabels[draft.uvv_status] ?? draft.uvv_status}</span>
           <span><b>Schätzwert</b>{compactValue}</span>
           {compactKi ? <span><b>KI</b>{compactKi}</span> : null}
         </div>
@@ -491,9 +559,11 @@ function ItemReviewRow({
           <div className="item-edit-panel">
             <div className="item-main-fields">
               <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
+              <input disabled={readOnly} value={draft.specification} onChange={(event) => setDraft({ ...draft, specification: event.target.value })} placeholder="Typ / Spezifikation" />
               <input disabled={readOnly} value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
               <input disabled={readOnly} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
               <input disabled={readOnly} value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
+              <input disabled={readOnly} value={draft.construction_year} onChange={(event) => setDraft({ ...draft, construction_year: event.target.value })} placeholder="Baujahr" />
               <input
                 disabled={readOnly}
                 value={draft.value_estimate}
@@ -501,6 +571,39 @@ function ItemReviewRow({
                 inputMode="decimal"
                 placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
               />
+            </div>
+
+            <div className="item-review-selects bga-review-selects">
+              <label>
+                <span>Funktion i. O.</span>
+                <select disabled={readOnly} value={draft.function_ok} onChange={(event) => setDraft({ ...draft, function_ok: event.target.value })}>
+                  <option value="ja">Ja</option>
+                  <option value="nein">Nein</option>
+                  <option value="nicht_geprueft">Nicht geprüft</option>
+                </select>
+              </label>
+              <label>
+                <span>UVV Status</span>
+                <select disabled={readOnly} value={draft.uvv_status} onChange={(event) => setDraft({ ...draft, uvv_status: event.target.value })}>
+                  <option value="vorhanden">UVV vorhanden</option>
+                  <option value="nicht_vorhanden">UVV nicht vorhanden</option>
+                  <option value="nicht_uvv_pflichtig">nicht UVV-pflichtig</option>
+                  <option value="unklar">unklar</option>
+                </select>
+              </label>
+              <label>
+                <span>UVV gültig bis</span>
+                <input disabled={readOnly} type="date" value={draft.uvv_valid_until} onChange={(event) => setDraft({ ...draft, uvv_valid_until: event.target.value })} />
+              </label>
+              <label>
+                <span>Prüfbuch</span>
+                <select disabled={readOnly} value={draft.inspection_book_available} onChange={(event) => setDraft({ ...draft, inspection_book_available: event.target.value })}>
+                  <option value="ja">Ja</option>
+                  <option value="nein">Nein</option>
+                  <option value="nicht_erforderlich">Nicht erforderlich</option>
+                  <option value="unklar">Unklar</option>
+                </select>
+              </label>
             </div>
 
             <div className="template-picker compact">
@@ -549,6 +652,11 @@ function ItemReviewRow({
                 </select>
               </label>
             </div>
+
+            <label className="field">
+              <span>Bemerkung</span>
+              <textarea disabled={readOnly} rows={3} value={draft.remark} onChange={(event) => setDraft({ ...draft, remark: event.target.value })} placeholder="Bemerkung aus der Aufnahme" />
+            </label>
 
             {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
               <div className="item-row-notes">
@@ -609,7 +717,7 @@ function ItemReviewRow({
                     {readOnly ? null : <input
                       type="file"
                       accept="image/*"
-                      capture={entry.type === "nameplate" || entry.type === "dot" ? "environment" : undefined}
+                      capture={entry.type === "type_plate" || entry.type === "uvv_label" || entry.type === "dot" ? "environment" : undefined}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         event.target.value = "";

@@ -849,11 +849,16 @@ def finalization_blockers(item_id: str) -> list[str]:
     for row in rows:
         field = row["field_name"]
         if field == "object_photo":
-            if "object" not in photo_types:
+            if not ({"object", "object_front"} & photo_types):
                 blockers.append(row["field_label"])
             continue
         if row["evidence_photo_type"]:
-            if row["evidence_photo_type"] not in photo_types:
+            accepted = {row["evidence_photo_type"]}
+            if row["evidence_photo_type"] == "object_front":
+                accepted.add("object")
+            if row["evidence_photo_type"] == "type_plate":
+                accepted.add("nameplate")
+            if not (accepted & photo_types):
                 blockers.append(row["field_label"])
             continue
         if field in current and current.get(field) in (None, ""):

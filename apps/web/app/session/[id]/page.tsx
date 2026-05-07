@@ -65,10 +65,10 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }
 
   async function reopenRoom() {
-    const confirmed = window.confirm("Raum wieder öffnen? Danach können Gegenstände wieder bearbeitet und neue Handy-Erfassungen gekoppelt werden.");
-    if (!confirmed) return;
+    const reason = window.prompt("Grund für das Wiederöffnen", "Korrektur/Nachtrag nach Raumabschluss");
+    if (!reason) return;
     try {
-      await api(`/sessions/${sessionId}/reopen`, { method: "POST", body: "{}" });
+      await api(`/sessions/${sessionId}/reopen`, { method: "POST", body: JSON.stringify({ reason }) });
       setMessage("Raum wieder geöffnet");
       await load();
     } catch (err) {
