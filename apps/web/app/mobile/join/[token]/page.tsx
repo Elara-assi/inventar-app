@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
-import { Bootstrap, inventoryTypeLabel } from "@/lib/api";
+import { API_BASE, Bootstrap, inventoryTypeLabel } from "@/lib/api";
 import { api } from "@/lib/api";
 import {
+  QueueItem,
   QueueDetails,
   QueueSummary,
   createClientItemId,
@@ -144,6 +145,76 @@ const queueStatusLabels = {
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "unbekannt";
 
+function queueValue(item: QueueItem, key: string) {
+  return (item as unknown as Record<string, unknown>)[key];
+}
+
+function queueBool(value: unknown) {
+  return value === undefined ? "offen" : value ? "ja" : "nein";
+}
+
+function diagnosticPhotoBlob(item: QueueItem) {
+  const blob = item.photo_blob;
+  return {
+    vorhanden: Boolean(blob),
+    size: blob?.size ?? item.file_size ?? 0,
+    type: blob?.type || item.file_type || "unbekannt",
+  };
+}
+
+function buildBundleDiagnostics(items: QueueItem[]) {
+  const grouped = new Map<string, QueueItem[]>();
+  for (const item of items) {
+    const key = item.client_item_id || `ohne-client-item-${item.id}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+
+  return Array.from(grouped.entries()).map(([clientItemId, entries]) => {
+    const itemDraft = entries.find((entry) => entry.type === "item_draft");
+    const photos = entries.filter((entry) => entry.type === "photo_upload");
+    const reasons: string[] = [];
+    if (!itemDraft) reasons.push("item_draft fehlt");
+    if (!clientItemId) reasons.push("client_item_id fehlt");
+    if (!(itemDraft?.session_id || photos[0]?.session_id)) reasons.push("session_id fehlt");
+    if (!(itemDraft?.device_id || photos[0]?.device_id)) reasons.push("source_device_id fehlt");
+    for (const photo of photos) {
+      if (!photo.client_photo_id) reasons.push(`Foto ${photo.id}: client_photo_id fehlt`);
+      if (!photo.photo_type) reasons.push(`Foto ${photo.client_photo_id ?? photo.id}: photo_type fehlt`);
+      if (!photo.photo_blob) reasons.push(`Foto ${photo.client_photo_id ?? photo.id}: Blob fehlt`);
+    }
+    const requiredValuesPresent = reasons.length === 0;
+    return {
+      client_item_id: clientItemId,
+      bundlefaehig: requiredValuesPresent ? "ja" : "nein",
+      grund: reasons.length ? reasons : [],
+      fotos_im_bundle: photos.length,
+      blob_summe_bytes: photos.reduce((sum, photo) => sum + (photo.photo_blob?.size ?? photo.file_size ?? 0), 0),
+      pflichtwerte_fuer_offline_sync_items_vorhanden: requiredValuesPresent ? "ja" : "nein",
+      item_draft_status: itemDraft?.status ?? "fehlt",
+      server_item_id: itemDraft?.server_item_id ?? photos.find((photo) => photo.server_item_id)?.server_item_id ?? null,
+      post_gestartet: entries.some((entry) => Boolean(entry.fetch_started)) ? "ja" : "nein",
+      response_verarbeitet: entries.some((entry) => entry.upload_debug_state === "response_received" || entry.status === "synced") ? "ja" : "nein",
+      lokale_queue_bereinigt: entries.every((entry) => entry.status === "synced") ? "ja, nach clearOnlySyncedItems" : "nein, noch lokale Eintraege offen",
+    };
+  });
+}
+
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textArea);
+}
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
   const [deviceId, setDeviceId] = useState("");
@@ -167,6 +238,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [discardConfirm, setDiscardConfirm] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
+  const [diagnosisMessage, setDiagnosisMessage] = useState("");
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -238,6 +310,112 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setIsOnline(getOnlineStatus());
     }
   }, [refreshQueueSummary]);
+
+  const buildSyncDiagnosis = useCallback(async () => {
+    const [summary, details, items, currentDeviceId] = await Promise.all([
+      getQueueSummary(),
+      getQueueDetails(joined?.session.id),
+      listQueueItems(),
+      getOrCreateDeviceId(),
+    ]);
+    const itemDrafts = items.filter((item) => item.type === "item_draft");
+    const photoUploads = items.filter((item) => item.type === "photo_upload");
+    const pendingItems = itemDrafts.filter((item) => item.status === "pending" || item.status === "uploading").length;
+    const pendingPhotos = photoUploads.filter((item) => item.status === "pending" || item.status === "uploading").length;
+    const failedItems = itemDrafts.filter((item) => item.status === "failed").length;
+    const failedPhotos = photoUploads.filter((item) => item.status === "failed").length;
+
+    return {
+      allgemein: {
+        app_version: appVersion,
+        token,
+        session_id: joined?.session.id ?? null,
+        erfassungsart: inventoryTypeLabel(inventoryType),
+        inventory_type: inventoryType,
+        device_id: currentDeviceId,
+        captured_by: queueValue(itemDrafts[0] ?? photoUploads[0] ?? ({} as QueueItem), "captured_by") ?? "nicht angegeben",
+        navigator_online: typeof navigator === "undefined" ? null : navigator.onLine,
+        zeitpunkt: new Date().toISOString(),
+        api_base_url: API_BASE,
+      },
+      queue_summary: {
+        open: summary.open,
+        pendingItems,
+        pendingPhotos,
+        failedItems,
+        failedPhotos,
+        conflict: summary.conflict,
+        synced: summary.synced,
+        total: summary.total,
+        lastError: summary.lastError ?? null,
+      },
+      session_bezug: {
+        aktuelle_session_eintraege: details.currentSessionItems.length,
+        andere_session_eintraege: details.otherSessionItems.length,
+        sessions: details.sessions,
+      },
+      item_drafts: itemDrafts.map((item) => ({
+        client_item_id: item.client_item_id,
+        server_item_id: item.server_item_id ?? null,
+        session_id: item.session_id,
+        source_device_id: item.device_id,
+        status: item.status,
+        sequence_number: item.sequence_number ?? null,
+        designation: String(item.draft?.object_type || item.draft?.designation || item.draft?.name || ""),
+        hasPayload: Boolean(item.draft && Object.keys(item.draft).length),
+        last_error: item.last_error ?? null,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      })),
+      photo_uploads: photoUploads.map((item) => {
+        const blob = diagnosticPhotoBlob(item);
+        return {
+          client_photo_id: item.client_photo_id ?? null,
+          client_item_id: item.client_item_id,
+          server_item_id: item.server_item_id ?? null,
+          session_id: item.session_id,
+          source_device_id: item.device_id,
+          photo_type: item.photo_type ?? null,
+          status: item.status,
+          blob_vorhanden: blob.vorhanden ? "ja" : "nein",
+          blob_size: blob.size,
+          blob_type: blob.type,
+          upload_url: item.upload_url ?? null,
+          debug_state: item.upload_debug_state ?? null,
+          health_result: item.health_result ?? null,
+          eligible_for_upload: queueBool(item.eligible_for_upload),
+          skip_reason: item.skip_reason ?? null,
+          fetch_started: queueBool(item.fetch_started),
+          http_status: item.upload_response_status ?? null,
+          response_text: item.upload_response_text ?? null,
+          upload_debug: item.upload_debug ?? null,
+          last_error: item.last_error ?? null,
+          retry_count: item.retry_count,
+          im_bundle_aufnehmbar: item.client_item_id && item.client_photo_id && item.photo_type && item.photo_blob ? "ja" : "nein",
+          post_gestartet: item.fetch_started ? "ja" : "nein",
+          response_verarbeitet: item.upload_debug_state === "response_received" || item.status === "synced" ? "ja" : "nein",
+          lokale_queue_bereinigt: item.status === "synced" ? "bereit zur Bereinigung" : "nein, noch lokal offen",
+        };
+      }),
+      bundle_diagnose: buildBundleDiagnostics(items.filter((item) => item.status !== "synced")),
+    };
+  }, [joined?.session.id, inventoryType, token]);
+
+  const copySyncDiagnostics = useCallback(async () => {
+    try {
+      const diagnosis = await buildSyncDiagnosis();
+      await copyToClipboard(JSON.stringify(diagnosis, null, 2));
+      setDiagnosisMessage("Diagnose kopiert. Du kannst sie jetzt einfügen und senden.");
+    } catch (error) {
+      setDiagnosisMessage(error instanceof Error ? `Diagnose konnte nicht kopiert werden: ${error.message}` : "Diagnose konnte nicht kopiert werden.");
+    }
+  }, [buildSyncDiagnosis]);
+
+  const runBundleDiagnosticSync = useCallback(async () => {
+    setDiagnosisMessage("Bundle-Sync wird erneut getestet.");
+    await runSync("Bundle-Sync wird erneut getestet.");
+    setDiagnosisMessage("Bundle-Sync-Test abgeschlossen. Details wurden aktualisiert.");
+  }, [runSync]);
 
   useEffect(() => {
     setIsOnline(getOnlineStatus());
@@ -705,6 +883,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <QueueDetailsPanel
               queueDetails={queueDetails}
               joinedSessionId={joined?.session.id}
+              diagnosisMessage={diagnosisMessage}
+              copySyncDiagnostics={() => void copySyncDiagnostics()}
+              runBundleDiagnosticSync={() => void runBundleDiagnosticSync()}
               discardConfirm={discardConfirm}
               setDiscardConfirm={setDiscardConfirm}
               discardOpenQueue={discardOpenQueue}
@@ -740,6 +921,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <QueueDetailsPanel
                 queueDetails={queueDetails}
                 joinedSessionId={joined?.session.id}
+                diagnosisMessage={diagnosisMessage}
+                copySyncDiagnostics={() => void copySyncDiagnostics()}
+                runBundleDiagnosticSync={() => void runBundleDiagnosticSync()}
                 discardConfirm={discardConfirm}
                 setDiscardConfirm={setDiscardConfirm}
                 discardOpenQueue={discardOpenQueue}
@@ -1019,18 +1203,29 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 function QueueDetailsPanel({
   queueDetails,
   joinedSessionId,
+  diagnosisMessage,
+  copySyncDiagnostics,
+  runBundleDiagnosticSync,
   discardConfirm,
   setDiscardConfirm,
   discardOpenQueue,
 }: {
   queueDetails: QueueDetails;
   joinedSessionId?: string;
+  diagnosisMessage: string;
+  copySyncDiagnostics: () => void;
+  runBundleDiagnosticSync: () => void;
   discardConfirm: string;
   setDiscardConfirm: (value: string) => void;
   discardOpenQueue: () => void;
 }) {
   return (
     <div className="queue-detail-list">
+      <div className="queue-diagnostics-actions">
+        <button className="btn secondary" type="button" onClick={copySyncDiagnostics}>Diagnose kopieren</button>
+        <button className="btn secondary" type="button" onClick={runBundleDiagnosticSync}>Bundle-Sync erneut testen</button>
+        {diagnosisMessage ? <small>{diagnosisMessage}</small> : null}
+      </div>
       {queueDetails.sessions.map((session) => (
         <div className="queue-session-card" key={session.session_id}>
           <strong>{session.session_id === joinedSessionId ? "Aktuelle Session" : "Andere Session"}</strong>
