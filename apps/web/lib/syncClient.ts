@@ -31,6 +31,15 @@ type BundleSyncResponse = {
 };
 
 let syncRunning = false;
+let syncRunningStartedAt = 0;
+const SYNC_LOCK_STALE_MS = 60_000;
+
+class SyncTimeoutError extends Error {
+  constructor(message = "Keine Serverantwort nach 45 Sekunden.") {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
 
 export function getOnlineStatus() {
   if (typeof navigator === "undefined") return true;
@@ -49,7 +58,7 @@ function cleanError(error?: unknown) {
   if (error instanceof Error && error.message.includes("Maximal 5 Fotos")) {
     return "Maximal 5 Fotos pro Gegenstand möglich.";
   }
-  if (error instanceof Error && error.name === "AbortError") {
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
     return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prüfen und erneut synchronisieren.";
   }
   return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
@@ -118,14 +127,22 @@ function photoSkipReason(photo: QueueItem, serverItemId?: string) {
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  let settled = false;
+  const timeoutPromise = new Promise<Response>((_, reject) => {
+    window.setTimeout(() => {
+      if (settled) return;
+      controller.abort();
+      reject(new SyncTimeoutError());
+    }, timeoutMs);
+  });
+  const fetchPromise = fetch(url, {
+    ...init,
+    signal: controller.signal,
+  });
   try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
+    return await Promise.race([fetchPromise, timeoutPromise]);
   } finally {
-    window.clearTimeout(timeout);
+    settled = true;
   }
 }
 
@@ -370,6 +387,9 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         upload_debug: `API erreichbar: ${health.url}`,
       });
       const result = await postItemBundle(latestBundle, uploadablePhotos, syncRunId);
+      if (!result.server_item_id || !Array.isArray(result.photo_results)) {
+        throw new Error("Bundle Sync Antwort ist unvollständig: server_item_id oder photo_results fehlen.");
+      }
       await updateQueueStatus(latestBundle.id, "synced", {
         server_item_id: result.server_item_id,
         sync_run_id: syncRunId,
@@ -432,8 +452,8 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         health_result: "ok",
         fetch_started: true,
         last_error: message,
-        upload_debug_state: error instanceof Error && error.name === "AbortError" ? "timeout" : "fetch_error",
-        upload_response_status: error instanceof Error && error.name === "AbortError" ? 0 : undefined,
+        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
+        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
         upload_debug: "Objektpaket wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       });
@@ -445,8 +465,8 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         eligible_for_upload: true,
         fetch_started: true,
         last_error: message,
-        upload_debug_state: error instanceof Error && error.name === "AbortError" ? "timeout" : "fetch_error",
-        upload_response_status: error instanceof Error && error.name === "AbortError" ? 0 : undefined,
+        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
+        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
         upload_debug: "Paket-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       })));
@@ -642,17 +662,27 @@ export async function retryFailed(): Promise<SyncResult> {
 }
 
 export async function syncNow(): Promise<SyncResult> {
-  if (syncRunning) return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+  if (syncRunning) {
+    if (syncRunningStartedAt && Date.now() - syncRunningStartedAt > SYNC_LOCK_STALE_MS) {
+      syncRunning = false;
+      syncRunningStartedAt = 0;
+      await recoverInterruptedUploads();
+    } else {
+      return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+    }
+  }
   syncRunning = true;
+  syncRunningStartedAt = Date.now();
   try {
     await recoverInterruptedUploads();
     const bundle = await syncPendingBundles();
-    const summary = await getQueueSummary();
     if (bundle.synced > 0) {
       await clearOnlySyncedItems();
     }
+    const summary = await getQueueSummary();
     return { synced: bundle.synced, failed: bundle.failed, open: summary.open };
   } finally {
     syncRunning = false;
+    syncRunningStartedAt = 0;
   }
 }
