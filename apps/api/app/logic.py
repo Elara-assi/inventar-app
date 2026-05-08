@@ -52,7 +52,7 @@ def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[s
             "eingabegeraet",
             {
                 "object_type": "Computermaus",
-                "object_class": "Eingabegerät",
+                "object_class": "Computermaus",
                 "commercial_category": "it_ausstattung",
                 "requires_accounting_review": False,
                 "missing_fields": [],
@@ -66,7 +66,7 @@ def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[s
             "eingabegeraet",
             {
                 "object_type": "Tastatur",
-                "object_class": "Eingabegerät",
+                "object_class": "Tastatur",
                 "commercial_category": "it_ausstattung",
                 "requires_accounting_review": False,
                 "missing_fields": [],
@@ -80,7 +80,7 @@ def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[s
             "notebook",
             {
                 "object_type": "Notebook",
-                "object_class": "Notebook",
+                "object_class": "Laptop/PC",
                 "commercial_category": "it_ausstattung",
                 "requires_accounting_review": True,
                 "missing_fields": ["Seriennummer", "Anschaffungsdatum", "Buchwert"],
@@ -139,6 +139,153 @@ WORKSHOP_REFERENCE_CATALOG: list[dict[str, Any]] = [
         "requires_accounting_review": True,
     },
 ]
+
+BGA_OBJECT_CLASSES = [
+    "IT-Zubehör",
+    "Computermaus",
+    "Tastatur",
+    "Monitor",
+    "Drucker",
+    "Scanner",
+    "Laptop/PC",
+    "Telefon",
+    "Büroausstattung",
+    "Schreibtisch",
+    "Bürostuhl",
+    "Schrank",
+    "Regal",
+    "Werkstattmöbel",
+    "Werkbank",
+    "Werkzeugwagen",
+    "Spezialgerät",
+    "Diagnosegerät",
+    "Ladegerät",
+    "Maschine",
+    "Hebebühne",
+    "Kompressor",
+    "Reinigungsgerät",
+    "Sonstiges",
+    "Unklar",
+]
+
+BGA_OBJECT_CANDIDATES: list[dict[str, Any]] = [
+    {
+        "object_name": "Computermaus",
+        "object_class": "Computermaus",
+        "visual_features": ["handgroßes Zeigegerät", "linke/rechte Taste", "Scrollrad", "Kabel oder USB-/Funkempfänger"],
+        "category": "it_ausstattung",
+    },
+    {
+        "object_name": "Tastatur",
+        "object_class": "Tastatur",
+        "visual_features": ["viele Tasten in Reihen", "Ziffernblock oder Funktionsleiste", "Kabel oder Funk"],
+        "category": "it_ausstattung",
+    },
+    {
+        "object_name": "Monitor",
+        "object_class": "Monitor",
+        "visual_features": ["einzelner Bildschirm", "Displayfläche", "Standfuß", "keine fest verbundene Tastatur"],
+        "category": "it_ausstattung",
+    },
+    {
+        "object_name": "Notebook",
+        "object_class": "Laptop/PC",
+        "visual_features": ["aufklappbares Gerät", "Bildschirm und Tastatur in einem Gerät", "Touchpad"],
+        "category": "it_ausstattung",
+    },
+    {"object_name": "Drucker", "object_class": "Drucker", "visual_features": ["Papierfach", "Ausgabeschacht", "Bedienpanel"], "category": "it_ausstattung"},
+    {"object_name": "Scanner", "object_class": "Scanner", "visual_features": ["Flachbett", "Einzug", "Scanfläche"], "category": "it_ausstattung"},
+    {"object_name": "Telefon", "object_class": "Telefon", "visual_features": ["Hörer", "Tastenfeld", "Display", "Telefonkabel oder DECT-Basis"], "category": "it_ausstattung"},
+    {"object_name": "Werkzeugwagen", "object_class": "Werkzeugwagen", "visual_features": ["rollbarer Schubladenschrank", "Werkzeugschubladen"], "category": "werkstattausstattung"},
+    {"object_name": "Schreibtisch", "object_class": "Schreibtisch", "visual_features": ["Arbeitsplatte", "Tischbeine", "Büroarbeitsplatz"], "category": "bueroausstattung"},
+    {"object_name": "Bürostuhl", "object_class": "Bürostuhl", "visual_features": ["Sitzfläche", "Rückenlehne", "Rollen", "Armlehnen"], "category": "bueroausstattung"},
+    {"object_name": "Schrank", "object_class": "Schrank", "visual_features": ["Türen", "Fächer", "Büro- oder Lagerschrank"], "category": "betriebsmittel"},
+    {"object_name": "Regal", "object_class": "Regal", "visual_features": ["mehrere Ablageebenen", "Lager- oder Büroregal"], "category": "betriebsmittel"},
+    {"object_name": "Werkbank", "object_class": "Werkbank", "visual_features": ["massive Arbeitsplatte", "Werkstattarbeitsplatz"], "category": "werkstattausstattung"},
+    {"object_name": "Hebebühne", "object_class": "Hebebühne", "visual_features": ["Säulen oder Scherenhub", "Tragarme oder Plattform"], "category": "anlagevermoegen"},
+    {"object_name": "Kompressor", "object_class": "Kompressor", "visual_features": ["Druckkessel", "Motorblock", "Manometer"], "category": "werkstattausstattung"},
+    {"object_name": "Ladegerät", "object_class": "Ladegerät", "visual_features": ["Netzteil", "Ladestation", "Kabelanschlüsse"], "category": "betriebsmittel"},
+    {"object_name": "Diagnosegerät", "object_class": "Diagnosegerät", "visual_features": ["Handgerät oder Tablet", "OBD-Kabel", "Dockingstation"], "category": "werkstattausstattung"},
+    {"object_name": "Spezialgerät", "object_class": "Spezialgerät", "visual_features": ["Spezialwerkzeug", "Prüfgerät", "Koffer oder Adapter"], "category": "betriebsmittel"},
+    {"object_name": "Werkstattmöbel", "object_class": "Werkstattmöbel", "visual_features": ["Werkstattschrank", "Arbeitsmöbel", "Ablage in Werkstatt"], "category": "werkstattausstattung"},
+    {"object_name": "Reinigungsgerät", "object_class": "Reinigungsgerät", "visual_features": ["Sauger", "Reinigungsmaschine", "Schlauch oder Tank"], "category": "betriebsmittel"},
+    {"object_name": "Maschine", "object_class": "Maschine", "visual_features": ["stationäres Gerät", "Bedienfeld", "Typenschild"], "category": "werkstattausstattung"},
+    {"object_name": "Sonstige Ausstattung", "object_class": "Sonstiges", "visual_features": ["nicht eindeutig zuordenbar"], "category": "ungeklaert"},
+    {"object_name": "Unklares Objekt", "object_class": "Unklar", "visual_features": ["nicht sicher erkennbar"], "category": "ungeklaert"},
+]
+
+BGA_PROMPT_TEST_CASES: list[dict[str, Any]] = [
+    {"case": "Computermaus", "expected_class": "Computermaus", "expected_object_name": "Computermaus", "guard": "nicht Monitor/Tastatur/Laptop"},
+    {"case": "Tastatur", "expected_class": "Tastatur", "expected_object_name": "Tastatur", "guard": "nicht Monitor"},
+    {"case": "Monitor", "expected_class": "Monitor", "expected_object_name": "Monitor", "guard": "nur einzelner Bildschirm ohne Tastatur-Unterteil"},
+    {"case": "Bürostuhl", "expected_class": "Bürostuhl", "expected_object_name": "Bürostuhl", "guard": "Rollen/Rückenlehne/Sitzfläche"},
+    {"case": "Werkzeugwagen", "expected_class": "Werkzeugwagen", "expected_object_name": "Werkzeugwagen", "guard": "rollbarer Schubladenschrank"},
+    {"case": "Unbekanntes Gerät", "expected_class": "Unklar", "expected_object_name": "vermutlich ...", "guard": "confidence niedrig und requires_manual_review=true"},
+]
+
+
+def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
+    raw = str(value or "").strip()
+    if raw in BGA_OBJECT_CLASSES:
+        return raw
+    text = f"{raw} {object_name or ''}".lower()
+    text = (
+        text.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+        .replace("-", " ")
+        .replace("/", " ")
+    )
+    if any(term in text for term in ["computermaus", "maus", "mouse"]):
+        return "Computermaus"
+    if any(term in text for term in ["tastatur", "keyboard"]):
+        return "Tastatur"
+    if "monitor" in text or "bildschirm" in text:
+        return "Monitor"
+    if any(term in text for term in ["laptop", "notebook", "pc", "computer", "thinkpad", "elitebook", "probook", "macbook"]):
+        return "Laptop/PC"
+    if "drucker" in text:
+        return "Drucker"
+    if "scanner" in text:
+        return "Scanner"
+    if "telefon" in text or "dect" in text:
+        return "Telefon"
+    if "schreibtisch" in text:
+        return "Schreibtisch"
+    if "buerostuhl" in text or "stuhl" in text:
+        return "Bürostuhl"
+    if "schrank" in text:
+        return "Schrank"
+    if "regal" in text:
+        return "Regal"
+    if "werkbank" in text:
+        return "Werkbank"
+    if "werkzeugwagen" in text:
+        return "Werkzeugwagen"
+    if "diagnose" in text or "tester" in text:
+        return "Diagnosegerät"
+    if "ladegeraet" in text or "ladegerät" in raw.lower():
+        return "Ladegerät"
+    if "hebebuehne" in text or "hebebühne" in raw.lower():
+        return "Hebebühne"
+    if "kompressor" in text:
+        return "Kompressor"
+    if "reinigung" in text or "sauger" in text:
+        return "Reinigungsgerät"
+    if "werkstattmoebel" in text or "werkstattmöbel" in raw.lower():
+        return "Werkstattmöbel"
+    if "spezial" in text or "pruefgeraet" in text or "prüfgerät" in raw.lower():
+        return "Spezialgerät"
+    if "maschine" in text:
+        return "Maschine"
+    if "buero" in text or "büro" in raw.lower():
+        return "Büroausstattung"
+    if "it" in text or "eingabegeraet" in text or "eingabegerät" in raw.lower():
+        return "IT-Zubehör"
+    if "sonstig" in text:
+        return "Sonstiges"
+    return "Unklar"
 
 
 @lru_cache(maxsize=1)
@@ -540,13 +687,25 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         SELECT photo_type, original_path
         FROM item_photos
         WHERE item_id = %s
-        ORDER BY uploaded_at DESC
+        ORDER BY
+          CASE
+            WHEN photo_type IN ('object', 'object_front') THEN 0
+            WHEN photo_type IN ('nameplate', 'type_plate') THEN 1
+            WHEN photo_type IN ('condition_detail', 'object_back', 'uvv_label') THEN 2
+            ELSE 3
+          END,
+          uploaded_at DESC
         LIMIT 4
         """,
         (item_id,),
     )
     transcripts = [str(note.get("transcript") or "") for note in notes if note.get("transcript")]
     photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
+    has_object_photo = any(photo_type in {"object", "object_front"} for photo_type in photo_types)
+    if not has_object_photo:
+        fallback["notes"] = "KI-Vorschlag übersprungen: kein Objektfoto vorhanden."
+        fallback["_model_used"] = "not-started-no-object-photo"
+        return fallback
     special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
     inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
     learning_examples = select_learning_examples(transcripts, item.get("object_class_name"), item.get("object_type"), limit=8)
@@ -562,29 +721,42 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             continue
 
     prompt = {
-        "task": "Analysiere ein Inventarobjekt in einem Betrieb mit Werkstatt, Lager und Büro. Antworte ausschließlich als JSON.",
+        "task": "Analysiere ein einzelnes Inventarobjekt der Betriebs- und Geschäftsausstattung. Antworte ausschließlich als JSON.",
+        "primary_goal": "Erkenne zuerst das sichtbare Hauptobjekt im Objektfoto. Trenne es sauber von Hintergrundobjekten wie Monitoren, Tastaturen, Kabeln, Laptops oder Tischflächen.",
         "object_class_hint": item.get("object_class_name"),
         "object_class_slug": item.get("object_class_slug"),
         "condition_hint": item.get("condition"),
         "inventory_id": item.get("inventory_id"),
         "photo_types": photo_types,
         "transcripts": transcripts,
+        "allowed_bga_object_classes": BGA_OBJECT_CLASSES,
+        "bga_object_candidates": BGA_OBJECT_CANDIDATES,
+        "prompt_tests": BGA_PROMPT_TEST_CASES,
         "reference_catalog": WORKSHOP_REFERENCE_CATALOG,
         "special_tool_matches": special_tool_matches,
         "inventory_history_matches": inventory_history_matches,
         "learning_examples": learning_examples,
         "classification_rules": [
+            "Das wichtigste Ergebnis ist die korrekte Objektart. Wähle object_class zuerst exakt aus allowed_bga_object_classes. Erfinde keine weiteren Klassen.",
+            "Wenn keine Klasse sicher passt, nutze object_class='Unklar', object_name='vermutlich ...', confidence unter 0.75 und requires_manual_review=true.",
+            "Für eindeutige Objekte setze eine konkrete Bezeichnung, z. B. object_name='Computermaus' und object_class='Computermaus'.",
+            "Computermaus: handgroßes Zeigegerät mit linker/rechter Taste, Scrollrad, Gehäuse zum Greifen, oft Kabel/USB/Funk. Eine Computermaus darf nicht als Monitor, Tastatur oder Notebook klassifiziert werden, nur weil solche Dinge im Hintergrund sichtbar sind.",
+            "Tastatur: viele Tasten in einem Raster. Monitor: einzelner Bildschirm mit Displayfläche. Notebook/Laptop: Bildschirm und Tastatur fest zusammen in einem aufklappbaren Gerät.",
+            "Wenn mehrere Gegenstände im Bild sind, bewerte das zentrale, am nächsten fotografierte oder per Sprache beschriebene Objekt als Hauptobjekt.",
+            "Nutze object_front/object-Fotos für die Objektart, type_plate/nameplate-Fotos nur für Hersteller, Modell, Seriennummer und Baujahr. Detailfotos dürfen die Objektart stützen, aber nicht gegen das Hauptfoto übersteuern.",
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
             "Nutze learning_examples als kuratierte Beispiele aus früheren menschlichen Korrekturen; sie sind wichtiger als eine allgemeine Vermutung.",
             "Wenn learning_examples eine typische Verwechslung zeigen, korrigiere konservativ und setze requires_review=true.",
-            "Verwechsle IT-Peripherie nicht mit Monitor: Computermaus, Maus, Mouse, Tastatur, Keyboard und Trackpad sind immer Eingabegerät.",
-            "Laptop, Notebook, ThinkPad, EliteBook, ProBook und MacBook sind Notebook, nicht Monitor.",
-            "Nur ein sichtbarer einzelner Bildschirm ohne Tastatur-Unterteil ist Monitor. Ein aufgeklappter Laptop ist Notebook.",
+            "Verwechsle IT-Peripherie nicht mit Monitor: Computermaus, Maus und Mouse erhalten object_class='Computermaus'; Tastatur und Keyboard erhalten object_class='Tastatur'.",
+            "Laptop, Notebook, ThinkPad, EliteBook, ProBook und MacBook erhalten object_class='Laptop/PC', nicht Monitor.",
+            "Nur ein sichtbarer einzelner Bildschirm ohne Tastatur-Unterteil ist Monitor. Ein aufgeklappter Laptop ist Laptop/PC.",
             "Nutze special_tool_matches für exakte VAS-/V.A.G-/ASE-Nummern, Spezialwerkzeugnamen und bekannte Werkzeugbezeichnungen.",
             "Nutze inventory_history_matches für frühere Bestands-, Mängel-, UVV-, Wartungs- und Soll-Hinweise. Diese Hinweise sind prüfpflichtig und dürfen die schnelle Erfassung nicht blockieren.",
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
-            "Alter und Wert nur setzen, wenn eine belastbare Quelle sichtbar ist. Keine pauschalen Standardwerte wie 7 Jahre oder 11 Euro erfinden.",
-            "Wenn Alter oder Wert nur geraten wären: estimated_age_years=null, age_source=unbekannt, age_verification_status=offen.",
+            "Erfinde niemals Hersteller, Modell, Baujahr, Seriennummer oder Preis. Wenn nicht sichtbar oder nicht aus Typenschild/Sprache/Beispiel belegbar: null oder unbekannt.",
+            "Alter und Wert nur setzen, wenn eine belastbare Quelle sichtbar oder aus Typenschild/Modell eindeutig begründbar ist. Keine pauschalen Standardwerte wie 7 Jahre oder 11 Euro erfinden.",
+            "Wenn Alter oder Wert nur geraten wären: estimated_age_years=null, estimated_value_eur=null, age_source=unbekannt, age_verification_status=offen.",
+            "Wenn unsicher: object_name als beste Vermutung mit 'vermutlich', confidence unter 0.75, uncertainty_reason füllen und requires_manual_review=true.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
             "Reifenmontiermaschine: Montageteller, Montagearm, Abdrückschaufel und Pedale sprechen klar für Reifenmontiermaschine.",
             "Hebebühne: Säulen, Scherenhub, Tragarme, Plattform und Traglastschild sprechen klar für Hebebühne.",
@@ -592,8 +764,32 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "Wenn Typenschild oder Seriennummer für Maschinen fehlen, erzeuge missing_fields und recommended_status=nacharbeit_erfasser.",
         ],
         "required_schema": {
+            "object_name": "string",
+            "object_class": "string exakt aus allowed_bga_object_classes",
+            "confidence": "number",
+            "uncertainty_reason": "string|null",
+            "suggested_fields": {
+                "object_type": "string|null",
+                "specification": "string|null",
+                "condition": "string|null",
+                "construction_year": "string|null",
+                "remark": "string|null",
+            },
+            "requires_manual_review": "boolean",
+            "manufacturer": "string|null",
+            "specification": "string|null",
+            "visible_features": ["string"],
+            "condition_guess": "neu|sehr_gut|gut|gebraucht|reparaturbeduerftig|defekt|aussondern|null",
+            "suggested_remark": "string|null",
+            "estimated_age_years": "number|null",
+            "estimated_value_eur": "number|null",
+            "estimated_value_confidence": "number|null",
+            "estimated_value_reason": "string|null",
+            "value_requires_review": "boolean",
+            "age_confidence": "number|null",
+            "age_reason": "string|null",
+            "age_requires_review": "boolean",
             "object_type": "string",
-            "object_class": "string",
             "brand": "string|null",
             "model": "string|null",
             "serial_number": "string|null",
@@ -603,7 +799,6 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "missing_fields": ["string"],
             "required_evidence_missing": ["string"],
             "recommended_tasks": [{"role": "string", "task": "string"}],
-            "confidence": "number",
             "recommended_status": "string",
             "notes": "string",
         },
@@ -661,6 +856,69 @@ def parse_ollama_json(content: str) -> dict[str, Any]:
 
 def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     result = dict(parsed)
+    object_name = result.get("object_name")
+    manufacturer = result.get("manufacturer")
+    specification = result.get("specification")
+    condition_guess = result.get("condition_guess")
+    requires_manual_review = result.get("requires_manual_review")
+    if object_name and not result.get("object_type"):
+        result["object_type"] = object_name
+    if manufacturer and not result.get("brand"):
+        result["brand"] = manufacturer
+    if specification and not result.get("model"):
+        result["model"] = specification
+    if condition_guess and not result.get("condition"):
+        result["condition"] = condition_guess
+    if requires_manual_review is not None:
+        result["requires_review"] = bool(requires_manual_review)
+    normalized_object_class = normalize_bga_object_class(result.get("object_class"), result.get("object_name") or result.get("object_type"))
+    result["object_class"] = normalized_object_class
+    if normalized_object_class == "Unklar":
+        if result.get("object_name") and not str(result.get("object_name")).lower().startswith("vermutlich"):
+            result["object_name"] = f"vermutlich {result['object_name']}"
+            result["object_type"] = result["object_name"]
+        result["requires_manual_review"] = True
+        result["requires_review"] = True
+        if not result.get("uncertainty_reason"):
+            result["uncertainty_reason"] = "Objektklasse nicht eindeutig aus der festen BGA-Klassenliste ableitbar."
+        try:
+            confidence = float(result.get("confidence") or 0)
+        except (TypeError, ValueError):
+            confidence = 0
+        result["confidence"] = confidence if 0 < confidence < 0.75 else 0.6
+    suggested_fields = result.get("suggested_fields")
+    if not isinstance(suggested_fields, dict):
+        suggested_fields = {}
+    result["suggested_fields"] = {
+        "object_type": suggested_fields.get("object_type") or result.get("object_name") or result.get("object_type"),
+        "specification": suggested_fields.get("specification") or result.get("specification"),
+        "condition": suggested_fields.get("condition") or result.get("condition_guess") or result.get("condition"),
+        "construction_year": suggested_fields.get("construction_year") or result.get("construction_year"),
+        "remark": suggested_fields.get("remark") or result.get("suggested_remark"),
+    }
+    result["bga_detection"] = {
+        "object_name": result.get("object_name") or result.get("object_type"),
+        "object_class": result.get("object_class"),
+        "manufacturer": result.get("manufacturer") or result.get("brand"),
+        "model": result.get("model"),
+        "specification": result.get("specification"),
+        "visible_features": result.get("visible_features") or [],
+        "condition_guess": result.get("condition_guess") or result.get("condition"),
+        "confidence": result.get("confidence"),
+        "uncertainty_reason": result.get("uncertainty_reason"),
+        "suggested_remark": result.get("suggested_remark"),
+        "estimated_age_years": result.get("estimated_age_years"),
+        "estimated_value_eur": result.get("estimated_value_eur"),
+        "estimated_value_confidence": result.get("estimated_value_confidence"),
+        "estimated_value_reason": result.get("estimated_value_reason"),
+        "value_requires_review": bool(result.get("value_requires_review", True)),
+        "age_confidence": result.get("age_confidence"),
+        "age_reason": result.get("age_reason"),
+        "age_requires_review": bool(result.get("age_requires_review", True)),
+        "suggested_fields": result["suggested_fields"],
+        "allowed_classes": BGA_OBJECT_CLASSES,
+        "requires_manual_review": bool(result.get("requires_manual_review") or result.get("requires_review")),
+    }
     condition_values = {"neu", "sehr_gut", "gut", "gebraucht", "reparaturbeduerftig", "defekt", "aussondern"}
     commercial_values = {
         "anlagevermoegen",
@@ -709,8 +967,11 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
     }
 
     condition = str(result.get("condition") or "").lower()
+    condition = condition.replace(" ", "_").replace("reparaturbedürftig", "reparaturbeduerftig")
     if condition and condition not in condition_values:
         result["condition"] = fallback.get("condition")
+    elif condition:
+        result["condition"] = condition
 
     commercial = str(result.get("commercial_category") or "").lower().strip()
     commercial = commercial_aliases.get(commercial, commercial)
@@ -728,6 +989,40 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         "gwg_pruefen",
     }:
         result["requires_accounting_review"] = True
+    credible_age_sources = {
+        "typenschild",
+        "baujahr",
+        "modelljahr",
+        "sichtbare_angabe",
+        "seriennummer",
+        "beleg",
+        "dot",
+    }
+    age_source = str(result.get("age_source") or "").lower().strip()
+    age_status = str(result.get("age_verification_status") or "").lower().strip()
+    if result.get("estimated_age_years") is not None and (
+        age_source not in credible_age_sources or age_status in {"geschaetzt", "nicht_ermittelbar", "offen", ""}
+    ):
+        result["estimated_age_years"] = None
+        result["age_source"] = "unbekannt"
+        result["age_verification_status"] = "offen"
+        result["age_requires_review"] = True
+    value_source = str(result.get("value_source") or "").lower().strip()
+    if result.get("estimated_value_eur") is not None and value_source not in {
+        "webrecherche",
+        "sichtbare_preisangabe",
+        "beleg",
+        "referenzpreis",
+        "modellpreis",
+    }:
+        result["estimated_value_eur"] = None
+        result["value_requires_review"] = True
+    if isinstance(result.get("bga_detection"), dict):
+        result["bga_detection"]["estimated_age_years"] = result.get("estimated_age_years")
+        result["bga_detection"]["estimated_value_eur"] = result.get("estimated_value_eur")
+        result["bga_detection"]["condition_guess"] = result.get("condition")
+        result["bga_detection"]["age_requires_review"] = bool(result.get("age_requires_review", True))
+        result["bga_detection"]["value_requires_review"] = bool(result.get("value_requires_review", True))
     return result
 
 

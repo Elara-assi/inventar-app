@@ -270,6 +270,10 @@ def has_photo_type(item_id: str, kind: str) -> bool:
     return bool(row)
 
 
+def has_ai_object_photo(item_id: str) -> bool:
+    return has_photo_type(item_id, "object")
+
+
 def upsert_rework_task(item_id: str, role: str, field: str, priority: str = "normal", comment: str | None = None) -> None:
     upsert_rework_task_for_type(item_id, "bga_check", role, field, priority, comment)
 
@@ -1945,6 +1949,57 @@ def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[in
     return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
 
 
+def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: int) -> dict[str, Any]:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    ) + " " + ai_context.lower()
+    rules = [
+        (("computermaus", " maus", "mouse"), 100, "Computermaus: vierstellige Werte sind unplausibel."),
+        (("tastatur", "keyboard"), 250, "Tastatur: nur niedriger bis mittlerer Gebrauchtwert plausibel."),
+        (("monitor", "display"), 600, "Standardmonitor: vierstellige Werte nur mit sehr belastbarer Spezialbegründung."),
+        (("drucker",), 800, "Drucker: Ausreißer ohne Modell-/Marktbeleg nicht übernehmen."),
+        (("bürostuhl", "buerostuhl", "stuhl"), 800, "Bürostuhl: Wert stark markenabhängig und prüfpflichtig."),
+        (("schreibtisch", "regal"), 800, "Büroausstattung: ohne belastbare Marke kein hoher KI-Wert."),
+        (("ladegerät", "ladegeraet"), 250, "Ladegerät: hoher Wert ohne Typenschild/Modell nicht plausibel."),
+    ]
+    for needles, max_value, reason in rules:
+        if any(needle in text for needle in needles):
+            if estimated_value > max_value:
+                return {
+                    "estimated_value": None,
+                    "estimated_value_range": {"min": None, "max": None},
+                    "estimated_value_confidence": 0.0,
+                    "estimated_value_reason": f"{reason} KI-Wert {estimated_value} EUR wurde verworfen.",
+                    "value_requires_review": True,
+                }
+            return {
+                "estimated_value": estimated_value,
+                "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+                "estimated_value_confidence": 0.55,
+                "estimated_value_reason": f"Konservative Heuristik für {reason.split(':', 1)[0]}; manuell prüfen.",
+                "value_requires_review": True,
+            }
+    if estimated_value >= 1000 and not any(
+        term in text
+        for term in ["hebeb", "wuchtmaschine", "reifenmontiermaschine", "kompressor", "maschine", "werkzeugwagen", "rtx", "gaming laptop"]
+    ):
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": f"Hoher KI-Wert {estimated_value} EUR ohne passende Objektklasse/Beleg verworfen.",
+            "value_requires_review": True,
+        }
+    return {
+        "estimated_value": estimated_value,
+        "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+        "estimated_value_confidence": 0.45 if estimated_value >= 1000 else 0.6,
+        "estimated_value_reason": "Konservative Heuristik aus Objektart, Zustand und Referenzhinweisen; fachlich prüfen.",
+        "value_requires_review": True,
+    }
+
+
 def is_tire_item(item: dict[str, Any], ai_context: str = "") -> bool:
     text = " ".join(
         str(item.get(key) or "").lower()
@@ -2105,15 +2160,7 @@ def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_c
     years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
     if years:
         return max(0.0, round(datetime.utcnow().year - max(years), 1))
-    return {
-        "neu": 0.5,
-        "sehr_gut": 2.0,
-        "gut": 4.0,
-        "gebraucht": 6.0,
-        "reparaturbeduerftig": 8.0,
-        "defekt": 10.0,
-        "aussondern": 12.0,
-    }.get(str(item.get("condition") or "gebraucht"), 6.0)
+    return None
 
 
 def conservative_age_estimate(value: float | None) -> float | None:
@@ -2147,10 +2194,21 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         extra_result = {"tire_valuation": tire_result["tire_valuation"]}
     else:
         value_min, value_max = estimate_value_range(item, ai_context)
-        estimated_value = conservative_value_estimate(value_min, value_max)
+        raw_estimated_value = conservative_value_estimate(value_min, value_max)
+        guarded_value = bga_value_guardrail(item, ai_context, raw_estimated_value)
+        estimated_value = guarded_value["estimated_value"]
+        value_min = guarded_value["estimated_value_range"]["min"]
+        value_max = guarded_value["estimated_value_range"]["max"]
         estimated_age = conservative_age_estimate(estimate_age_years(item, sources, ai_context))
-        notes = "Konservative KI-Schätzung aus Objektangaben, Zustand und Web-/Referenzhinweisen: Wert eher am unteren Rand, Alter im Zweifel +1 Jahr. Muss bei kaufmännischer Auswertung geprüft werden."
-        extra_result = {}
+        notes = "Vorsichtige KI-Schätzung aus Objektangaben, Zustand und Referenzhinweisen. Unsichere oder unplausible Alter-/Wertangaben bleiben leer und müssen manuell geprüft werden."
+        extra_result = {
+            "estimated_value_confidence": guarded_value["estimated_value_confidence"],
+            "estimated_value_reason": guarded_value["estimated_value_reason"],
+            "value_requires_review": guarded_value["value_requires_review"],
+            "age_confidence": 0.55 if estimated_age is not None else 0.0,
+            "age_reason": "Aus sichtbarem Baujahr/Modellhinweis abgeleitet." if estimated_age is not None else "Keine belastbare Altersgrundlage erkannt.",
+            "age_requires_review": True,
+        }
     return {
         "ai_stage": "deep_dive",
         "estimated_by_ai": True,
@@ -2189,15 +2247,26 @@ def process_deep_dive_item(item_id: str) -> None:
     execute(
         """
         UPDATE inventory_items
-        SET value_estimate = %s,
-            estimated_age_years = %s,
-            age_source = 'schaetzung',
-            age_verification_status = 'geschaetzt',
+        SET value_estimate = COALESCE(value_estimate, %s),
+            estimated_age_years = CASE
+                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN %s
+                ELSE estimated_age_years
+            END,
+            age_source = CASE
+                WHEN %s IS NULL THEN age_source
+                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN 'schaetzung'
+                ELSE age_source
+            END,
+            age_verification_status = CASE
+                WHEN %s IS NULL THEN age_verification_status
+                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN 'geschaetzt'
+                ELSE age_verification_status
+            END,
             updated_at = now()
         WHERE id = %s
         RETURNING id
         """,
-        (result["estimated_value"], result["estimated_age_years"], item_id),
+        (result["estimated_value"], result["estimated_age_years"], result["estimated_age_years"], result["estimated_age_years"], item_id),
     )
     audit("ai_deep_dive_created", "inventory_item", item_id, result)
 
@@ -2261,6 +2330,13 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
 @app.post("/items/{item_id}/ai/run")
 def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") -> dict[str, Any]:
     require_item_session_open(item_id)
+    if not has_ai_object_photo(item_id):
+        return {
+            "item_id": item_id,
+            "status": "skipped",
+            "stage": "review" if mode == "review" else "fast",
+            "message": "KI-Vorschlag erst nach Objektfoto möglich. Bitte Objektfoto aufnehmen und erneut starten.",
+        }
     normalized_mode = "review" if mode == "review" else "fast"
     queued_status = ai_status_for_mode(normalized_mode, "queued")
     execute("UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id", (queued_status, item_id))
@@ -2292,12 +2368,16 @@ def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) ->
 
     rows = fetch_all(
         """
-        SELECT id
-        FROM inventory_items
+        SELECT i.id
+        FROM inventory_items i
         WHERE session_id = %s
           AND finalized_at IS NULL
           AND locked_at IS NULL
           AND status NOT IN ('ki_pruefung_wartet', 'ki_pruefung_laeuft', 'finalisiert')
+          AND EXISTS (
+            SELECT 1 FROM item_photos p
+            WHERE p.item_id = i.id AND p.photo_type IN ('object', 'object_front')
+          )
         ORDER BY created_at
         """,
         (session_id,),
