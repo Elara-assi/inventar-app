@@ -1625,6 +1625,46 @@ async def upload_photo(
     return row
 
 
+@app.post("/offline-sync/photos")
+async def offline_sync_photo(
+    session_id: str = Form(...),
+    source_device_id: str = Form(...),
+    client_item_id: str = Form(...),
+    client_photo_id: str = Form(...),
+    photo_type: str = Form("object_front"),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    session = get_session(session_id)
+    if session["status"] != "open":
+        raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
+    item = fetch_one(
+        """
+        SELECT *
+        FROM inventory_items
+        WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+        LIMIT 1
+        """,
+        (session_id, source_device_id, client_item_id),
+    )
+    if not item:
+        raise HTTPException(status_code=409, detail="Objekt ist noch nicht synchronisiert")
+    row, already_exists = await save_item_photo(
+        item_id=str(item["id"]),
+        file=file,
+        photo_type=photo_type,
+        client_photo_id=client_photo_id,
+        source_device_id=source_device_id,
+    )
+    return {
+        "server_item_id": str(item["id"]),
+        "server_photo_id": str(row["id"]),
+        "client_item_id": client_item_id,
+        "client_photo_id": client_photo_id,
+        "photo_type": row.get("photo_type") or photo_type,
+        "status": "already_exists" if already_exists else "synced",
+    }
+
+
 async def save_item_photo(
     item_id: str,
     file: UploadFile,

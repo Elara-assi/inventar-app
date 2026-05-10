@@ -12,6 +12,7 @@ export type QueueItem = {
   client_item_id: string;
   client_photo_id?: string;
   server_item_id?: string;
+  server_photo_id?: string;
   photo_type?: string;
   photo_blob?: Blob;
   file_name?: string;
@@ -31,6 +32,7 @@ export type QueueItem = {
   upload_response_status?: number;
   upload_response_text?: string;
   upload_debug?: string;
+  sync_receipt?: Record<string, unknown>;
   draft?: ItemDraftQueueData;
   created_at: string;
   updated_at: string;

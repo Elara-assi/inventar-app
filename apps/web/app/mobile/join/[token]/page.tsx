@@ -173,7 +173,6 @@ function buildBundleDiagnostics(items: QueueItem[]) {
     const itemDraft = entries.find((entry) => entry.type === "item_draft");
     const photos = entries.filter((entry) => entry.type === "photo_upload");
     const reasons: string[] = [];
-    if (!itemDraft) reasons.push("item_draft fehlt");
     if (!clientItemId) reasons.push("client_item_id fehlt");
     if (!(itemDraft?.session_id || photos[0]?.session_id)) reasons.push("session_id fehlt");
     if (!(itemDraft?.device_id || photos[0]?.device_id)) reasons.push("source_device_id fehlt");
@@ -185,11 +184,11 @@ function buildBundleDiagnostics(items: QueueItem[]) {
     const requiredValuesPresent = reasons.length === 0;
     return {
       client_item_id: clientItemId,
-      bundlefaehig: requiredValuesPresent ? "ja" : "nein",
+      foto_sync_faehig: requiredValuesPresent ? "ja" : "nein",
       grund: reasons.length ? reasons : [],
-      fotos_im_bundle: photos.length,
+      fotos_offen: photos.length,
       blob_summe_bytes: photos.reduce((sum, photo) => sum + (photo.photo_blob?.size ?? photo.file_size ?? 0), 0),
-      pflichtwerte_fuer_offline_sync_items_vorhanden: requiredValuesPresent ? "ja" : "nein",
+      pflichtwerte_fuer_offline_sync_photos_vorhanden: requiredValuesPresent ? "ja" : "nein",
       item_draft_status: itemDraft?.status ?? "fehlt",
       server_item_id: itemDraft?.server_item_id ?? photos.find((photo) => photo.server_item_id)?.server_item_id ?? null,
       post_gestartet: entries.some((entry) => Boolean(entry.fetch_started)) ? "ja" : "nein",
@@ -397,7 +396,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           lokale_queue_bereinigt: item.status === "synced" ? "bereit zur Bereinigung" : "nein, noch lokal offen",
         };
       }),
-      bundle_diagnose: buildBundleDiagnostics(items.filter((item) => item.status !== "synced")),
+      foto_sync_diagnose: buildBundleDiagnostics(items.filter((item) => item.status !== "synced")),
     };
   }, [joined?.session.id, inventoryType, token]);
 
@@ -412,9 +411,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }, [buildSyncDiagnosis]);
 
   const runBundleDiagnosticSync = useCallback(async () => {
-    setDiagnosisMessage("Bundle-Sync wird erneut getestet.");
-    await runSync("Bundle-Sync wird erneut getestet.");
-    setDiagnosisMessage("Bundle-Sync-Test abgeschlossen. Details wurden aktualisiert.");
+    setDiagnosisMessage("Foto-Sync wird erneut getestet.");
+    await runSync("Foto-Sync wird erneut getestet.");
+    setDiagnosisMessage("Foto-Sync-Test abgeschlossen. Details wurden aktualisiert.");
   }, [runSync]);
 
   useEffect(() => {
@@ -1223,7 +1222,7 @@ function QueueDetailsPanel({
     <div className="queue-detail-list">
       <div className="queue-diagnostics-actions">
         <button className="btn secondary" type="button" onClick={copySyncDiagnostics}>Diagnose kopieren</button>
-        <button className="btn secondary" type="button" onClick={runBundleDiagnosticSync}>Bundle-Sync erneut testen</button>
+        <button className="btn secondary" type="button" onClick={runBundleDiagnosticSync}>Foto-Sync erneut testen</button>
         {diagnosisMessage ? <small>{diagnosisMessage}</small> : null}
       </div>
       {queueDetails.sessions.map((session) => (

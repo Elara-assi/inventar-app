@@ -30,6 +30,15 @@ type BundleSyncResponse = {
   photo_results: BundlePhotoResult[];
 };
 
+type PhotoReceiptResponse = {
+  server_item_id: string;
+  server_photo_id: string;
+  client_item_id: string;
+  client_photo_id: string;
+  photo_type?: string;
+  status: "synced" | "already_exists";
+};
+
 let syncRunning = false;
 let syncRunningStartedAt = 0;
 const SYNC_LOCK_STALE_MS = 60_000;
@@ -53,15 +62,15 @@ export function limitConcurrentUploads() {
 function cleanError(error?: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Session not found") || message.includes("Item not found") || message.includes("Raum ist abgeschlossen")) {
-    return "Die ursprüngliche Session oder das Objekt ist nicht mehr verfügbar. Bitte Details prüfen oder lokale Daten bewusst verwerfen.";
+    return "Die ursprÃ¼ngliche Session oder das Objekt ist nicht mehr verfÃ¼gbar. Bitte Details prÃ¼fen oder lokale Daten bewusst verwerfen.";
   }
   if (error instanceof Error && error.message.includes("Maximal 5 Fotos")) {
-    return "Maximal 5 Fotos pro Gegenstand möglich.";
+    return "Maximal 5 Fotos pro Gegenstand mÃ¶glich.";
   }
   if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
-    return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prüfen und erneut synchronisieren.";
+    return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prÃ¼fen und erneut synchronisieren.";
   }
-  return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
+  return "Upload fehlgeschlagen. Bitte Verbindung prÃ¼fen und erneut synchronisieren.";
 }
 
 function isPermanentQueueError(error?: unknown) {
@@ -101,6 +110,10 @@ function bundleUploadUrl() {
   return `${API_BASE}/offline-sync/items`;
 }
 
+function photoReceiptUploadUrl() {
+  return `${API_BASE}/offline-sync/photos`;
+}
+
 function createSyncRunId() {
   return `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
@@ -114,13 +127,13 @@ function photoCandidates(items: QueueItem[]) {
 function photoSkipReason(photo: QueueItem, serverItemId?: string) {
   if (photo.status === "conflict") return "Foto ist als Konflikt markiert und wird nicht automatisch hochgeladen.";
   if (photo.status === "synced") return "Foto ist bereits synchronisiert.";
-  if (!serverItemId) return "Foto-Upload übersprungen: Zielobjekt-ID fehlt.";
-  if (!photo.photo_blob) return "Foto-Upload übersprungen: lokales Foto/Blob fehlt.";
-  if ((photo.photo_blob.size ?? photo.file_size ?? 0) <= 0) return "Foto-Upload übersprungen: Blob-Größe ist 0 Byte.";
-  if (!photo.client_photo_id) return "Foto-Upload übersprungen: lokale Foto-ID fehlt.";
-  if (!photo.photo_type) return "Foto-Upload übersprungen: Fotoart fehlt.";
+  if (!serverItemId) return "Foto-Upload Ã¼bersprungen: Zielobjekt-ID fehlt.";
+  if (!photo.photo_blob) return "Foto-Upload Ã¼bersprungen: lokales Foto/Blob fehlt.";
+  if ((photo.photo_blob.size ?? photo.file_size ?? 0) <= 0) return "Foto-Upload Ã¼bersprungen: Blob-GrÃ¶ÃŸe ist 0 Byte.";
+  if (!photo.client_photo_id) return "Foto-Upload Ã¼bersprungen: lokale Foto-ID fehlt.";
+  if (!photo.photo_type) return "Foto-Upload Ã¼bersprungen: Fotoart fehlt.";
   if (photo.status !== "pending" && photo.status !== "failed" && photo.status !== "uploading") {
-    return `Foto-Upload übersprungen: Status ${photo.status} ist nicht uploadfähig.`;
+    return `Foto-Upload Ã¼bersprungen: Status ${photo.status} ist nicht uploadfÃ¤hig.`;
   }
   return "";
 }
@@ -181,7 +194,7 @@ async function patchItemDraft(serverItemId: string, item: QueueItem) {
 
 async function uploadPhoto(item: QueueItem, serverItemId: string) {
   if (!item.photo_blob || !item.photo_type || !item.client_photo_id) {
-    throw new Error("Lokales Foto ist unvollständig");
+    throw new Error("Lokales Foto ist unvollstÃ¤ndig");
   }
   console.warn("[inventar-sync] Foto-Upload Request wird vorbereitet", describePhotoForLog(item, serverItemId));
   const form = new FormData();
@@ -205,6 +218,48 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
   return response.json() as Promise<{ id: string }>;
 }
 
+async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
+  if (!item.photo_blob || !item.photo_type || !item.client_photo_id || !item.client_item_id || !item.session_id || !item.device_id) {
+    throw new Error("Lokales Foto ist unvollstÃ¤ndig");
+  }
+  const url = photoReceiptUploadUrl();
+  const form = new FormData();
+  const fileName = item.file_name || `${item.client_photo_id}.jpg`;
+  const file = new File([item.photo_blob], fileName, { type: item.file_type || item.photo_blob.type || "image/jpeg" });
+  form.append("session_id", item.session_id);
+  form.append("source_device_id", item.device_id);
+  form.append("client_item_id", item.client_item_id);
+  form.append("client_photo_id", item.client_photo_id);
+  form.append("photo_type", item.photo_type);
+  form.append("file", file);
+  await updateQueueStatus(item.id, "uploading", {
+    sync_run_id: syncRunId,
+    sync_checked_at: new Date().toISOString(),
+    health_checked: true,
+    health_result: "ok",
+    eligible_for_upload: true,
+    skip_reason: undefined,
+    fetch_started: true,
+    last_error: undefined,
+    upload_started_at: new Date().toISOString(),
+    upload_url: url,
+    upload_debug_state: "photo_receipt_fetch_starting",
+    upload_response_status: undefined,
+    upload_response_text: undefined,
+    upload_debug: `Foto-Sync gestartet: ${item.photo_blob.size} Byte, ${item.photo_blob.type || item.file_type || "unbekannter Typ"}.`,
+  });
+  const response = await fetchWithTimeout(url, { method: "POST", body: form }, 45_000);
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(responseText || `Foto-Sync HTTP ${response.status}`);
+  }
+  try {
+    return JSON.parse(responseText) as PhotoReceiptResponse;
+  } catch (error) {
+    throw new Error(`Foto-Sync Antwort ist kein JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function findServerItemId(item: QueueItem, allItems: QueueItem[]) {
   if (item.server_item_id) return item.server_item_id;
   const draft = allItems.find(
@@ -223,7 +278,7 @@ async function findServerItemId(item: QueueItem, allItems: QueueItem[]) {
     const resolved = await api<{ id: string }>(`/items/resolve-client?${params.toString()}`);
     return resolved.id;
   } catch (error) {
-    console.warn("[inventar-sync] Server-Zuordnung konnte nicht aufgelöst werden", {
+    console.warn("[inventar-sync] Server-Zuordnung konnte nicht aufgelÃ¶st werden", {
       ...describePhotoForLog(item),
       error: error instanceof Error ? error.message : String(error),
     });
@@ -388,7 +443,7 @@ export async function syncPendingBundles(): Promise<SyncResult> {
       });
       const result = await postItemBundle(latestBundle, uploadablePhotos, syncRunId);
       if (!result.server_item_id || !Array.isArray(result.photo_results)) {
-        throw new Error("Bundle Sync Antwort ist unvollständig: server_item_id oder photo_results fehlen.");
+        throw new Error("Bundle Sync Antwort ist unvollstÃ¤ndig: server_item_id oder photo_results fehlen.");
       }
       await updateQueueStatus(latestBundle.id, "synced", {
         server_item_id: result.server_item_id,
@@ -509,109 +564,95 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
   const syncRunId = createSyncRunId();
   await recoverInterruptedUploads();
   let photos = photoCandidates(await listQueueItems());
-  console.warn("[inventar-sync] Foto-Sync startet", { count: photos.length, online_hint: getOnlineStatus() });
-  if (photos.length) {
-    try {
-      const health = await assertApiHealth();
-      await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, photo.status, {
+  if (!photos.length) {
+    return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+  }
+
+  try {
+    const health = await assertApiHealth();
+    await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, photo.status, {
+      sync_run_id: syncRunId,
+      sync_checked_at: new Date().toISOString(),
+      health_checked: true,
+      health_result: "ok",
+      eligible_for_upload: undefined,
+      skip_reason: undefined,
+      fetch_started: false,
+      upload_debug_state: "api_health_ok",
+      upload_debug: `API erreichbar: ${health.url}`,
+    })));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, "failed", {
+      sync_run_id: syncRunId,
+      sync_checked_at: new Date().toISOString(),
+      health_checked: true,
+      health_result: "failed",
+      eligible_for_upload: false,
+      skip_reason: "API Health fehlgeschlagen.",
+      fetch_started: false,
+      last_error: message,
+      upload_debug_state: "api_health_failed",
+      upload_debug: "Foto-Sync wurde nicht gestartet, weil die API nicht erreichbar war.",
+    })));
+    return { synced: 0, failed: photos.length, open: (await getQueueSummary()).open };
+  }
+
+  photos = photoCandidates(await listQueueItems());
+  for (const queuedPhoto of photos) {
+    const currentItems = await listQueueItems();
+    const photo = currentItems.find((entry) => entry.id === queuedPhoto.id) ?? queuedPhoto;
+    const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
+    if (linkedDraft && linkedDraft.status !== "synced" && !linkedDraft.server_item_id) {
+      await updateQueueStatus(photo.id, "pending", {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
         health_result: "ok",
-        eligible_for_upload: undefined,
-        skip_reason: undefined,
+        eligible_for_upload: false,
+        skip_reason: "Objekt wird zuerst synchronisiert.",
         fetch_started: false,
-        upload_debug_state: "api_health_ok",
-        upload_debug: `API erreichbar: ${health.url}`,
-      })));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, "failed", {
+        last_error: "Objekt wird zuerst synchronisiert. Foto bleibt lokal gespeichert.",
+        upload_debug_state: "waiting_for_item_receipt",
+        upload_debug: "Foto-Sync wartet auf Server-Quittung des Objekts.",
+      });
+      continue;
+    }
+
+    const missing: string[] = [];
+    if (!photo.session_id) missing.push("session_id fehlt");
+    if (!photo.device_id) missing.push("source_device_id fehlt");
+    if (!photo.client_item_id) missing.push("client_item_id fehlt");
+    if (!photo.client_photo_id) missing.push("client_photo_id fehlt");
+    if (!photo.photo_type) missing.push("photo_type fehlt");
+    if (!photo.photo_blob) missing.push("Foto-Blob fehlt");
+    if ((photo.photo_blob?.size ?? photo.file_size ?? 0) <= 0) missing.push("Blob-Größe ist 0 Byte");
+    if (missing.length) {
+      const message = `Foto-Sync nicht möglich: ${missing.join(", ")}.`;
+      await updateQueueStatus(photo.id, "conflict", {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
-        health_result: "failed",
+        health_result: "ok",
         eligible_for_upload: false,
-        skip_reason: "API Health fehlgeschlagen.",
+        skip_reason: message,
         fetch_started: false,
         last_error: message,
-        upload_debug_state: "api_health_failed",
-        upload_debug: "Foto-Upload wurde nicht gestartet, weil die API nicht erreichbar war.",
-      })));
-      return { synced, failed: photos.length, open: (await getQueueSummary()).open };
-    }
-  }
-  photos = photoCandidates(await listQueueItems());
-  for (const photo of photos) {
-    const currentItems = await listQueueItems();
-    const serverItemId = await findServerItemId(photo, currentItems);
-    const skipReason = photoSkipReason(photo, serverItemId);
-    if (skipReason) {
-      const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
-      const isUnrecoverable = !serverItemId && (!linkedDraft || linkedDraft.status === "failed" || linkedDraft.status === "conflict");
-      const nextStatus = skipReason.includes("Zielobjekt-ID fehlt") && !isUnrecoverable ? "pending" : "conflict";
-      await updateQueueStatus(photo.id, nextStatus, {
-        server_item_id: serverItemId,
-        sync_run_id: syncRunId,
-        sync_checked_at: new Date().toISOString(),
-        health_checked: true,
-        health_result: "ok",
-        eligible_for_upload: false,
-        skip_reason: skipReason,
-        fetch_started: false,
-        last_error: skipReason,
-        upload_url: serverItemId ? photoUploadUrl(photo, serverItemId) : undefined,
-        upload_debug_state: skipReason.includes("Zielobjekt-ID fehlt")
-          ? "guard_no_target_item"
-          : skipReason.includes("Blob")
-            ? "guard_missing_blob"
-            : "guard_missing_metadata",
-        upload_debug: skipReason,
+        upload_debug_state: "guard_missing_photo_receipt_data",
+        upload_debug: message,
       });
-      console.warn("[inventar-sync] Foto wird übersprungen", {
-        ...describePhotoForLog(photo, serverItemId),
-        skip_reason: skipReason,
-      });
+      failed += 1;
       continue;
     }
-    if (!serverItemId) {
-      const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
-      const isUnrecoverable = !linkedDraft || linkedDraft.status === "failed" || linkedDraft.status === "conflict";
-      await updateQueueStatus(photo.id, isUnrecoverable ? "conflict" : "pending", {
-        last_error: isUnrecoverable
-          ? "Kein gültiges Server-Objekt für dieses Foto gefunden. Bitte Details prüfen oder lokale Daten bewusst verwerfen."
-          : "Objekt ist noch nicht vollständig synchronisiert. Foto bleibt lokal gespeichert.",
-        upload_debug_state: "guard_no_target_item",
-        upload_debug: "Upload wurde nicht gestartet: Zielobjekt-ID fehlt.",
-      });
-      console.warn("[inventar-sync] Foto wird übersprungen: Zielobjekt fehlt", describePhotoForLog(photo));
-      continue;
-    }
-    const photoBlob = photo.photo_blob;
-    if (!photoBlob) {
-      continue;
-    }
+
     try {
-      await updateQueueStatus(photo.id, "uploading", {
-        server_item_id: serverItemId,
-        sync_run_id: syncRunId,
-        sync_checked_at: new Date().toISOString(),
-        health_checked: true,
-        health_result: "ok",
-        eligible_for_upload: true,
-        skip_reason: undefined,
-        fetch_started: true,
-        last_error: undefined,
-        upload_started_at: new Date().toISOString(),
-        upload_url: photoUploadUrl(photo, serverItemId),
-        upload_debug_state: "fetch_starting",
-        upload_response_status: undefined,
-        upload_response_text: undefined,
-        upload_debug: `Upload gestartet: ${photoBlob.size} Byte, ${photoBlob.type || photo.file_type || "unbekannter Typ"}.`,
-      });
-      const uploaded = await uploadPhoto(photo, serverItemId);
+      const result = await uploadPhotoWithReceipt(photo, syncRunId);
+      if (result.status !== "synced" && result.status !== "already_exists") {
+        throw new Error(`Foto-Sync nicht bestätigt: ${result.status}`);
+      }
       await updateQueueStatus(photo.id, "synced", {
-        server_item_id: serverItemId,
+        server_item_id: result.server_item_id,
+        server_photo_id: result.server_photo_id,
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
@@ -621,20 +662,20 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         fetch_started: true,
         last_error: undefined,
         upload_response_status: 200,
-        upload_response_text: uploaded?.id ? `Foto gespeichert: ${uploaded.id}` : "Foto gespeichert.",
+        upload_response_text: result.status === "already_exists" ? "Foto war bereits gespeichert." : "Foto gespeichert.",
         upload_debug_state: "response_received",
-        upload_debug: "Upload erfolgreich abgeschlossen.",
+        upload_debug: "Server-Quittung für dieses Foto erhalten.",
+        sync_receipt: result as unknown as Record<string, unknown>,
       });
-      api(`/items/${serverItemId}/ai/run`, { method: "POST", body: "{}" }).catch(() => undefined);
+      if (linkedDraft && result.server_item_id && linkedDraft.server_item_id !== result.server_item_id) {
+        await updateQueueStatus(linkedDraft.id, linkedDraft.status, { server_item_id: result.server_item_id });
+      }
+      api(`/items/${result.server_item_id}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
       synced += 1;
     } catch (error) {
       const rawError = error instanceof Error ? error.message : String(error);
-      console.error("[inventar-sync] Foto-Upload fehlgeschlagen", {
-        ...describePhotoForLog(photo, serverItemId),
-        error: rawError,
-      });
-      await updateQueueStatus(photo.id, isPermanentQueueError(error) ? "conflict" : "failed", {
-        server_item_id: serverItemId,
+      const permanent = isPermanentQueueError(error) || rawError.includes("Objekt ist noch nicht synchronisiert") || rawError.includes("Session not found");
+      await updateQueueStatus(photo.id, permanent ? "conflict" : "failed", {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
@@ -648,14 +689,13 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         upload_response_text: rawError.slice(0, 500),
         upload_debug: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
           ? "Keine Serverantwort nach 45 Sekunden."
-          : "Upload wurde gestartet, aber nicht erfolgreich abgeschlossen.",
+          : "Foto-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       });
       failed += 1;
     }
   }
   return { synced, failed, open: (await getQueueSummary()).open };
 }
-
 export async function retryFailed(): Promise<SyncResult> {
   await markFailedAsPending();
   return syncNow();
@@ -675,12 +715,13 @@ export async function syncNow(): Promise<SyncResult> {
   syncRunningStartedAt = Date.now();
   try {
     await recoverInterruptedUploads();
-    const bundle = await syncPendingBundles();
-    if (bundle.synced > 0) {
+    const items = await syncPendingItems();
+    const photos = await syncPendingPhotos();
+    if (items.synced > 0 || photos.synced > 0) {
       await clearOnlySyncedItems();
     }
     const summary = await getQueueSummary();
-    return { synced: bundle.synced, failed: bundle.failed, open: summary.open };
+    return { synced: items.synced + photos.synced, failed: items.failed + photos.failed, open: summary.open };
   } finally {
     syncRunning = false;
     syncRunningStartedAt = 0;
