@@ -97,6 +97,12 @@ textarea {
   padding: 18px;
 }
 
+.login-panel {
+  display: grid;
+  gap: 14px;
+  max-width: 460px;
+}
+
 .status.ki_schnell_wartet,
 .status.ki_schnell_laeuft,
 .status.ki_pruefung_wartet,

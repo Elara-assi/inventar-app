@@ -22,6 +22,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -40,13 +41,18 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }, [sessionId]);
 
   async function load() {
-    const [sessionData, itemData] = await Promise.all([
-      api<Session>(`/sessions/${sessionId}`),
-      api<ReviewItem[]>(`/sessions/${sessionId}/items`),
-    ]);
-    setSession(sessionData);
-    setItems(itemData);
-    setLastUpdated(new Date());
+    try {
+      setError("");
+      const [sessionData, itemData] = await Promise.all([
+        api<Session>(`/sessions/${sessionId}`),
+        api<ReviewItem[]>(`/sessions/${sessionId}/items`),
+      ]);
+      setSession(sessionData);
+      setItems(itemData);
+      setLastUpdated(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session konnte nicht geladen werden");
+    }
   }
 
   async function exportExcel() {
@@ -109,6 +115,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       <section className="room-hero">
         <div className="room-hero-main">
           <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
+          {error ? <p className="status upload_fehler">{error}</p> : null}
           <div>
             <span className="eyebrow">{session?.location_name || "Betrieb"} · {session?.building_name || "Gebäude"}</span>
             <h1>{session?.room_name || "Live-Prüfung"}</h1>

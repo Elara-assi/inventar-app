@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
-import { API_BASE, Bootstrap, inventoryTypeLabel } from "@/lib/api";
+import { API_BASE, Bootstrap, inventoryTypeLabel, setAuthToken } from "@/lib/api";
 import { api } from "@/lib/api";
 import {
   QueueItem,
@@ -31,6 +31,7 @@ type Joined = {
     inventory_type?: string | null;
   };
   device: { id: string };
+  access_token?: string;
 };
 
 type LocalItem = {
@@ -294,18 +295,22 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }, [refreshQueueSummary]);
 
   useEffect(() => {
+    if (!joined) return;
     api<Bootstrap>("/meta/bootstrap").then((boot) => {
       setBootstrap(boot);
       setObjectClassId(boot.object_classes.find((entry) => entry.slug === "bga")?.id ?? boot.object_classes[0]?.id ?? "");
     }).catch((err) => setMessage(err instanceof Error ? err.message : "Stammdaten nicht erreichbar"));
-  }, []);
+  }, [joined]);
 
   useEffect(() => {
     if (!token || !deviceId) return;
     api<Joined>("/sessions/join", {
       method: "POST",
       body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
-    }).then(setJoined).catch((err) => setMessage(err instanceof Error ? err.message : "Join fehlgeschlagen"));
+    }).then((result) => {
+      if (result.access_token) setAuthToken(result.access_token);
+      setJoined(result);
+    }).catch((err) => setMessage(err instanceof Error ? err.message : "Join fehlgeschlagen"));
   }, [token, deviceId]);
 
   const roomName = useMemo(() => {

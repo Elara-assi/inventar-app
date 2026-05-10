@@ -36,7 +36,15 @@ from .logic import (
     tokenize_reference_text,
 )
 from .migrations import run_migrations
-from .security import create_access_token, current_user_from_request, request_id, verify_password
+from .security import (
+    bearer_token_from_request,
+    create_access_token,
+    create_mobile_session_token,
+    current_user_from_request,
+    decode_access_token,
+    request_id,
+    verify_password,
+)
 from .settings import settings
 
 app = FastAPI(title="Inventar API", version="0.1.0-phase1")
@@ -53,9 +61,55 @@ app.add_middleware(
 async def request_context_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or request_id()
     request.state.request_id = rid
+    auth_error = authorize_request(request)
+    if auth_error:
+        return auth_error
     response = await call_next(request)
     response.headers["x-request-id"] = rid
     return response
+
+
+PUBLIC_PATH_PREFIXES = (
+    "/health",
+    "/auth/login",
+    "/sessions/join",
+    "/uploads/photos/",
+    "/exports/",
+)
+
+MOBILE_ALLOWED_PREFIXES = (
+    "/meta/bootstrap",
+    "/items",
+    "/offline-sync/photos",
+    "/offline-sync/items",
+)
+
+
+def json_error(status_code: int, detail: str):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse({"detail": detail}, status_code=status_code)
+
+
+def authorize_request(request: Request):
+    if request.method == "OPTIONS":
+        return None
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in PUBLIC_PATH_PREFIXES):
+        return None
+    token = bearer_token_from_request(request)
+    if not token:
+        return json_error(401, "Anmeldung erforderlich")
+    try:
+        payload = decode_access_token(token)
+    except HTTPException as exc:
+        return json_error(exc.status_code, str(exc.detail))
+    request.state.auth = payload
+    if payload.get("kind") == "mobile_session":
+        if any(path.startswith(prefix) for prefix in MOBILE_ALLOWED_PREFIXES):
+            return None
+        return json_error(403, "Mobile Session darf diese Funktion nicht ausführen")
+    return None
 
 INVENTORY_TYPE_LABELS = {
     "bga": "Betriebs- und Geschäftsausstattung",
@@ -1183,7 +1237,7 @@ def join_session(body: JoinIn) -> dict[str, Any]:
         (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
     )
     audit("device_joined", "session_device", str(device["id"]), device)
-    return {"session": session, "device": device}
+    return {"session": session, "device": device, "access_token": create_mobile_session_token(session, device), "token_type": "bearer"}
 
 
 @app.post("/sessions/{session_id}/close")

@@ -1,4 +1,5 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const TOKEN_KEY = "inventar.access_token";
 
 export type Bootstrap = {
   users: Array<{ id: string; email: string; display_name: string; roles?: string[] }>;
@@ -32,12 +33,29 @@ export type ItemTemplate = {
   model?: string | null;
 };
 
+export function getAuthToken() {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(TOKEN_KEY) || "";
+}
+
+export function setAuthToken(token: string) {
+  if (typeof window === "undefined") return;
+  if (token) window.localStorage.setItem(TOKEN_KEY, token);
+  else window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export function clearAuthToken() {
+  setAuthToken("");
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = init?.body instanceof FormData;
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
     cache: "no-store",

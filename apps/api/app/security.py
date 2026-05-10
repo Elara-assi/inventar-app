@@ -51,21 +51,44 @@ def verify_password(password: str, stored_hash: str | None) -> bool:
         return False
 
 
-def create_access_token(user: dict[str, Any]) -> str:
+def create_token(payload: dict[str, Any], minutes: int | None = None) -> str:
     now = datetime.now(timezone.utc)
-    payload = {
+    full_payload = {
         "iss": "inventar-api",
-        "sub": str(user["id"]),
-        "email": user.get("email"),
-        "roles": user.get("roles") or [],
-        "tenant_id": str(user.get("tenant_id") or ""),
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=settings.auth_token_minutes)).timestamp()),
+        "exp": int((now + timedelta(minutes=minutes or settings.auth_token_minutes)).timestamp()),
+        **payload,
     }
     header = {"alg": "HS256", "typ": "JWT"}
-    signing_input = f"{_b64url_encode(json.dumps(header, separators=(',', ':')).encode())}.{_b64url_encode(json.dumps(payload, separators=(',', ':')).encode())}"
+    signing_input = f"{_b64url_encode(json.dumps(header, separators=(',', ':')).encode())}.{_b64url_encode(json.dumps(full_payload, separators=(',', ':')).encode())}"
     signature = hmac.new(settings.auth_secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
     return f"{signing_input}.{_b64url_encode(signature)}"
+
+
+def create_access_token(user: dict[str, Any]) -> str:
+    return create_token(
+        {
+            "sub": str(user["id"]),
+            "kind": "user",
+            "email": user.get("email"),
+            "roles": user.get("roles") or [],
+            "tenant_id": str(user.get("tenant_id") or ""),
+        }
+    )
+
+
+def create_mobile_session_token(session: dict[str, Any], device: dict[str, Any]) -> str:
+    return create_token(
+        {
+            "sub": f"device:{device['id']}",
+            "kind": "mobile_session",
+            "roles": ["mobile_capture"],
+            "tenant_id": str(session.get("tenant_id") or ""),
+            "session_id": str(session["id"]),
+            "device_id": str(device["id"]),
+        },
+        minutes=12 * 60,
+    )
 
 
 def decode_access_token(token: str) -> dict[str, Any]:

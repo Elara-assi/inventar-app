@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { API_BASE, Bootstrap, InventoryType, api, inventoryTypeLabel, joinUrl } from "@/lib/api";
+import { API_BASE, Bootstrap, InventoryType, api, clearAuthToken, getAuthToken, inventoryTypeLabel, joinUrl, setAuthToken } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -80,6 +80,9 @@ export default function DashboardPage() {
   const [activeSessionPreview, setActiveSessionPreview] = useState<SessionPreviewSnapshot | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [loginEmail, setLoginEmail] = useState("pruefer@example.local");
+  const [loginPassword, setLoginPassword] = useState("demo");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   function beginNewPreparation() {
     setActiveSession(null);
@@ -103,14 +106,44 @@ export default function DashboardPage() {
         }
         return next;
       });
+      setIsAuthenticated(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "API nicht erreichbar");
+      const message = err instanceof Error ? err.message : "API nicht erreichbar";
+      setError(message);
+      if (message.includes("Anmeldung") || message.includes("Token") || message.includes("401")) {
+        setIsAuthenticated(false);
+      }
     }
   }
 
   useEffect(() => {
+    setIsAuthenticated(Boolean(getAuthToken()));
     load();
   }, []);
+
+  async function login() {
+    try {
+      setError("");
+      const result = await api<{ access_token: string }>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: loginEmail.trim(), password: loginPassword }),
+      });
+      setAuthToken(result.access_token);
+      setIsAuthenticated(true);
+      setMessage("Angemeldet");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Anmeldung fehlgeschlagen");
+    }
+  }
+
+  function logout() {
+    clearAuthToken();
+    setIsAuthenticated(false);
+    setBootstrap(null);
+    setSessions([]);
+    setMessage("Abgemeldet");
+  }
 
   async function createUser(nameOverride?: string) {
     const name = (nameOverride ?? newUserName).trim();
@@ -368,6 +401,32 @@ export default function DashboardPage() {
     closed: sessions.filter((session) => session.status === "closed").length,
   };
 
+  if (!isAuthenticated && !bootstrap) {
+    return (
+      <main className="page grid">
+        <section className="hero-strip">
+          <div>
+            <h1>Inventar Anmeldung</h1>
+            <p>Bitte anmelden, um Sessions, Prüferliste und Exporte zu verwalten.</p>
+          </div>
+        </section>
+        <section className="panel login-panel">
+          {error ? <p className="status upload_fehler">{error}</p> : null}
+          {message ? <p className="muted">{message}</p> : null}
+          <label className="field">
+            <span>E-Mail</span>
+            <input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} autoComplete="username" />
+          </label>
+          <label className="field">
+            <span>Passwort</span>
+            <input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} autoComplete="current-password" />
+          </label>
+          <button className="btn accent" type="button" onClick={() => void login()}>Anmelden</button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="page grid">
       <datalist id="user-suggestions">
@@ -391,6 +450,7 @@ export default function DashboardPage() {
         <div className="today-meta">
           <span>Heute</span>
           <strong>{summary.open} aktive Räume · {summary.items} Objekte erfasst</strong>
+          <button className="btn secondary compact-btn" type="button" onClick={logout}>Abmelden</button>
         </div>
       </section>
 
