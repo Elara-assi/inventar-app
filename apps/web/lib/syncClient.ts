@@ -715,13 +715,12 @@ export async function syncNow(): Promise<SyncResult> {
   syncRunningStartedAt = Date.now();
   try {
     await recoverInterruptedUploads();
-    const items = await syncPendingItems();
-    const photos = await syncPendingPhotos();
-    if (items.synced > 0 || photos.synced > 0) {
+    const bundles = await syncPendingBundles();
+    if (bundles.synced > 0) {
       await clearOnlySyncedItems();
     }
     const summary = await getQueueSummary();
-    return { synced: items.synced + photos.synced, failed: items.failed + photos.failed, open: summary.open };
+    return { synced: bundles.synced, failed: bundles.failed, open: summary.open };
   } finally {
     syncRunning = false;
     syncRunningStartedAt = 0;
