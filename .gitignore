@@ -11,6 +11,7 @@ node_modules
 .next
 __pycache__
 *.pyc
+*.tsbuildinfo
 web-dev*.log
 dist
 dist-ssr

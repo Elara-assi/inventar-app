@@ -62,15 +62,15 @@ export function limitConcurrentUploads() {
 function cleanError(error?: unknown) {
   const message = error instanceof Error ? error.message : "";
   if (message.includes("Session not found") || message.includes("Item not found") || message.includes("Raum ist abgeschlossen")) {
-    return "Die ursprÃ¼ngliche Session oder das Objekt ist nicht mehr verfÃ¼gbar. Bitte Details prÃ¼fen oder lokale Daten bewusst verwerfen.";
+    return "Die ursprüngliche Session oder das Objekt ist nicht mehr verfügbar. Bitte Details prüfen oder lokale Daten bewusst verwerfen.";
   }
   if (error instanceof Error && error.message.includes("Maximal 5 Fotos")) {
-    return "Maximal 5 Fotos pro Gegenstand mÃ¶glich.";
+    return "Maximal 5 Fotos pro Gegenstand möglich.";
   }
   if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
-    return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prÃ¼fen und erneut synchronisieren.";
+    return "Keine Serverantwort nach 45 Sekunden. Bitte Verbindung prüfen und erneut synchronisieren.";
   }
-  return "Upload fehlgeschlagen. Bitte Verbindung prÃ¼fen und erneut synchronisieren.";
+  return "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.";
 }
 
 function isPermanentQueueError(error?: unknown) {
@@ -127,13 +127,13 @@ function photoCandidates(items: QueueItem[]) {
 function photoSkipReason(photo: QueueItem, serverItemId?: string) {
   if (photo.status === "conflict") return "Foto ist als Konflikt markiert und wird nicht automatisch hochgeladen.";
   if (photo.status === "synced") return "Foto ist bereits synchronisiert.";
-  if (!serverItemId) return "Foto-Upload Ã¼bersprungen: Zielobjekt-ID fehlt.";
-  if (!photo.photo_blob) return "Foto-Upload Ã¼bersprungen: lokales Foto/Blob fehlt.";
-  if ((photo.photo_blob.size ?? photo.file_size ?? 0) <= 0) return "Foto-Upload Ã¼bersprungen: Blob-GrÃ¶ÃŸe ist 0 Byte.";
-  if (!photo.client_photo_id) return "Foto-Upload Ã¼bersprungen: lokale Foto-ID fehlt.";
-  if (!photo.photo_type) return "Foto-Upload Ã¼bersprungen: Fotoart fehlt.";
+  if (!serverItemId) return "Foto-Upload übersprungen: Zielobjekt-ID fehlt.";
+  if (!photo.photo_blob) return "Foto-Upload übersprungen: lokales Foto/Blob fehlt.";
+  if ((photo.photo_blob.size ?? photo.file_size ?? 0) <= 0) return "Foto-Upload übersprungen: Blob-Größe ist 0 Byte.";
+  if (!photo.client_photo_id) return "Foto-Upload übersprungen: lokale Foto-ID fehlt.";
+  if (!photo.photo_type) return "Foto-Upload übersprungen: Fotoart fehlt.";
   if (photo.status !== "pending" && photo.status !== "failed" && photo.status !== "uploading") {
-    return `Foto-Upload Ã¼bersprungen: Status ${photo.status} ist nicht uploadfÃ¤hig.`;
+    return `Foto-Upload übersprungen: Status ${photo.status} ist nicht uploadfähig.`;
   }
   return "";
 }
@@ -194,7 +194,7 @@ async function patchItemDraft(serverItemId: string, item: QueueItem) {
 
 async function uploadPhoto(item: QueueItem, serverItemId: string) {
   if (!item.photo_blob || !item.photo_type || !item.client_photo_id) {
-    throw new Error("Lokales Foto ist unvollstÃ¤ndig");
+    throw new Error("Lokales Foto ist unvollständig");
   }
   console.warn("[inventar-sync] Foto-Upload Request wird vorbereitet", describePhotoForLog(item, serverItemId));
   const form = new FormData();
@@ -220,7 +220,7 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
 
 async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
   if (!item.photo_blob || !item.photo_type || !item.client_photo_id || !item.client_item_id || !item.session_id || !item.device_id) {
-    throw new Error("Lokales Foto ist unvollstÃ¤ndig");
+    throw new Error("Lokales Foto ist unvollständig");
   }
   const url = photoReceiptUploadUrl();
   const form = new FormData();
@@ -278,7 +278,7 @@ async function findServerItemId(item: QueueItem, allItems: QueueItem[]) {
     const resolved = await api<{ id: string }>(`/items/resolve-client?${params.toString()}`);
     return resolved.id;
   } catch (error) {
-    console.warn("[inventar-sync] Server-Zuordnung konnte nicht aufgelÃ¶st werden", {
+    console.warn("[inventar-sync] Server-Zuordnung konnte nicht aufgelöst werden", {
       ...describePhotoForLog(item),
       error: error instanceof Error ? error.message : String(error),
     });
@@ -443,7 +443,7 @@ export async function syncPendingBundles(): Promise<SyncResult> {
       });
       const result = await postItemBundle(latestBundle, uploadablePhotos, syncRunId);
       if (!result.server_item_id || !Array.isArray(result.photo_results)) {
-        throw new Error("Bundle Sync Antwort ist unvollstÃ¤ndig: server_item_id oder photo_results fehlen.");
+        throw new Error("Bundle Sync Antwort ist unvollständig: server_item_id oder photo_results fehlen.");
       }
       await updateQueueStatus(latestBundle.id, "synced", {
         server_item_id: result.server_item_id,
