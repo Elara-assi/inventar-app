@@ -23,6 +23,7 @@ storage/uploads/exports/*
 storage/uploads/temp/*
 !storage/uploads/**/.gitkeep
 apps/api/storage/
+backups/
 
 # Editor directories and files
 .vscode/*
