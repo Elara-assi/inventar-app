@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { API_BASE, Bootstrap, InventoryType, api, clearAuthToken, getAuthToken, inventoryTypeLabel, joinUrl, setAuthToken } from "@/lib/api";
+import { Bootstrap, InventoryType, api, clearAuthToken, downloadApiFile, getAuthToken, inventoryTypeLabel, joinUrl, setAuthToken } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -355,7 +355,7 @@ export default function DashboardPage() {
     try {
       setError("");
       const result = await api<{ id: string }>("/exports/excel", { method: "POST", body: "{}" });
-      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      await downloadApiFile(`/exports/${result.id}/download`, "gesamtaufstellung-inventur.xlsx");
       setMessage("Gesamtaufstellung als Excel erstellt");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gesamtaufstellung konnte nicht exportiert werden");
@@ -366,7 +366,7 @@ export default function DashboardPage() {
     try {
       setError("");
       const result = await api<{ id: string }>(`/sessions/${session.id}/export/excel`, { method: "POST", body: "{}" });
-      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      await downloadApiFile(`/exports/${result.id}/download`, `session-${session.id}.xlsx`);
       setMessage("Raumaufnahme als Excel erstellt");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Raumaufnahme konnte nicht exportiert werden");

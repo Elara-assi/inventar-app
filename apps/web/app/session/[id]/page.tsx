@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { ItemReviewList, ReviewItem } from "@/components/ItemReviewList";
-import { API_BASE, Bootstrap, api, inventoryTypeLabel, joinUrl } from "@/lib/api";
+import { Bootstrap, api, downloadApiFile, inventoryTypeLabel, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -57,7 +57,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
 
   async function exportExcel() {
     const result = await api<{ id: string }>(`/sessions/${sessionId}/export/excel`, { method: "POST", body: "{}" });
-    window.location.href = `${API_BASE}/exports/${result.id}/download`;
+    await downloadApiFile(`/exports/${result.id}/download`, `session-${sessionId}.xlsx`);
     setMessage("Raumaufnahme als Excel erstellt");
   }
 

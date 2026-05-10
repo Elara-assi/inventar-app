@@ -48,7 +48,7 @@ export function clearAuthToken() {
   setAuthToken("");
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiResponse(path: string, init?: RequestInit): Promise<Response> {
   const isFormData = init?.body instanceof FormData;
   const token = getAuthToken();
   const response = await fetch(`${API_BASE}${path}`, {
@@ -72,7 +72,39 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(text || `API error ${response.status}`);
   }
+  return response;
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiResponse(path, init);
   return response.json() as Promise<T>;
+}
+
+function filenameFromDisposition(value: string | null) {
+  if (!value) return "";
+  const utfMatch = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch?.[1]) return decodeURIComponent(utfMatch[1].replace(/"/g, ""));
+  const plainMatch = value.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? "";
+}
+
+export async function apiObjectUrl(path: string): Promise<string> {
+  const response = await apiResponse(path);
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
+export async function downloadApiFile(path: string, fallbackName = "download"): Promise<void> {
+  const response = await apiResponse(path);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filenameFromDisposition(response.headers.get("content-disposition")) || fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function joinUrl(token: string) {

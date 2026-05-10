@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { API_BASE, Bootstrap, ItemTemplate, api } from "@/lib/api";
+import { Bootstrap, ItemTemplate, api, apiObjectUrl, downloadApiFile } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
 type Task = {
@@ -262,6 +262,62 @@ function PhotoPreviewProvider({ children }: { children: (openPhoto: (url: string
   );
 }
 
+function useApiObjectUrl(path: string) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!path) {
+      setUrl("");
+      return;
+    }
+    let active = true;
+    let objectUrl = "";
+    apiObjectUrl(path)
+      .then((nextUrl) => {
+        if (!active) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        objectUrl = nextUrl;
+        setUrl(nextUrl);
+      })
+      .catch(() => setUrl(""));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+  return url;
+}
+
+function AuthPhotoButton({
+  path,
+  label,
+  className = "",
+  badge,
+  onOpenPhoto,
+}: {
+  path: string;
+  label: string;
+  className?: string;
+  badge?: string;
+  onOpenPhoto: (url: string, label: string) => void;
+}) {
+  const url = useApiObjectUrl(path);
+  const hasPath = Boolean(path);
+  return (
+    <button
+      className={`${className} ${url ? "" : "is-empty"}`.trim()}
+      type="button"
+      onClick={() => url && onOpenPhoto(url, label)}
+      disabled={!url}
+      title={url ? "Foto groß öffnen" : hasPath ? "Foto wird geladen" : "Kein Foto vorhanden"}
+    >
+      {url ? <img src={url} alt={label} /> : <span>{hasPath ? "Foto laden" : "Kein Foto"}</span>}
+      {badge ? <span>{badge}</span> : null}
+    </button>
+  );
+}
+
 function ItemReviewRow({
   item,
   objectClasses,
@@ -408,7 +464,7 @@ function ItemReviewRow({
   async function exportItem() {
     try {
       const result = await api<{ id: string }>(`/items/${item.id}/export/excel`, { method: "POST", body: "{}" });
-      window.location.href = `${API_BASE}/exports/${result.id}/download`;
+      await downloadApiFile(`/exports/${result.id}/download`, `aufnahme-${item.id}.xlsx`);
       setMessage("Excel erstellt");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Export fehlgeschlagen");
@@ -492,7 +548,7 @@ function ItemReviewRow({
   const deepDive = item.ai_summary?.deep_dive;
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
-  const photoUrl = mainPhoto ? `${API_BASE}/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `${API_BASE}/uploads/photos/${item.object_photo_id}` : "";
+  const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
@@ -506,15 +562,7 @@ function ItemReviewRow({
 
   return (
     <div className="item-row">
-      <button
-        className={`photo-thumb ${photoUrl ? "" : "is-empty"}`}
-        type="button"
-        onClick={() => photoUrl && onOpenPhoto(photoUrl, photoLabel)}
-        disabled={!photoUrl}
-        title={photoUrl ? "Foto groß öffnen" : "Kein Objektfoto vorhanden"}
-      >
-        {photoUrl ? <img src={photoUrl} alt={photoLabel} /> : <span>Kein Foto</span>}
-      </button>
+      <AuthPhotoButton path={photoPath} label={photoLabel} className="photo-thumb" onOpenPhoto={onOpenPhoto} />
 
       <div className="item-main">
         {readOnly ? <div className="locked-strip">Raum abgeschlossen: Dieser Datensatz ist schreibgeschützt.</div> : null}
@@ -541,12 +589,8 @@ function ItemReviewRow({
           <div className="photo-strip compact-strip">
             {itemPhotos.slice(0, 5).map((photo, index) => {
                 const label = `${photoLabel} · ${photo.photo_type}`;
-                const url = `${API_BASE}/uploads/photos/${photo.id}`;
                 return (
-                  <button key={photo.id} type="button" onClick={() => onOpenPhoto(url, label)} title={label}>
-                    <img src={url} alt={label} />
-                    <span>{index + 1}</span>
-                  </button>
+                  <AuthPhotoButton key={photo.id} path={`/uploads/photos/${photo.id}`} label={label} badge={`${index + 1}`} onOpenPhoto={onOpenPhoto} />
                 );
               })}
           </div>

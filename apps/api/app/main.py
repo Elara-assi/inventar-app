@@ -73,8 +73,6 @@ PUBLIC_PATH_PREFIXES = (
     "/health",
     "/auth/login",
     "/sessions/join",
-    "/uploads/photos/",
-    "/exports/",
 )
 
 MOBILE_ALLOWED_PREFIXES = (
