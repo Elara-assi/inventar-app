@@ -31,11 +31,11 @@ def next_inventory_id(location_code: str = "SIM") -> str:
 def audit(action: str, entity_type: str, entity_id: str | None, new_value: Any = None, reason: str | None = None):
     execute(
         """
-        INSERT INTO audit_log (entity_type, entity_id, action, new_value_json, reason)
-        VALUES (%s, %s, %s, %s::jsonb, %s)
+        INSERT INTO audit_log (tenant_id, entity_type, entity_id, action, new_value_json, reason)
+        VALUES ((SELECT id FROM tenants WHERE slug = %s LIMIT 1), %s, %s, %s, %s::jsonb, %s)
         RETURNING id
         """,
-        (entity_type, entity_id, action, json_dumps(new_value), reason),
+        (settings.default_tenant_slug, entity_type, entity_id, action, json_dumps(new_value), reason),
     )
 
 

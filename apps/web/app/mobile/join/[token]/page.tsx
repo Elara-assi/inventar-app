@@ -18,6 +18,7 @@ import {
   initQueue,
   listQueueItems,
   nextLocalSequenceNumber,
+  queueSchemaVersion,
 } from "@/lib/offlineQueue";
 import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
 
@@ -238,6 +239,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
   const [diagnosisMessage, setDiagnosisMessage] = useState("");
+  const [storageWarning, setStorageWarning] = useState("");
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -251,6 +253,24 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   useEffect(() => {
     params.then((value) => setToken(value.token));
   }, [params]);
+
+  useEffect(() => {
+    async function checkStorage() {
+      if (!navigator.storage?.estimate) return;
+      const estimate = await navigator.storage.estimate();
+      const quota = estimate.quota ?? 0;
+      const usage = estimate.usage ?? 0;
+      if (!quota) return;
+      const freeMb = Math.round((quota - usage) / 1024 / 1024);
+      const usedPercent = usage / quota;
+      if (freeMb < 250 || usedPercent > 0.85) {
+        setStorageWarning(`Wenig lokaler Speicher frei: ca. ${freeMb} MB. Bitte bald synchronisieren.`);
+      } else {
+        setStorageWarning("");
+      }
+    }
+    checkStorage().catch(() => undefined);
+  }, []);
 
   const refreshQueueSummary = useCallback(async () => {
     try {
@@ -336,6 +356,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         navigator_online: typeof navigator === "undefined" ? null : navigator.onLine,
         zeitpunkt: new Date().toISOString(),
         api_base_url: API_BASE,
+        queue_schema_version: queueSchemaVersion(),
+        storage_warning: storageWarning || null,
       },
       queue_summary: {
         open: summary.open,
@@ -398,7 +420,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       }),
       foto_sync_diagnose: buildBundleDiagnostics(items.filter((item) => item.status !== "synced")),
     };
-  }, [joined?.session.id, inventoryType, token]);
+  }, [joined?.session.id, inventoryType, storageWarning, token]);
 
   const copySyncDiagnostics = useCallback(async () => {
     try {
@@ -874,6 +896,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             </button>
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
             {hasOpenLocalQueue ? <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button> : null}
+          </div>
+        ) : null}
+
+        {storageWarning ? (
+          <div className="mobile-storage-warning" role="status">
+            {storageWarning}
           </div>
         ) : null}
 

@@ -10,7 +10,12 @@ services:
       - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./db/migrations/002_export_scope.sql:/docker-entrypoint-initdb.d/002_export_scope.sql:ro
       - ./db/migrations/003_ai_learning_examples.sql:/docker-entrypoint-initdb.d/003_ai_learning_examples.sql:ro
-      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/004_seed.sql:ro
+      - ./db/migrations/004_bga_capture.sql:/docker-entrypoint-initdb.d/004_bga_capture.sql:ro
+      - ./db/migrations/005_tires_wheels.sql:/docker-entrypoint-initdb.d/005_tires_wheels.sql:ro
+      - ./db/migrations/006_session_inventory_type.sql:/docker-entrypoint-initdb.d/006_session_inventory_type.sql:ro
+      - ./db/migrations/007_offline_queue_ids.sql:/docker-entrypoint-initdb.d/007_offline_queue_ids.sql:ro
+      - ./db/migrations/008_enterprise_foundation.sql:/docker-entrypoint-initdb.d/008_enterprise_foundation.sql:ro
+      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/999_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U inventar -d inventar"]
       interval: 5s
@@ -28,6 +33,10 @@ services:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
       APP_ORIGIN: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3002,https://inventar.elarahub.cloud
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-local}
+      MIGRATIONS_PATH: /app/db/migrations
+      MAX_UPLOAD_BYTES: 36700160
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma4:31b-cloud
       OLLAMA_TIMEOUT_SECONDS: 120
@@ -68,6 +77,8 @@ services:
     environment:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-local}
+      MIGRATIONS_PATH: /app/db/migrations
       REDIS_URL: redis://inventar-app-redis-1:6379/0
       LITELLM_URL: http://litellm:4000
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434

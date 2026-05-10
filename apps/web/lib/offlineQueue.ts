@@ -70,8 +70,9 @@ export type QueueDetails = {
 };
 
 const DB_NAME = "inventar-offline-queue";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "queue_items";
+const META_STORE_NAME = "queue_meta";
 const DEVICE_KEY = "inventar.device_id";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -106,6 +107,9 @@ export function initQueue(): Promise<IDBDatabase> {
       if (!store.indexNames.contains("type")) store.createIndex("type", "type");
       if (!store.indexNames.contains("session_id")) store.createIndex("session_id", "session_id");
       if (!store.indexNames.contains("client_item_id")) store.createIndex("client_item_id", "client_item_id");
+      if (!db.objectStoreNames.contains(META_STORE_NAME)) {
+        db.createObjectStore(META_STORE_NAME, { keyPath: "key" });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("IndexedDB konnte nicht geöffnet werden"));
@@ -323,6 +327,10 @@ export function createClientItemId() {
 
 export function createClientPhotoId() {
   return createLocalId("client-photo");
+}
+
+export function queueSchemaVersion() {
+  return DB_VERSION;
 }
 
 export async function nextLocalSequenceNumber(sessionId: string): Promise<number> {

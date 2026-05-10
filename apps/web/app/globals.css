@@ -4318,6 +4318,16 @@ body:has(.premium-session-page) {
   background: #eff6ff;
 }
 
+.mobile-storage-warning {
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #7c2d12;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .capture-status.is-done {
   border-color: #86efac;
   background: #ecfdf5;

@@ -6,13 +6,14 @@ import json
 import os
 import re
 import secrets
+import shutil
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
@@ -34,15 +35,27 @@ from .logic import (
     next_inventory_id,
     tokenize_reference_text,
 )
+from .migrations import run_migrations
+from .security import create_access_token, current_user_from_request, request_id, verify_password
 from .settings import settings
 
 app = FastAPI(title="Inventar API", version="0.1.0-phase1")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list(),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or request_id()
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["x-request-id"] = rid
+    return response
 
 INVENTORY_TYPE_LABELS = {
     "bga": "Betriebs- und Geschäftsausstattung",
@@ -215,12 +228,60 @@ def demo_user_id() -> str | None:
     return str(row["id"]) if row else None
 
 
+def default_tenant_id() -> str | None:
+    row = fetch_one("SELECT id FROM tenants WHERE slug = %s", (settings.default_tenant_slug,))
+    return str(row["id"]) if row else None
+
+
 def safe_upload_path(value: str) -> Path:
     root = Path(settings.upload_root).resolve()
     path = Path(value).resolve()
     if root not in path.parents and path != root:
         raise HTTPException(status_code=403, detail="Uploadpfad nicht erlaubt")
     return path
+
+
+def detect_image_mime(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"RIFF") and b"WEBP" in data[:16]:
+        return "image/webp"
+    if len(data) > 12 and data[4:8] == b"ftyp":
+        brand = data[8:12].lower()
+        if brand in {b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"}:
+            return "image/heic"
+    return None
+
+
+def safe_photo_suffix(filename: str | None, mime_type: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
+        return suffix
+    return {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/heic": ".heic",
+        "image/heif": ".heif",
+    }.get(mime_type or "", ".jpg")
+
+
+def validate_photo_upload(file: UploadFile, data: bytes) -> tuple[str, str]:
+    if not data:
+        raise HTTPException(status_code=400, detail="Foto-Datei ist leer")
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="Foto ist zu groß")
+    declared = (file.content_type or "").split(";")[0].strip().lower()
+    detected = detect_image_mime(data)
+    allowed = settings.allowed_upload_mime_list()
+    effective = detected or declared
+    if effective not in allowed:
+        raise HTTPException(status_code=415, detail="Nur JPEG, PNG, WebP oder HEIC Fotos sind erlaubt")
+    if declared and declared not in allowed:
+        raise HTTPException(status_code=415, detail="Foto-Dateityp ist nicht erlaubt")
+    return effective, safe_photo_suffix(file.filename, effective)
 
 
 def require_item_session_open(item_id: str) -> dict[str, Any]:
@@ -586,17 +647,40 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
 
 @app.on_event("startup")
 def startup() -> None:
+    run_migrations()
     ensure_upload_dirs()
 
 
 @app.get("/health")
 def health() -> dict[str, Any]:
     db_ok = False
+    migrations_ok = False
+    upload_root_ok = False
+    upload_free_mb = None
     try:
         db_ok = bool(fetch_one("SELECT 1 AS ok"))
+        migrations_ok = bool(fetch_one("SELECT to_regclass('public.schema_migrations') IS NOT NULL AS ok")["ok"])
     except Exception:
         db_ok = False
-    return {"ok": True, "database": db_ok, "phase": "0+1"}
+        migrations_ok = False
+    try:
+        ensure_upload_dirs()
+        test_path = Path(settings.upload_root, "temp", ".health-write")
+        test_path.write_text("ok", encoding="utf-8")
+        test_path.unlink(missing_ok=True)
+        upload_root_ok = True
+        usage = shutil.disk_usage(settings.upload_root)
+        upload_free_mb = round(usage.free / 1024 / 1024)
+    except Exception:
+        upload_root_ok = False
+    return {
+        "ok": bool(db_ok and upload_root_ok),
+        "database": db_ok,
+        "migrations": migrations_ok,
+        "upload_root": upload_root_ok,
+        "upload_free_mb": upload_free_mb,
+        "phase": "enterprise-foundation",
+    }
 
 
 def resolve_location(location_id: str | None, location_name: str | None) -> dict[str, Any]:
@@ -606,11 +690,11 @@ def resolve_location(location_id: str | None, location_name: str | None) -> dict
         if not location:
             location = execute(
                 """
-                INSERT INTO locations (name, code)
-                VALUES (%s, %s)
+                INSERT INTO locations (tenant_id, name, code)
+                VALUES (%s, %s, %s)
                 RETURNING *
                 """,
-                (name, f"BETR-{secrets.token_hex(2).upper()}"),
+                (default_tenant_id(), name, f"BETR-{secrets.token_hex(2).upper()}"),
             )
             audit("location_created", "location", str(location["id"]), location)
         return location
@@ -623,11 +707,11 @@ def resolve_location(location_id: str | None, location_name: str | None) -> dict
         return location
     location = execute(
         """
-        INSERT INTO locations (name, code)
-        VALUES ('Betrieb', %s)
+        INSERT INTO locations (tenant_id, name, code)
+        VALUES (%s, 'Betrieb', %s)
         RETURNING *
         """,
-        (f"LOC-{secrets.token_hex(2).upper()}",),
+        (default_tenant_id(), f"LOC-{secrets.token_hex(2).upper()}"),
     )
     audit("location_created", "location", str(location["id"]), location)
     return location
@@ -637,24 +721,40 @@ def resolve_location(location_id: str | None, location_name: str | None) -> dict
 def login(body: LoginIn) -> dict[str, Any]:
     user = fetch_one(
         """
-        SELECT u.*, array_remove(array_agg(r.slug), null) AS roles
+        SELECT u.*, t.slug AS tenant_slug, array_remove(array_agg(r.slug), null) AS roles
         FROM users u
+        LEFT JOIN tenants t ON t.id = u.tenant_id
         LEFT JOIN user_roles ur ON ur.user_id = u.id
         LEFT JOIN roles r ON r.id = ur.role_id
         WHERE u.email = %s AND u.active = true
-        GROUP BY u.id
+        GROUP BY u.id, t.slug
         """,
         (body.email,),
     )
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid demo login")
+    if not user or not verify_password(body.password, user.get("password_hash")):
+        raise HTTPException(status_code=401, detail="E-Mail oder Passwort ist falsch")
+    execute("UPDATE users SET last_login_at = now(), updated_at = now() WHERE id = %s RETURNING id", (user["id"],))
+    token = create_access_token(user)
     audit("login", "user", str(user["id"]), {"email": body.email})
-    return {"access_token": f"demo-{user['id']}", "user": user}
+    return {"access_token": token, "token_type": "bearer", "user": user}
 
 
 @app.get("/auth/me")
-def me() -> dict[str, Any]:
-    user = fetch_one("SELECT * FROM users WHERE email = %s", (settings.demo_user_email,))
+def me(request: Request) -> dict[str, Any]:
+    user = current_user_from_request(request)
+    if not user:
+        user = fetch_one(
+            """
+            SELECT u.*, t.slug AS tenant_slug, array_remove(array_agg(r.slug), null) AS roles
+            FROM users u
+            LEFT JOIN tenants t ON t.id = u.tenant_id
+            LEFT JOIN user_roles ur ON ur.user_id = u.id
+            LEFT JOIN roles r ON r.id = ur.role_id
+            WHERE u.email = %s
+            GROUP BY u.id, t.slug
+            """,
+            (settings.demo_user_email,),
+        )
     return {"user": user}
 
 
@@ -789,11 +889,11 @@ def create_user(body: UserIn) -> dict[str, Any]:
         return existing
     user = execute(
         """
-        INSERT INTO users (email, display_name, password_hash)
-        VALUES (%s, %s, 'demo')
+        INSERT INTO users (tenant_id, email, display_name, password_hash)
+        VALUES (%s, %s, %s, 'demo')
         RETURNING *
         """,
-        (email, name),
+        (default_tenant_id(), email, name),
     )
     role = fetch_one("SELECT id FROM roles WHERE slug = %s", (body.role_slug,))
     if role:
@@ -816,11 +916,11 @@ def create_location(body: LocationIn) -> dict[str, Any]:
     code = (body.code or f"BETR-{secrets.token_hex(2).upper()}").strip().upper()
     row = execute(
         """
-        INSERT INTO locations (name, code, address)
-        VALUES (%s, %s, %s)
+        INSERT INTO locations (tenant_id, name, code, address)
+        VALUES (%s, %s, %s, %s)
         RETURNING *
         """,
-        (name, code, body.address),
+        (default_tenant_id(), name, code, body.address),
     )
     audit("location_created", "location", str(row["id"]), row)
     return row
@@ -842,11 +942,11 @@ def create_room(body: RoomIn) -> dict[str, Any]:
         if not building:
             building = execute(
                 """
-                INSERT INTO buildings (location_id, name, code)
-                VALUES (%s, %s, %s)
+                INSERT INTO buildings (tenant_id, location_id, name, code)
+                VALUES (%s, %s, %s, %s)
                 RETURNING *
                 """,
-                (location["id"], building_name, f"GEB-{secrets.token_hex(3).upper()}"),
+                (location.get("tenant_id") or default_tenant_id(), location["id"], building_name, f"GEB-{secrets.token_hex(3).upper()}"),
             )
             audit("building_created", "building", str(building["id"]), building)
         building_id = str(building["id"])
@@ -855,11 +955,11 @@ def create_room(body: RoomIn) -> dict[str, Any]:
     code = (body.code or f"RAUM-{secrets.token_hex(3).upper()}").strip()
     row = execute(
         """
-        INSERT INTO rooms (building_id, name, code, room_type)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO rooms (tenant_id, building_id, name, code, room_type)
+        VALUES ((SELECT tenant_id FROM buildings WHERE id = %s), %s, %s, %s, %s)
         RETURNING *
         """,
-        (building_id, name, code, body.room_type),
+        (building_id, building_id, name, code, body.room_type),
     )
     audit("room_created", "room", str(row["id"]), row)
     return row
@@ -942,11 +1042,11 @@ def create_session(body: SessionIn) -> dict[str, Any]:
             if not building:
                 building = execute(
                     """
-                    INSERT INTO buildings (location_id, name, code)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO buildings (tenant_id, location_id, name, code)
+                    VALUES (%s, %s, %s, %s)
                     RETURNING *
                     """,
-                    (location_id, building_name, f"FREI-{secrets.token_hex(3).upper()}"),
+                    (location.get("tenant_id") or default_tenant_id(), location_id, building_name, f"FREI-{secrets.token_hex(3).upper()}"),
                 )
                 audit("building_created", "building", str(building["id"]), building)
             building_id = str(building["id"])
@@ -957,11 +1057,11 @@ def create_session(body: SessionIn) -> dict[str, Any]:
             if not building:
                 building = execute(
                     """
-                    INSERT INTO buildings (location_id, name, code)
-                    VALUES (%s, 'Hauptgebäude', %s)
+                    INSERT INTO buildings (tenant_id, location_id, name, code)
+                    VALUES (%s, %s, 'Hauptgebäude', %s)
                     RETURNING *
                     """,
-                    (location["id"], f"HG-{secrets.token_hex(2).upper()}"),
+                    (location.get("tenant_id") or default_tenant_id(), location["id"], f"HG-{secrets.token_hex(2).upper()}"),
                 )
                 audit("building_created", "building", str(building["id"]), building)
             building_id = str(building["id"])
@@ -977,11 +1077,11 @@ def create_session(body: SessionIn) -> dict[str, Any]:
         if not room:
             room = execute(
                 """
-                INSERT INTO rooms (building_id, name, code, room_type)
-                VALUES (%s, %s, %s, 'workspace')
+                INSERT INTO rooms (tenant_id, building_id, name, code, room_type)
+                VALUES (%s, %s, %s, %s, 'workspace')
                 RETURNING *
                 """,
-                (building_id, room_name, f"FREI-{secrets.token_hex(3).upper()}"),
+                (building.get("tenant_id") or default_tenant_id(), building_id, room_name, f"FREI-{secrets.token_hex(3).upper()}"),
             )
             audit("room_created", "room", str(room["id"]), room)
         room_id = str(room["id"])
@@ -991,9 +1091,10 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 
     room = fetch_one(
         """
-        SELECT r.*, b.location_id
+        SELECT r.*, b.location_id, COALESCE(r.tenant_id, b.tenant_id, l.tenant_id) AS tenant_id
         FROM rooms r
         JOIN buildings b ON b.id = r.building_id
+        JOIN locations l ON l.id = b.location_id
         WHERE r.id = %s
         """,
         (room_id,),
@@ -1005,11 +1106,11 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 
     row = execute(
         """
-        INSERT INTO inventory_sessions (location_id, building_id, room_id, join_token, started_by, inventory_type)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO inventory_sessions (tenant_id, location_id, building_id, room_id, join_token, started_by, inventory_type)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (location_id, building_id, room_id, token, body.started_by, inventory_type),
+        (room.get("tenant_id") or default_tenant_id(), location_id, building_id, room_id, token, body.started_by, inventory_type),
     )
     audit("session_started", "inventory_session", str(row["id"]), row)
     return row
@@ -1075,11 +1176,11 @@ def join_session(body: JoinIn) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Join token invalid or expired")
     device = execute(
         """
-        INSERT INTO session_devices (session_id, device_name, device_fingerprint)
-        VALUES (%s, %s, %s)
+        INSERT INTO session_devices (tenant_id, session_id, device_name, device_fingerprint, last_seen_at)
+        VALUES (%s, %s, %s, %s, now())
         RETURNING *
         """,
-        (session["id"], body.device_name, body.device_fingerprint),
+        (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
     )
     audit("device_joined", "session_device", str(device["id"]), device)
     return {"session": session, "device": device}
@@ -1197,7 +1298,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
     row = execute(
         """
         INSERT INTO inventory_items (
-          inventory_id, temporary_id, sequence_number, inventory_type,
+          tenant_id, inventory_id, temporary_id, sequence_number, inventory_type,
           client_item_id, source_device_id,
           session_id, location_id, building_id, room_id,
           object_type, object_class_id, category, brand, model, serial_number, condition,
@@ -1206,10 +1307,11 @@ def create_item(body: ItemIn) -> dict[str, Any]:
           function_ok, uvv_status, uvv_valid_until, inspection_book_available,
           remark, type_plate_status
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
+            session.get("tenant_id") or default_tenant_id(),
             inventory_id,
             temporary_id,
             sequence_number,
@@ -1690,6 +1792,7 @@ async def save_item_photo(
     if photo_count and int(photo_count["count"]) >= 5:
         raise HTTPException(status_code=409, detail="Maximal 5 Fotos pro Gegenstand möglich")
     data = await file.read()
+    mime_type, suffix = validate_photo_upload(file, data)
     digest = hashlib.sha256(data).hexdigest()
     duplicate = fetch_one(
         "SELECT * FROM item_photos WHERE item_id = %s AND original_hash = %s LIMIT 1",
@@ -1697,7 +1800,6 @@ async def save_item_photo(
     )
     if duplicate:
         return duplicate, True
-    suffix = Path(file.filename or "upload.bin").suffix or ".bin"
     filename = f"{item_id}-{photo_type}-{digest[:12]}{suffix}"
     path = Path(settings.upload_root, "originals", filename)
     path.write_bytes(data)
@@ -1706,13 +1808,14 @@ async def save_item_photo(
     row = execute(
         """
         INSERT INTO item_photos (
-          item_id, photo_type, original_path, stamped_path, original_hash,
+          tenant_id, item_id, photo_type, original_path, stamped_path, original_hash,
           client_photo_id, source_device_id, metadata_json
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        VALUES ((SELECT tenant_id FROM inventory_items WHERE id = %s), %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
         RETURNING *
         """,
         (
+            item_id,
             item_id,
             photo_type,
             str(path),
@@ -1720,7 +1823,7 @@ async def save_item_photo(
             digest,
             client_photo_id,
             source_device_id,
-            '{"phase":"1","stamp":"pending-worker"}',
+            json.dumps({"phase": "1", "stamp": "pending-worker", "mime_type": mime_type, "size": len(data)}),
         ),
     )
     audit("photo_uploaded", "inventory_item", item_id, row)
@@ -3106,8 +3209,8 @@ def save_export(
     wb = build_excel_workbook(title, rows, summary, session_id=session_id, entity_id=entity_id)
     wb.save(path)
     export = execute(
-        "INSERT INTO exports (session_id, export_type, file_path) VALUES (%s, %s, %s) RETURNING *",
-        (session_id, export_type, str(path)),
+        "INSERT INTO exports (tenant_id, session_id, export_type, file_path) VALUES ((SELECT tenant_id FROM inventory_sessions WHERE id = %s), %s, %s, %s) RETURNING *",
+        (session_id, session_id, export_type, str(path)),
     )
     audit("export_created", entity_type, entity_id, {"export": export, "rows": len(rows), "title": title})
     return export
@@ -3276,8 +3379,8 @@ def export_excel(session_id: str) -> dict[str, Any]:
     path = Path(settings.upload_root, "exports", f"session-{session_id}.xlsx")
     wb.save(path)
     export = execute(
-        "INSERT INTO exports (session_id, file_path) VALUES (%s, %s) RETURNING *",
-        (session_id, str(path)),
+        "INSERT INTO exports (tenant_id, session_id, file_path) VALUES ((SELECT tenant_id FROM inventory_sessions WHERE id = %s), %s, %s) RETURNING *",
+        (session_id, session_id, str(path)),
     )
     audit("export_created", "inventory_session", session_id, export)
     return export

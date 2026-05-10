@@ -5,10 +5,28 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://inventar:inventar@localhost:5432/inventar"
     upload_root: str = "./storage/uploads"
     app_origin: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:3002,https://inventar.elarahub.cloud"
     demo_user_email: str = "pruefer@example.local"
+    auth_secret: str = "change-me-in-env"
+    auth_token_minutes: int = 720
+    max_upload_bytes: int = 35 * 1024 * 1024
+    allowed_upload_mime_types: str = "image/jpeg,image/png,image/webp,image/heic,image/heif"
+    migrations_path: str = "/app/db/migrations"
+    enable_migration_runner: bool = True
+    default_tenant_slug: str = "default"
+    default_tenant_name: str = "Standardmandant"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:31b-cloud"
     ollama_timeout_seconds: float = 120.0
+
+    def cors_origin_list(self) -> list[str]:
+        values = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        if self.app_origin and self.app_origin not in values:
+            values.append(self.app_origin)
+        return values
+
+    def allowed_upload_mime_list(self) -> set[str]:
+        return {value.strip().lower() for value in self.allowed_upload_mime_types.split(",") if value.strip()}
 
 
 settings = Settings()
