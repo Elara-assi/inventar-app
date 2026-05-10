@@ -14,6 +14,6 @@
     "api": "python -m uvicorn app.main:app --app-dir apps/api --reload --port 8000"
   },
   "overrides": {
-    "postcss": "8.5.10"
+    "postcss": "8.5.12"
   }
 }
