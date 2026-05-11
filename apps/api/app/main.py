@@ -2160,7 +2160,10 @@ def deep_dive_queries(item: dict[str, Any], ai_context: str = "") -> list[str]:
     product = " ".join(terms[:5]).strip()
     object_type = normalize_deep_dive_text(item.get("object_type") or item.get("object_class_name") or "")
     brand_model = " ".join(term for term in [item.get("brand"), item.get("model")] if term).strip()
-    base = brand_model or product or object_type
+    if brand_model and object_type and object_type.lower() not in brand_model.lower():
+        base = f"{brand_model} {object_type}"
+    else:
+        base = brand_model or product or object_type
     queries = [
         f"{base} gebraucht Preis",
         f"{base} Gebrauchtpreis",
@@ -2206,9 +2209,15 @@ def is_relevant_source(source: dict[str, Any], item: dict[str, Any], ai_context:
         return True
     strong_terms = [term for term in product_terms if any(ch.isdigit() for ch in term) or len(term) >= 5]
     matches = sum(1 for term in strong_terms[:8] if term in text)
-    if matches >= 1:
+    required_matches = 2 if len(strong_terms) >= 2 else 1
+    if matches >= required_matches:
         return True
-    if any(hint in host for hint in SHOP_SOURCE_HINTS) and any(term in text for term in product_terms[:8]):
+    category_terms = search_tokens(f"{item.get('object_type') or ''} {item.get('object_class_name') or ''}")
+    if (
+        any(hint in host for hint in SHOP_SOURCE_HINTS)
+        and any(term in text for term in product_terms[:8])
+        and (not category_terms or any(term in text for term in category_terms[:5]))
+    ):
         return True
     return False
 
