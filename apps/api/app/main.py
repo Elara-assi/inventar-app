@@ -1456,6 +1456,10 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
         row["ai_summary"] = {
             "confidence": ai_result.get("confidence"),
             "notes": ai_result.get("notes"),
+            "bga_detection": ai_result.get("bga_detection"),
+            "suggested_fields": ai_result.get("suggested_fields"),
+            "requires_manual_review": ai_result.get("requires_manual_review") or ai_result.get("requires_review"),
+            "uncertainty_reason": ai_result.get("uncertainty_reason"),
             "special_tool_matches": (ai_result.get("special_tool_matches") or [])[:3],
             "inventory_history_matches": (ai_result.get("inventory_history_matches") or [])[:3],
             "deep_dive": deep_dive,
@@ -2075,19 +2079,96 @@ def decode_search_url(value: str) -> str:
     return value
 
 
-def web_search_sources(query: str, limit: int = 5) -> list[dict[str, str]]:
+def normalize_search_source(
+    title: str | None,
+    url: str | None,
+    snippet: str | None,
+    provider: str,
+    rank: int,
+) -> dict[str, Any] | None:
+    clean_title = html.unescape(re.sub(r"\s+", " ", str(title or ""))).strip()
+    clean_url = str(url or "").strip()
+    clean_snippet = html.unescape(re.sub(r"\s+", " ", str(snippet or ""))).strip()
+    if not clean_title or not clean_url:
+        return None
+    return {
+        "title": clean_title[:220],
+        "url": clean_url,
+        "snippet": clean_snippet[:500],
+        "source_provider": provider,
+        "rank": rank,
+    }
+
+
+def search_sources_searxng(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str | None]:
+    base_url = (settings.searxng_base_url or "").rstrip("/")
+    if not base_url:
+        return [], "SEARXNG_BASE_URL ist nicht gesetzt."
+    try:
+        response = httpx.get(
+            f"{base_url}/search",
+            params={
+                "q": query,
+                "format": "json",
+                "language": language,
+                "categories": "general",
+                "safesearch": "0",
+            },
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=settings.search_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: {str(exc)[:220]}"
+
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in payload.get("results") or []:
+        url = str(result.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        source = normalize_search_source(
+            result.get("title"),
+            url,
+            result.get("content") or result.get("snippet"),
+            "searxng",
+            len(sources) + 1,
+        )
+        if not source:
+            continue
+        seen.add(url)
+        sources.append(source)
+        if len(sources) >= limit:
+            break
+    if not sources:
+        return [], "SearXNG hat keine verwertbaren Quellen geliefert."
+    return sources, None
+
+
+def search_sources_duckduckgo_fallback(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str | None]:
     try:
         response = httpx.get(
             "https://duckduckgo.com/html/",
-            params={"q": query},
+            params={"q": query, "kl": f"{language.lower()}-{country.lower()}"},
             headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
-            timeout=8,
+            timeout=settings.search_timeout_seconds,
         )
         response.raise_for_status()
-    except Exception:
-        return []
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: {str(exc)[:220]}"
 
-    sources: list[dict[str, str]] = []
+    sources: list[dict[str, Any]] = []
     seen: set[str] = set()
     for match in re.finditer(
         r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
@@ -2097,14 +2178,62 @@ def web_search_sources(query: str, limit: int = 5) -> list[dict[str, str]]:
         raw_url, raw_title = match.groups()
         url = decode_search_url(html.unescape(raw_url))
         title = re.sub(r"<[^>]+>", "", raw_title)
-        title = html.unescape(re.sub(r"\s+", " ", title)).strip()
-        if not title or not url or url in seen:
+        if not url or url in seen:
             continue
         seen.add(url)
-        sources.append({"title": title[:180], "url": url})
+        snippet = ""
+        tail = response.text[match.end() : match.end() + 1800]
+        snippet_match = re.search(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>',
+            tail,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if snippet_match:
+            snippet = re.sub(r"<[^>]+>", "", snippet_match.group(1) or snippet_match.group(2) or "")
+        source = normalize_search_source(title, url, snippet, "duckduckgo_html", len(sources) + 1)
+        if not source:
+            continue
+        sources.append(source)
         if len(sources) >= limit:
             break
-    return sources
+    if not sources:
+        return [], "DuckDuckGo-Fallback hat keine verwertbaren Quellen geliefert."
+    return sources, None
+
+
+def search_sources(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str, str | None]:
+    preferred = (settings.search_provider or "searxng").strip().lower()
+    errors: list[str] = []
+
+    if preferred == "searxng":
+        sources, error = search_sources_searxng(query, limit, language, country)
+        if sources:
+            return sources, "searxng", error
+        if error:
+            errors.append(f"SearXNG: {error}")
+    elif preferred in {"duckduckgo", "duckduckgo_html"}:
+        sources, error = search_sources_duckduckgo_fallback(query, limit, language, country)
+        if sources:
+            return sources, "duckduckgo_html", error
+        if error:
+            errors.append(f"DuckDuckGo: {error}")
+    else:
+        errors.append(f"Unbekannter SEARCH_PROVIDER '{preferred}'.")
+
+    if preferred not in {"duckduckgo", "duckduckgo_html"}:
+        fallback_sources, fallback_error = search_sources_duckduckgo_fallback(query, limit, language, country)
+        if fallback_sources:
+            error_text = "; ".join(errors) if errors else None
+            return fallback_sources, "duckduckgo_html", error_text
+        if fallback_error:
+            errors.append(f"DuckDuckGo: {fallback_error}")
+
+    return [], preferred or "searxng", "; ".join(errors) or "Keine Webquellen gefunden."
 
 
 def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[int, int]:
@@ -2378,7 +2507,35 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Item not found")
     ai_context = latest_ai_context(item_id)
     query = deep_dive_query(item, ai_context)
-    sources = web_search_sources(query)
+    sources, search_provider, web_search_error = search_sources(query)
+    search_queries = [query]
+    if not sources:
+        return {
+            "ai_stage": "deep_dive",
+            "estimated_by_ai": True,
+            "estimation_policy": "source_required",
+            "web_search_performed": False,
+            "search_provider": search_provider,
+            "search_queries": search_queries,
+            "query": query,
+            "technical_context": ai_context,
+            "sources": [],
+            "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden.",
+            "estimated_age_years": None,
+            "age_source": "unbekannt",
+            "age_verification_status": "offen",
+            "age_confidence": 0.0,
+            "age_reason": "Keine belastbare Webquelle oder sichtbare Altersgrundlage gefunden.",
+            "age_requires_review": True,
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": "Keine belastbare Webquelle gefunden; Wert bleibt offen.",
+            "value_requires_review": True,
+            "value_source": "keine_webquelle",
+            "notes": "Websuche ohne verwertbare Quelle. Preis und Alter werden nicht geraten und müssen manuell geprüft werden.",
+            "manual_review_required": True,
+        }
     if is_tire_item(item, ai_context):
         tire_result = conservative_tire_estimate(item, ai_context, sources)
         value_min = tire_result["estimated_value_range"]["min"]
@@ -2409,9 +2566,12 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "estimated_by_ai": True,
         "estimation_policy": "konservativ",
         "web_search_performed": bool(sources),
+        "search_provider": search_provider,
+        "search_queries": search_queries,
         "query": query,
         "technical_context": ai_context,
         "sources": sources,
+        "web_search_error": web_search_error,
         "estimated_age_years": estimated_age,
         "age_source": "schaetzung",
         "age_verification_status": "geschaetzt",
@@ -2419,6 +2579,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "estimated_value_range": {"min": value_min, "max": value_max},
         "value_source": "ki_web_schaetzung",
         "notes": notes,
+        "manual_review_required": True,
         **extra_result,
     }
 
@@ -2438,30 +2599,6 @@ def process_deep_dive_item(item_id: str) -> None:
             json_string(result),
             0.55,
         ),
-    )
-    execute(
-        """
-        UPDATE inventory_items
-        SET value_estimate = COALESCE(value_estimate, %s),
-            estimated_age_years = CASE
-                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN %s
-                ELSE estimated_age_years
-            END,
-            age_source = CASE
-                WHEN %s IS NULL THEN age_source
-                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN 'schaetzung'
-                ELSE age_source
-            END,
-            age_verification_status = CASE
-                WHEN %s IS NULL THEN age_verification_status
-                WHEN estimated_age_years IS NULL OR age_source = 'schaetzung' THEN 'geschaetzt'
-                ELSE age_verification_status
-            END,
-            updated_at = now()
-        WHERE id = %s
-        RETURNING id
-        """,
-        (result["estimated_value"], result["estimated_age_years"], result["estimated_age_years"], result["estimated_age_years"], item_id),
     )
     audit("ai_deep_dive_created", "inventory_item", item_id, result)
 
@@ -2492,7 +2629,7 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
             item_id,
             "quick_vision" if normalized_mode == "fast" else "review_vision",
             model_used,
-            "phase1-fast-v1" if normalized_mode == "fast" else "phase1-review-v1",
+            "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
             '["photos","audio"]',
             json_string(suggestion),
             confidence,
@@ -2502,12 +2639,11 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
     execute(
         """
         UPDATE item_accounting_data
-        SET commercial_category = %s,
-            accounting_status = CASE WHEN %s THEN 'buchhaltung_pruefen' ELSE 'nicht_relevant' END
+        SET accounting_status = CASE WHEN %s THEN 'buchhaltung_pruefen' ELSE accounting_status END
         WHERE item_id = %s
         RETURNING id
         """,
-        (suggestion["commercial_category"], suggestion["requires_accounting_review"], item_id),
+        (suggestion["requires_accounting_review"], item_id),
     )
     final_status = ai_status_for_mode(normalized_mode, "open" if needs_review_ai else "done")
     execute(

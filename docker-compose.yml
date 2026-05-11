@@ -40,6 +40,9 @@ services:
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma4:31b-cloud
       OLLAMA_TIMEOUT_SECONDS: 120
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng-fe55-searxng-1:8080}
+      SEARCH_TIMEOUT_SECONDS: ${SEARCH_TIMEOUT_SECONDS:-10}
     ports:
       - "8000:8000"
     volumes:
@@ -84,6 +87,9 @@ services:
       OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
       OLLAMA_MODEL: gemma4:31b-cloud
       OLLAMA_TIMEOUT_SECONDS: 120
+      SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng-fe55-searxng-1:8080}
+      SEARCH_TIMEOUT_SECONDS: ${SEARCH_TIMEOUT_SECONDS:-10}
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads

@@ -88,22 +88,53 @@ type BgaForm = {
 };
 
 type ServerItemSuggestion = {
+  object_name?: string | null;
   object_type?: string | null;
   object_class?: string | null;
+  manufacturer?: string | null;
   brand?: string | null;
   model?: string | null;
   serial_number?: string | null;
   specification?: string | null;
   construction_year?: string | null;
   condition?: string | null;
+  condition_guess?: string | null;
   suggested_remark?: string | null;
+  suggested_fields?: {
+    object_type?: string | null;
+    specification?: string | null;
+    condition?: string | null;
+    construction_year?: string | null;
+    remark?: string | null;
+  } | null;
+  visible_features?: string[] | null;
   uncertainty_reason?: string | null;
   value_estimate?: number | string | null;
+  estimated_value_eur?: number | string | null;
+  estimated_value_confidence?: number | string | null;
+  estimated_value_reason?: string | null;
+  value_requires_review?: boolean | null;
   estimated_age_years?: number | string | null;
+  age_confidence?: number | string | null;
+  age_reason?: string | null;
+  age_requires_review?: boolean | null;
   age_source?: string | null;
   age_verification_status?: string | null;
+  confidence?: number | string | null;
   confidence_score?: number | string | null;
+  requires_manual_review?: boolean | null;
   status?: string | null;
+  bga_detection?: ServerItemSuggestion | null;
+};
+
+type AiResultRow = {
+  ai_type?: string | null;
+  status?: string | null;
+  result_json?: ServerItemSuggestion | null;
+};
+
+type ServerItemWithAi = ServerItemSuggestion & {
+  ai_results?: AiResultRow[];
 };
 
 const emptyForm: BgaForm = {
@@ -777,35 +808,67 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return entries.find((entry) => entry.type === "item_draft" && entry.client_item_id === clientItemId && entry.server_item_id)?.server_item_id;
   }
 
+  function normalizeAiPayload(payload?: ServerItemSuggestion | null): ServerItemSuggestion | null {
+    if (!payload) return null;
+    const detection = payload.bga_detection ?? null;
+    const source = detection ? { ...payload, ...detection, suggested_fields: detection.suggested_fields ?? payload.suggested_fields } : payload;
+    const suggested = source.suggested_fields ?? {};
+    const objectType = suggested.object_type || source.object_name || source.object_type;
+    if (!objectType && !source.specification && !source.condition_guess && !source.suggested_remark) return null;
+    return {
+      ...source,
+      object_type: objectType,
+      specification: suggested.specification || source.specification || "",
+      condition: suggested.condition || source.condition_guess || source.condition || "",
+      construction_year: suggested.construction_year || source.construction_year || "",
+      suggested_remark: suggested.remark || source.suggested_remark || source.uncertainty_reason || "",
+      confidence_score: source.confidence ?? source.confidence_score,
+    };
+  }
+
+  function latestAiSuggestion(item?: ServerItemWithAi | null) {
+    if (!item) return null;
+    const latest = item.ai_results?.find((entry) => entry.ai_type !== "deep_dive" && entry.result_json);
+    return normalizeAiPayload(latest?.result_json) ?? normalizeAiPayload(item);
+  }
+
   function aiSpecSuggestion(item: ServerItemSuggestion) {
-    const specParts = [item.specification, item.brand, item.model, item.serial_number ? `SN ${item.serial_number}` : ""]
+    const specParts = [
+      item.suggested_fields?.specification,
+      item.specification,
+      item.manufacturer || item.brand,
+      item.model,
+      item.serial_number ? `SN ${item.serial_number}` : "",
+    ]
       .filter(Boolean)
       .map(String);
     return specParts.join(" · ");
   }
 
   function aiRemarkSuggestion(item: ServerItemSuggestion) {
-    return item.suggested_remark || item.uncertainty_reason || (item.status?.startsWith("ki_") ? "KI-Vorschlag vorhanden, bitte prüfen." : "");
+    return item.suggested_fields?.remark || item.suggested_remark || item.uncertainty_reason || (item.status?.startsWith("ki_") ? "KI-Vorschlag vorhanden, bitte prüfen." : "");
   }
 
   function aiConfidenceLabel(item: ServerItemSuggestion) {
-    const raw = Number(item.confidence_score ?? 0);
+    const raw = Number(item.confidence ?? item.confidence_score ?? 0);
     const normalized = raw > 1 ? raw / 100 : raw;
     if (!normalized) return "bitte prüfen";
-    return normalized < 0.75 ? "unsicher · bitte prüfen" : "bitte prüfen";
+    if (item.requires_manual_review || normalized < 0.85) return "unsicher · bitte prüfen";
+    return "KI-Vorschlag · bitte prüfen";
   }
 
   function aiSuggestionRows(item: ServerItemSuggestion) {
-    const ageValue = item.estimated_age_years || item.value_estimate
-      ? `${item.estimated_age_years ?? "Alter offen"} Jahre · ${item.value_estimate ?? "Wert offen"} €`
+    const estimateValue = item.estimated_value_eur ?? item.value_estimate;
+    const ageValue = item.estimated_age_years || estimateValue
+      ? `${item.estimated_age_years ?? "Alter offen"} Jahre · ${estimateValue ?? "Wert offen"} €`
       : "";
     return [
-      { key: "object_type", label: "Bezeichnung", value: item.object_type || "", field: "object_type" as const },
+      { key: "object_type", label: "Bezeichnung", value: item.suggested_fields?.object_type || item.object_name || item.object_type || "", field: "object_type" as const },
       { key: "specification", label: "Typ/Spezifikation", value: aiSpecSuggestion(item), field: "specification" as const },
-      { key: "condition", label: "Zustand", value: item.condition || "", field: "condition" as const },
-      { key: "construction_year", label: "Baujahr", value: item.construction_year || "", field: "construction_year" as const, note: "bitte prüfen" },
+      { key: "condition", label: "Zustand", value: item.suggested_fields?.condition || item.condition_guess || item.condition || "", field: "condition" as const },
+      { key: "construction_year", label: "Baujahr", value: item.suggested_fields?.construction_year || item.construction_year || "", field: "construction_year" as const, note: "bitte prüfen" },
       { key: "remark", label: "Bemerkung", value: aiRemarkSuggestion(item), field: "remark" as const },
-      { key: "estimate", label: "Alter/Wert", value: ageValue, note: "KI-Schätzung · manuell prüfen" },
+      { key: "estimate", label: "Alter/Wert", value: ageValue, note: `${item.estimated_value_reason || item.age_reason || "KI-Schätzung"} · manuell prüfen` },
     ].filter((row) => row.value);
   }
 
@@ -819,9 +882,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     const remarkSuggestion = aiRemarkSuggestion(item);
     setForm((current) => ({
       ...current,
-      object_type: current.object_type || item.object_type || "",
+      object_type: current.object_type || item.suggested_fields?.object_type || item.object_name || item.object_type || "",
       specification: current.specification || specSuggestion,
-      construction_year: current.construction_year || item.construction_year || "",
+      construction_year: current.construction_year || item.suggested_fields?.construction_year || item.construction_year || "",
       remark: current.remark || remarkSuggestion,
     }));
     setAiSuggestionMessage("KI-Vorschläge wurden nur in leere Felder übernommen. Bitte prüfen.");
@@ -854,14 +917,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         setAiSuggestionMessage(aiStart.message || "KI-Vorschlag erst nach Objektfoto möglich.");
         return;
       }
-      let serverItem: ServerItemSuggestion | null = null;
-      for (let attempt = 0; attempt < 6; attempt += 1) {
+      let serverSuggestion: ServerItemSuggestion | null = null;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 900));
-        serverItem = await api<ServerItemSuggestion>(`/items/${serverItemId}`);
-        if (serverItem.object_type || serverItem.brand || serverItem.model || serverItem.serial_number || serverItem.status === "ki_fertig") break;
+        const serverItem = await api<ServerItemWithAi>(`/items/${serverItemId}`);
+        serverSuggestion = latestAiSuggestion(serverItem);
+        if (serverSuggestion || serverItem.status === "ki_pruefung_fertig" || serverItem.status === "ki_schnell_fertig") break;
       }
-      if (serverItem) {
-        setAiSuggestion(serverItem);
+      if (serverSuggestion) {
+        setAiSuggestion(serverSuggestion);
         setAiSuggestionMessage("KI-Vorschlag bereit. Bitte prüfen und bei Bedarf übernehmen.");
       } else {
         setAiSuggestionMessage("Noch kein KI-Vorschlag verfügbar. Du kannst normal weiterarbeiten.");

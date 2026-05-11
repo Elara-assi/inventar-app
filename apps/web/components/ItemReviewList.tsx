@@ -26,8 +26,32 @@ type ReferenceMatch = {
   source_file?: string;
 };
 
+type AiSuggestedFields = {
+  object_type?: string | null;
+  specification?: string | null;
+  condition?: string | null;
+  construction_year?: string | null;
+  remark?: string | null;
+};
+
 type AiSummary = {
   notes?: string;
+  confidence?: number | string | null;
+  uncertainty_reason?: string | null;
+  requires_manual_review?: boolean | null;
+  suggested_fields?: AiSuggestedFields | null;
+  bga_detection?: {
+    object_name?: string | null;
+    object_class?: string | null;
+    confidence?: number | string | null;
+    uncertainty_reason?: string | null;
+    suggested_fields?: AiSuggestedFields | null;
+    estimated_age_years?: number | string | null;
+    estimated_value_eur?: number | string | null;
+    estimated_value_reason?: string | null;
+    age_reason?: string | null;
+    requires_manual_review?: boolean | null;
+  } | null;
   special_tool_matches?: ReferenceMatch[];
   inventory_history_matches?: ReferenceMatch[];
   deep_dive?: {
@@ -404,6 +428,20 @@ function ItemReviewRow({
     setMessage("Vorlage gewählt");
   }
 
+  function applyAiSuggestionToDraft() {
+    const detection = item.ai_summary?.bga_detection;
+    const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
+    setDraft((current) => ({
+      ...current,
+      object_type: current.object_type || fields.object_type || detection?.object_name || "",
+      specification: current.specification || fields.specification || "",
+      construction_year: current.construction_year || fields.construction_year || "",
+      remark: current.remark || fields.remark || current.remark,
+      condition: current.condition || fields.condition || "gebraucht",
+    }));
+    setMessage("KI-Vorschlag in leere Felder übernommen. Bitte prüfen und speichern.");
+  }
+
   async function save() {
     if (readOnly) return;
     await api(`/items/${item.id}`, {
@@ -545,6 +583,8 @@ function ItemReviewRow({
   const hints = item.process_hints ?? [];
   const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
+  const aiProposal = item.ai_summary?.bga_detection;
+  const aiProposalFields = aiProposal?.suggested_fields ?? item.ai_summary?.suggested_fields;
   const deepDive = item.ai_summary?.deep_dive;
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
@@ -720,6 +760,35 @@ function ItemReviewRow({
                 {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{displayTaskRole(task.assigned_role)}: {displayTaskField(task.missing_field)}</span>)}
                 {message ? <span className="status pruefen">{message}</span> : null}
               </div>
+            ) : null}
+            {aiProposal || aiProposalFields ? (
+              <details className="deep-dive-box">
+                <summary>
+                  <strong>KI-Vorschlag</strong>
+                  <span>
+                    {aiProposalFields?.object_type || aiProposal?.object_name || "Vorschlag vorhanden"}
+                    {aiProposal?.confidence ? ` · ${(Number(aiProposal.confidence) * 100).toFixed(0)} %` : ""}
+                  </span>
+                </summary>
+                <p className="deep-dive-note">Vorschlag – bitte prüfen. Er wird erst durch Übernahme und Speichern zum Datensatz.</p>
+                <div className="deep-dive-grid">
+                  <span>Bezeichnung: <b>{aiProposalFields?.object_type || aiProposal?.object_name || "offen"}</b></span>
+                  <span>Klasse: <b>{aiProposal?.object_class || "offen"}</b></span>
+                  <span>Typ/Spezifikation: <b>{aiProposalFields?.specification || "offen"}</b></span>
+                  <span>Zustand: <b>{aiProposalFields?.condition || "offen"}</b></span>
+                </div>
+                {aiProposal?.estimated_age_years || aiProposal?.estimated_value_eur ? (
+                  <p className="deep-dive-note">
+                    KI-Schätzung: {aiProposal.estimated_age_years ?? "Alter offen"} Jahre · {aiProposal.estimated_value_eur ?? "Wert offen"} €. Manuell prüfen.
+                  </p>
+                ) : null}
+                {aiProposal?.uncertainty_reason || item.ai_summary?.uncertainty_reason ? (
+                  <p className="deep-dive-note">{aiProposal?.uncertainty_reason || item.ai_summary?.uncertainty_reason}</p>
+                ) : null}
+                <button className="btn secondary compact-btn" type="button" onClick={applyAiSuggestionToDraft} disabled={readOnly}>
+                  In leere Felder übernehmen
+                </button>
+              </details>
             ) : null}
             {deepDive ? (
               <details className="deep-dive-box">

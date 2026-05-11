@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:31b-cloud"
     ollama_timeout_seconds: float = 120.0
+    search_provider: str = "searxng"
+    searxng_base_url: str = "http://searxng-fe55-searxng-1:8080"
+    search_timeout_seconds: float = 10.0
+    brave_search_api_key: str = ""
+    serpapi_api_key: str = ""
 
     def cors_origin_list(self) -> list[str]:
         values = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

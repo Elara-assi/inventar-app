@@ -226,8 +226,6 @@ BGA_PROMPT_TEST_CASES: list[dict[str, Any]] = [
 
 def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
     raw = str(value or "").strip()
-    if raw in BGA_OBJECT_CLASSES:
-        return raw
     text = f"{raw} {object_name or ''}".lower()
     text = (
         text.replace("ä", "ae")
@@ -241,6 +239,8 @@ def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
         return "Computermaus"
     if any(term in text for term in ["tastatur", "keyboard"]):
         return "Tastatur"
+    if raw in BGA_OBJECT_CLASSES:
+        return raw
     if "monitor" in text or "bildschirm" in text:
         return "Monitor"
     if any(term in text for term in ["laptop", "notebook", "pc", "computer", "thinkpad", "elitebook", "probook", "macbook"]):
@@ -286,6 +286,136 @@ def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
     if "sonstig" in text:
         return "Sonstiges"
     return "Unklar"
+
+
+def bga_candidate_for_class(object_class: str | None) -> dict[str, Any] | None:
+    for candidate in BGA_OBJECT_CANDIDATES:
+        if candidate.get("object_class") == object_class:
+            return candidate
+    return None
+
+
+def clamp_confidence(value: Any, default: float = 0.6) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return default
+    if confidence > 1:
+        confidence = confidence / 100
+    return max(0.0, min(1.0, confidence))
+
+
+def first_text(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def bga_review_missing_fields(object_class: str, fallback: dict[str, Any]) -> list[str]:
+    simple_classes = {
+        "Computermaus",
+        "Tastatur",
+        "Monitor",
+        "Drucker",
+        "Scanner",
+        "Telefon",
+        "Büroausstattung",
+        "Schreibtisch",
+        "Bürostuhl",
+        "Schrank",
+        "Regal",
+        "Ladegerät",
+    }
+    machine_classes = {"Maschine", "Hebebühne", "Kompressor", "Werkzeugwagen", "Werkbank", "Diagnosegerät", "Spezialgerät"}
+    if object_class in simple_classes:
+        return []
+    if object_class in machine_classes:
+        return ["Typenschild/Seriennummer prüfen"]
+    if object_class == "Unklar":
+        return ["Bezeichnung prüfen"]
+    return list(fallback.get("missing_fields") or [])
+
+
+def plausible_value_limit(object_class: str) -> int | None:
+    return {
+        "Computermaus": 100,
+        "Tastatur": 250,
+        "Monitor": 600,
+        "Drucker": 800,
+        "Scanner": 600,
+        "Telefon": 300,
+        "Ladegerät": 250,
+        "Bürostuhl": 800,
+        "Schreibtisch": 800,
+        "Regal": 800,
+    }.get(object_class)
+
+
+def normalize_estimates(result: dict[str, Any], object_class: str, confidence: float) -> None:
+    estimated_value = result.get("estimated_value_eur")
+    if estimated_value is None:
+        estimated_value = result.get("estimated_value")
+    try:
+        estimated_value_number = float(estimated_value) if estimated_value is not None else None
+    except (TypeError, ValueError):
+        estimated_value_number = None
+
+    value_confidence = clamp_confidence(result.get("estimated_value_confidence"), 0.0)
+    value_reason = first_text(result.get("estimated_value_reason"), result.get("value_reason"))
+    value_source = str(result.get("value_source") or "").lower().strip()
+    credible_value_source = value_source in {"webrecherche", "sichtbare_preisangabe", "beleg", "referenzpreis", "modellpreis"}
+    value_limit = plausible_value_limit(object_class)
+    value_rejected_reason = None
+    if estimated_value_number is not None and value_limit is not None and estimated_value_number > value_limit:
+        value_rejected_reason = f"KI-Wert {estimated_value_number:g} EUR ist für {object_class} unplausibel und wurde nicht übernommen."
+    elif estimated_value_number is not None and (confidence < 0.86 or value_confidence < 0.7 or not value_reason or not credible_value_source):
+        value_rejected_reason = "Keine belastbare Quelle für einen Wertvorschlag erkannt."
+    elif object_class in {"Unklar", "Sonstiges"}:
+        value_rejected_reason = "Objektklasse unklar, Wert wird nicht geschätzt."
+
+    if estimated_value_number is None or value_rejected_reason:
+        result["estimated_value_eur"] = None
+        result["estimated_value"] = None
+        result["estimated_value_confidence"] = 0.0
+        result["estimated_value_reason"] = value_rejected_reason or value_reason or "Kein belastbarer Wertvorschlag."
+        result["value_requires_review"] = True
+    else:
+        result["estimated_value_eur"] = round(estimated_value_number, 2)
+        result["estimated_value"] = round(estimated_value_number, 2)
+        result["estimated_value_confidence"] = value_confidence
+        result["estimated_value_reason"] = value_reason
+        result["value_requires_review"] = True
+
+    try:
+        estimated_age = float(result.get("estimated_age_years")) if result.get("estimated_age_years") is not None else None
+    except (TypeError, ValueError):
+        estimated_age = None
+    age_confidence = clamp_confidence(result.get("age_confidence"), 0.0)
+    age_reason = first_text(result.get("age_reason"), result.get("age_source"))
+    age_source = str(result.get("age_source") or "").lower().strip()
+    age_status = str(result.get("age_verification_status") or "").lower().strip()
+    credible_age_sources = {"typenschild", "baujahr", "modelljahr", "sichtbare_angabe", "seriennummer", "beleg", "dot"}
+    if (
+        estimated_age is None
+        or age_source not in credible_age_sources
+        or age_status in {"geschaetzt", "nicht_ermittelbar", "offen", ""}
+        or age_confidence < 0.7
+        or not age_reason
+    ):
+        result["estimated_age_years"] = None
+        result["age_source"] = "unbekannt"
+        result["age_verification_status"] = "offen"
+        result["age_confidence"] = 0.0
+        result["age_reason"] = age_reason or "Kein Baujahr oder Typenschild als belastbare Altersgrundlage erkannt."
+        result["age_requires_review"] = True
+    else:
+        result["estimated_age_years"] = round(estimated_age, 1)
+        result["age_confidence"] = age_confidence
+        result["age_requires_review"] = True
 
 
 @lru_cache(maxsize=1)
@@ -641,33 +771,6 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
             missing_fields.append("Defekt prüfen")
         result["missing_fields"] = sorted(set(missing_fields))
 
-    oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
-    if oc:
-        execute(
-            """
-            UPDATE inventory_items
-            SET object_type = %s, object_class_id = %s, brand = COALESCE(%s, brand),
-                commercial_category = %s, requires_accounting_review = %s,
-                review_status = %s, status = 'ki_fertig', confidence_score = %s,
-                age_source = %s, age_verification_status = %s, estimated_age_years = %s,
-                updated_at = now()
-            WHERE id = %s
-            RETURNING id
-            """,
-            (
-                result["object_type"],
-                oc["id"],
-                result.get("brand"),
-                result["commercial_category"],
-                result["requires_accounting_review"],
-                result["recommended_status"],
-                result["confidence"],
-                result["age_source"],
-                result["age_verification_status"],
-                result.get("estimated_age_years"),
-                item_id,
-            ),
-        )
     return result
 
 
@@ -706,6 +809,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         fallback["notes"] = "KI-Vorschlag übersprungen: kein Objektfoto vorhanden."
         fallback["_model_used"] = "not-started-no-object-photo"
         return fallback
+    fallback["_photo_types"] = photo_types
     special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
     inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
     learning_examples = select_learning_examples(transcripts, item.get("object_class_name"), item.get("object_type"), limit=8)
@@ -728,6 +832,11 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "condition_hint": item.get("condition"),
         "inventory_id": item.get("inventory_id"),
         "photo_types": photo_types,
+        "photo_priority": [
+            "Bild 1 ist das wichtigste Objektfoto und bestimmt object_name/object_class.",
+            "Typenschild-/type_plate-Fotos dienen nur zur Absicherung von Hersteller, Modell, Seriennummer und Baujahr.",
+            "UVV-, Zustands- und Detailfotos stützen Zustand und Bemerkung, dürfen die Objektart aber nicht gegen das Objektfoto überschreiben.",
+        ],
         "transcripts": transcripts,
         "allowed_bga_object_classes": BGA_OBJECT_CLASSES,
         "bga_object_candidates": BGA_OBJECT_CANDIDATES,
@@ -738,9 +847,12 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "learning_examples": learning_examples,
         "classification_rules": [
             "Das wichtigste Ergebnis ist die korrekte Objektart. Wähle object_class zuerst exakt aus allowed_bga_object_classes. Erfinde keine weiteren Klassen.",
+            "Arbeite wie eine Inventurhilfe: zuerst Hauptobjekt erkennen, dann erst Hersteller/Modell/Alter/Wert prüfen.",
+            "Antworte nur mit belegbaren Vorschlägen. Keine Fantasiewerte, keine erfundenen Hersteller, keine geratenen Modelle.",
             "Wenn keine Klasse sicher passt, nutze object_class='Unklar', object_name='vermutlich ...', confidence unter 0.75 und requires_manual_review=true.",
             "Für eindeutige Objekte setze eine konkrete Bezeichnung, z. B. object_name='Computermaus' und object_class='Computermaus'.",
             "Computermaus: handgroßes Zeigegerät mit linker/rechter Taste, Scrollrad, Gehäuse zum Greifen, oft Kabel/USB/Funk. Eine Computermaus darf nicht als Monitor, Tastatur oder Notebook klassifiziert werden, nur weil solche Dinge im Hintergrund sichtbar sind.",
+            "Wenn eine Computermaus eindeutig sichtbar ist, lautet object_name exakt 'Computermaus', object_class exakt 'Computermaus', commercial_category='it_ausstattung'.",
             "Tastatur: viele Tasten in einem Raster. Monitor: einzelner Bildschirm mit Displayfläche. Notebook/Laptop: Bildschirm und Tastatur fest zusammen in einem aufklappbaren Gerät.",
             "Wenn mehrere Gegenstände im Bild sind, bewerte das zentrale, am nächsten fotografierte oder per Sprache beschriebene Objekt als Hauptobjekt.",
             "Nutze object_front/object-Fotos für die Objektart, type_plate/nameplate-Fotos nur für Hersteller, Modell, Seriennummer und Baujahr. Detailfotos dürfen die Objektart stützen, aber nicht gegen das Hauptfoto übersteuern.",
@@ -755,6 +867,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
             "Erfinde niemals Hersteller, Modell, Baujahr, Seriennummer oder Preis. Wenn nicht sichtbar oder nicht aus Typenschild/Sprache/Beispiel belegbar: null oder unbekannt.",
             "Alter und Wert nur setzen, wenn eine belastbare Quelle sichtbar oder aus Typenschild/Modell eindeutig begründbar ist. Keine pauschalen Standardwerte wie 7 Jahre oder 11 Euro erfinden.",
+            "Für Computermaus, Tastatur, Standardtelefon, Standardladegerät und sonstige Kleinteile gilt: bei Unsicherheit estimated_value_eur=null. Eine Computermaus über 100 EUR ist ohne klaren Premium-/Spezialbeleg unplausibel.",
             "Wenn Alter oder Wert nur geraten wären: estimated_age_years=null, estimated_value_eur=null, age_source=unbekannt, age_verification_status=offen.",
             "Wenn unsicher: object_name als beste Vermutung mit 'vermutlich', confidence unter 0.75, uncertainty_reason füllen und requires_manual_review=true.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
@@ -777,6 +890,9 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             },
             "requires_manual_review": "boolean",
             "manufacturer": "string|null",
+            "manufacturer_source": "type_plate|object_photo|audio|learning_example|null",
+            "model": "string|null",
+            "model_source": "type_plate|object_photo|audio|learning_example|null",
             "specification": "string|null",
             "visible_features": ["string"],
             "condition_guess": "neu|sehr_gut|gut|gebraucht|reparaturbeduerftig|defekt|aussondern|null",
@@ -785,6 +901,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "estimated_value_eur": "number|null",
             "estimated_value_confidence": "number|null",
             "estimated_value_reason": "string|null",
+            "value_source": "webrecherche|sichtbare_preisangabe|beleg|referenzpreis|modellpreis|null",
             "value_requires_review": "boolean",
             "age_confidence": "number|null",
             "age_reason": "string|null",
@@ -825,6 +942,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     if quick_it:
         _, update = quick_it
         result.update(update)
+        result = {**result, **normalize_ollama_result(result, fallback)}
     if special_tool_matches:
         result["special_tool_matches"] = special_tool_matches[:5]
     if inventory_history_matches:
@@ -856,23 +974,24 @@ def parse_ollama_json(content: str) -> dict[str, Any]:
 
 def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     result = dict(parsed)
-    object_name = result.get("object_name")
-    manufacturer = result.get("manufacturer")
-    specification = result.get("specification")
-    condition_guess = result.get("condition_guess")
-    requires_manual_review = result.get("requires_manual_review")
-    if object_name and not result.get("object_type"):
-        result["object_type"] = object_name
-    if manufacturer and not result.get("brand"):
-        result["brand"] = manufacturer
-    if specification and not result.get("model"):
-        result["model"] = specification
-    if condition_guess and not result.get("condition"):
-        result["condition"] = condition_guess
-    if requires_manual_review is not None:
-        result["requires_review"] = bool(requires_manual_review)
-    normalized_object_class = normalize_bga_object_class(result.get("object_class"), result.get("object_name") or result.get("object_type"))
+    object_name = first_text(result.get("object_name"), result.get("object_type"))
+    normalized_object_class = normalize_bga_object_class(result.get("object_class"), object_name)
+    candidate = bga_candidate_for_class(normalized_object_class)
+    confidence = clamp_confidence(result.get("confidence"), 0.62)
+
+    if candidate and normalized_object_class not in {"Unklar", "Sonstiges"}:
+        object_name = candidate["object_name"]
+        result["commercial_category"] = result.get("commercial_category") or candidate.get("category")
+    elif normalized_object_class == "Unklar":
+        object_name = object_name or "vermutlich unbekanntes Objekt"
+    elif normalized_object_class == "Sonstiges":
+        object_name = object_name or "Sonstige Ausstattung"
+
+    result["object_name"] = object_name
+    result["object_type"] = object_name
     result["object_class"] = normalized_object_class
+    result["confidence"] = confidence
+
     if normalized_object_class == "Unklar":
         if result.get("object_name") and not str(result.get("object_name")).lower().startswith("vermutlich"):
             result["object_name"] = f"vermutlich {result['object_name']}"
@@ -881,21 +1000,69 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         result["requires_review"] = True
         if not result.get("uncertainty_reason"):
             result["uncertainty_reason"] = "Objektklasse nicht eindeutig aus der festen BGA-Klassenliste ableitbar."
-        try:
-            confidence = float(result.get("confidence") or 0)
-        except (TypeError, ValueError):
-            confidence = 0
         result["confidence"] = confidence if 0 < confidence < 0.75 else 0.6
+    elif confidence < 0.78:
+        result["requires_manual_review"] = True
+        result["requires_review"] = True
+        result["uncertainty_reason"] = result.get("uncertainty_reason") or "KI-Sicherheit unter Praxis-Schwelle."
+    else:
+        result["requires_manual_review"] = bool(result.get("requires_manual_review", True))
+        result["requires_review"] = bool(result.get("requires_review", result["requires_manual_review"]))
+
+    manufacturer = first_text(result.get("manufacturer"), result.get("brand"))
+    if manufacturer:
+        result["manufacturer"] = manufacturer
+        result["brand"] = manufacturer
+    model = first_text(result.get("model"))
+    if model:
+        result["model"] = model
+    specification = first_text(result.get("specification"))
+    condition_guess = first_text(result.get("condition_guess"), result.get("condition"), fallback.get("condition"))
+    if condition_guess:
+        result["condition_guess"] = condition_guess
+        result["condition"] = condition_guess
+
+    if normalized_object_class == "Computermaus":
+        result["object_name"] = "Computermaus"
+        result["object_type"] = "Computermaus"
+        result["commercial_category"] = "it_ausstattung"
+        result["requires_accounting_review"] = False
+        result["recommended_status"] = "pruefen"
+    elif normalized_object_class in {"Tastatur", "Monitor", "Drucker", "Scanner", "Laptop/PC", "Telefon"}:
+        result["commercial_category"] = "it_ausstattung"
+        result["requires_accounting_review"] = normalized_object_class in {"Laptop/PC"}
+
+    normalize_estimates(result, normalized_object_class, result["confidence"])
+
     suggested_fields = result.get("suggested_fields")
     if not isinstance(suggested_fields, dict):
         suggested_fields = {}
-    result["suggested_fields"] = {
-        "object_type": suggested_fields.get("object_type") or result.get("object_name") or result.get("object_type"),
-        "specification": suggested_fields.get("specification") or result.get("specification"),
-        "condition": suggested_fields.get("condition") or result.get("condition_guess") or result.get("condition"),
-        "construction_year": suggested_fields.get("construction_year") or result.get("construction_year"),
-        "remark": suggested_fields.get("remark") or result.get("suggested_remark"),
+    default_specs = {
+        "Computermaus": "Computermaus, kabelgebunden/kabellos falls erkennbar",
+        "Tastatur": "Tastatur, Anschluss/Layout falls erkennbar",
+        "Monitor": "Monitor, Größe/Anschluss falls erkennbar",
+        "Laptop/PC": "Laptop/PC, Hersteller/Modell nur falls sichtbar",
+        "Bürostuhl": "Bürostuhl, Zustand und Ausstattung prüfen",
+        "Werkzeugwagen": "Werkzeugwagen, Ausführung und Zustand prüfen",
     }
+    spec_value = first_text(suggested_fields.get("specification"), result.get("specification"), default_specs.get(normalized_object_class))
+    remark_value = first_text(
+        suggested_fields.get("remark"),
+        result.get("suggested_remark"),
+        result.get("uncertainty_reason"),
+        "KI-Vorschlag bitte fachlich prüfen.",
+    )
+    result["suggested_fields"] = {
+        "object_type": first_text(suggested_fields.get("object_type"), result.get("object_name"), result.get("object_type")),
+        "specification": spec_value,
+        "condition": first_text(suggested_fields.get("condition"), result.get("condition_guess"), result.get("condition")),
+        "construction_year": first_text(suggested_fields.get("construction_year"), result.get("construction_year")),
+        "remark": remark_value,
+    }
+    result["missing_fields"] = bga_review_missing_fields(normalized_object_class, fallback)
+    if normalized_object_class == "Unklar":
+        result["recommended_status"] = "nacharbeit_pruefer"
+    result["required_evidence_missing"] = list(result.get("required_evidence_missing") or [])
     result["bga_detection"] = {
         "object_name": result.get("object_name") or result.get("object_type"),
         "object_class": result.get("object_class"),
@@ -983,40 +1150,13 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
 
     if fallback.get("requires_accounting_review") and result.get("commercial_category") in {
         "anlagevermoegen",
-        "it_ausstattung",
         "betriebsmittel",
         "werkstattausstattung",
         "gwg_pruefen",
     }:
         result["requires_accounting_review"] = True
-    credible_age_sources = {
-        "typenschild",
-        "baujahr",
-        "modelljahr",
-        "sichtbare_angabe",
-        "seriennummer",
-        "beleg",
-        "dot",
-    }
-    age_source = str(result.get("age_source") or "").lower().strip()
-    age_status = str(result.get("age_verification_status") or "").lower().strip()
-    if result.get("estimated_age_years") is not None and (
-        age_source not in credible_age_sources or age_status in {"geschaetzt", "nicht_ermittelbar", "offen", ""}
-    ):
-        result["estimated_age_years"] = None
-        result["age_source"] = "unbekannt"
-        result["age_verification_status"] = "offen"
-        result["age_requires_review"] = True
-    value_source = str(result.get("value_source") or "").lower().strip()
-    if result.get("estimated_value_eur") is not None and value_source not in {
-        "webrecherche",
-        "sichtbare_preisangabe",
-        "beleg",
-        "referenzpreis",
-        "modellpreis",
-    }:
-        result["estimated_value_eur"] = None
-        result["value_requires_review"] = True
+    if result.get("requires_accounting_review") is None:
+        result["requires_accounting_review"] = bool(result.get("commercial_category") in {"anlagevermoegen", "werkstattausstattung", "gwg_pruefen"})
     if isinstance(result.get("bga_detection"), dict):
         result["bga_detection"]["estimated_age_years"] = result.get("estimated_age_years")
         result["bga_detection"]["estimated_value_eur"] = result.get("estimated_value_eur")
@@ -1027,69 +1167,17 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
 
 
 def apply_suggestion_to_item(item_id: str, result: dict[str, Any], default_slug: str) -> None:
-    object_class_text = str(result.get("object_class") or "").lower()
-    object_type_text = str(result.get("object_type") or "").lower()
-    object_class = default_slug
-    if "reifen" in object_class_text or "reifen" in object_type_text:
-        object_class = "reifen"
-    elif "hebeb" in object_class_text or "bühne" in object_class_text or "hebeb" in object_type_text:
-        object_class = "hebebuehne"
-    elif "wucht" in object_class_text or "wucht" in object_type_text:
-        object_class = "wuchtmaschine"
-    elif "reifenmontier" in object_class_text or "montiermaschine" in object_type_text:
-        object_class = "reifenmontiermaschine"
-    elif "diagnose" in object_class_text or "diagnose" in object_type_text or "tester" in object_type_text:
-        object_class = "diagnosegeraet"
-    elif "kompressor" in object_class_text or "kompressor" in object_type_text or "druckluft" in object_type_text:
-        object_class = "kompressor"
-    elif any(term in object_class_text or term in object_type_text for term in ["eingabegerät", "eingabegeraet", "maus", "mouse", "tastatur", "keyboard", "trackpad"]):
-        object_class = "eingabegeraet"
-    elif any(term in object_class_text or term in object_type_text for term in ["notebook", "laptop", "thinkpad", "elitebook", "probook", "macbook"]):
-        object_class = "notebook"
-    elif "it" in object_class_text and "gerät" in object_class_text:
-        object_class = "it_geraet"
-    elif "werkzeugwagen" in object_class_text:
-        object_class = "werkzeugwagen"
-    elif "monitor" in object_class_text or "monitor" in object_type_text:
-        object_class = "monitor"
-
-    oc = fetch_one("SELECT id FROM object_classes WHERE slug = %s", (object_class,))
-    if not oc:
-        return
-    age_source = result.get("age_source") or "unbekannt"
-    age_verification_status = result.get("age_verification_status") or "offen"
-    estimated_age_years = result.get("estimated_age_years")
-    if age_source in {"schaetzung", "unbekannt"} or age_verification_status in {"geschaetzt", "nicht_ermittelbar"}:
-        age_source = "unbekannt"
-        age_verification_status = "offen"
-        estimated_age_years = None
+    _ = default_slug
+    # KI liefert ab hier nur noch prüfpflichtige Vorschläge. Fachliche Felder
+    # werden erst durch aktive Übernahme im UI und anschließendes Speichern geändert.
     execute(
         """
         UPDATE inventory_items
-        SET object_type = %s, object_class_id = %s, brand = COALESCE(%s, brand),
-            model = COALESCE(%s, model), serial_number = COALESCE(%s, serial_number),
-            commercial_category = %s, requires_accounting_review = %s,
-            review_status = %s, status = 'ki_fertig', confidence_score = %s,
-            age_source = %s, age_verification_status = %s, estimated_age_years = %s,
-            updated_at = now()
+        SET confidence_score = %s, updated_at = now()
         WHERE id = %s
         RETURNING id
         """,
-        (
-            result.get("object_type") or "Unbekanntes Objekt",
-            oc["id"],
-            result.get("brand"),
-            result.get("model"),
-            result.get("serial_number"),
-            result.get("commercial_category") or "ungeklaert",
-            bool(result.get("requires_accounting_review")),
-            result.get("recommended_status") or "pruefen",
-            result.get("confidence") or 0,
-            age_source,
-            age_verification_status,
-            estimated_age_years,
-            item_id,
-        ),
+        (result.get("confidence") or 0, item_id),
     )
 
 
