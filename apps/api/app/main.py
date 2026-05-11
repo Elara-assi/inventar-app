@@ -2616,6 +2616,9 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
         }
     value_min, value_max = estimate_value_range(item, ai_context)
     estimate = conservative_value_estimate(value_min, value_max)
+    text = " ".join(str(item.get(key) or "").lower() for key in ["object_type", "object_class_name", "brand", "model"]) + " " + ai_context.lower()
+    if sources and any(term in text for term in ["iphone", "smartphone"]):
+        estimate = max(300, estimate)
     return bga_value_guardrail(item, ai_context, estimate)
 
 
@@ -2826,6 +2829,19 @@ def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_c
         return 3.0
     if "12700h" in lower_text or "rtx 3060" in lower_text or "rtx 3070" in lower_text:
         return 4.0
+    iphone_years = {
+        "iphone 16": 2024,
+        "iphone 15": 2023,
+        "iphone 14": 2022,
+        "iphone 13": 2021,
+        "iphone 12": 2020,
+        "iphone 11": 2019,
+    }
+    for marker, release_year in iphone_years.items():
+        if marker in lower_text:
+            return max(0.0, round(datetime.utcnow().year - release_year, 1))
+    if "redragon" in lower_text and "m908" in lower_text:
+        return max(0.0, round(datetime.utcnow().year - 2018, 1))
     if "agile-splendor" in lower_text or ("ips" in lower_text and "monitor" in lower_text):
         return 2.0
     years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
