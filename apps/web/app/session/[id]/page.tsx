@@ -109,9 +109,10 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const finalCount = items.filter((item) => item.review_status === "finalisiert" || item.status === "finalisiert").length;
   const isClosed = session?.status === "closed";
   const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
+  const hasCapturedItems = items.length > 0;
 
   return (
-    <main className="page grid premium-session-page">
+    <main className={`page grid premium-session-page ${hasCapturedItems ? "has-items" : "is-empty"}`}>
       <section className="room-hero">
         <div className="room-hero-main">
           <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
@@ -191,11 +192,26 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         <aside className="pairing-panel">
           <div>
             <strong>Handy koppeln</strong>
-            <span>{isClosed ? "Raum ist abgeschlossen. Kopplung ist deaktiviert." : "QR-Code scannen und sofort erfassen."}</span>
+            <span>
+              {isClosed
+                ? "Raum ist abgeschlossen. Kopplung ist deaktiviert."
+                : hasCapturedItems
+                  ? "Weitere Geräte können bei Bedarf gekoppelt werden."
+                  : "QR-Code scannen und sofort erfassen."}
+            </span>
           </div>
-          <div className="qr-box pairing-qr">
-            {session && !isClosed ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : <strong>Gesperrt</strong>}
-          </div>
+          {hasCapturedItems && session && !isClosed ? (
+            <details className="pairing-details">
+              <summary>QR-Code anzeigen</summary>
+              <div className="qr-box pairing-qr">
+                <QRCodeSVG value={joinUrl(session.join_token)} size={160} />
+              </div>
+            </details>
+          ) : (
+            <div className="qr-box pairing-qr">
+              {session && !isClosed ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : <strong>Gesperrt</strong>}
+            </div>
+          )}
           <div className="pairing-meta">
             <span>Token</span>
             <strong>{session?.join_token || "-"}</strong>

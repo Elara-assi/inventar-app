@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bootstrap, ItemTemplate, api, apiObjectUrl, downloadApiFile } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
@@ -202,6 +202,15 @@ function displayTaskField(field?: string) {
   return replacements[value] ?? value.replace(/^Buchhaltung:\s*/i, "").replace(/^BUCHHALTUNG:\s*/i, "");
 }
 
+function reviewSortPriority(item: ReviewItem) {
+  if ((item.blockers?.length ?? 0) > 0) return 0;
+  if ((item.open_tasks?.length ?? 0) > 0) return 1;
+  if (!item.object_type || !item.has_object_photo) return 2;
+  if (item.status?.startsWith("ki_")) return 3;
+  if (item.review_status === "finalisiert" || item.status === "finalisiert") return 5;
+  return 4;
+}
+
 const evidencePhotoTypes = [
   { type: "object_front", label: "Objektfoto", hint: "Gesamtansicht" },
   { type: "type_plate", label: "Typenschild", hint: "Seriennummer" },
@@ -244,6 +253,15 @@ export function ItemReviewList({
   onChanged: () => void;
   readOnly?: boolean;
 }) {
+  const visibleItems = useMemo(
+    () => [...items].sort((left, right) => {
+      const priority = reviewSortPriority(left) - reviewSortPriority(right);
+      if (priority !== 0) return priority;
+      return (left.sequence_number ?? 999999) - (right.sequence_number ?? 999999);
+    }),
+    [items],
+  );
+
   if (!items.length) {
     return (
       <div className="empty-state">
@@ -257,7 +275,7 @@ export function ItemReviewList({
     <PhotoPreviewProvider>
       {(openPhoto) => (
         <div className="item-list">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} />
           ))}
         </div>

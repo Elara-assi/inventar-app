@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 from PIL import Image as PillowImage, ImageOps
 from pydantic import BaseModel
 
-from .db import execute, fetch_all, fetch_one
+from .db import db_pool_status, execute, fetch_all, fetch_one
 from .logic import (
     WORKSHOP_REFERENCE_CATALOG,
     audit,
@@ -731,6 +731,8 @@ def health() -> dict[str, Any]:
         "migrations": migrations_ok,
         "upload_root": upload_root_ok,
         "upload_free_mb": upload_free_mb,
+        "db_pool": db_pool_status(),
+        "auth_secret_configured": not settings.uses_default_auth_secret(),
         "phase": "enterprise-foundation",
     }
 
@@ -3284,6 +3286,17 @@ def build_excel_workbook(
     ws.freeze_panes = "A8"
     if rows:
         ws.auto_filter.ref = f"A{header_row}:I{header_row + len(rows)}"
+    ws.print_title_rows = "1:7"
+    ws.print_area = f"A1:I{max(header_row + len(rows), header_row + 1)}"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins.left = 0.25
+    ws.page_margins.right = 0.25
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
     widths = [18, 28, 34, 12, 16, 16, 16, 16, 48]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     demo_user_email: str = "pruefer@example.local"
     auth_secret: str = "change-me-in-env"
     auth_token_minutes: int = 720
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 12
+    db_pool_timeout_seconds: float = 5.0
     max_upload_bytes: int = 35 * 1024 * 1024
     allowed_upload_mime_types: str = "image/jpeg,image/png,image/webp,image/heic,image/heif"
     migrations_path: str = "/app/db/migrations"
@@ -32,6 +35,9 @@ class Settings(BaseSettings):
 
     def allowed_upload_mime_list(self) -> set[str]:
         return {value.strip().lower() for value in self.allowed_upload_mime_types.split(",") if value.strip()}
+
+    def uses_default_auth_secret(self) -> bool:
+        return not self.auth_secret or self.auth_secret.startswith("change-me")
 
 
 settings = Settings()
