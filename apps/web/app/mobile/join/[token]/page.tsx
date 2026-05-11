@@ -251,6 +251,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [token, setToken] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
+  const [joinError, setJoinError] = useState("");
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [objectClassId, setObjectClassId] = useState("");
   const [step, setStep] = useState(0);
@@ -281,6 +282,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     condition_detail: useRef<HTMLInputElement>(null),
     other: useRef<HTMLInputElement>(null),
   };
+  const activeStepRef = useRef<HTMLDivElement>(null);
+  const lastStepRef = useRef(step);
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
@@ -335,13 +338,17 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   useEffect(() => {
     if (!token || !deviceId) return;
+    setJoinError("");
     api<Joined>("/sessions/join", {
       method: "POST",
       body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
     }).then((result) => {
       if (result.access_token) setAuthToken(result.access_token);
       setJoined(result);
-    }).catch((err) => setMessage(err instanceof Error ? err.message : "Join fehlgeschlagen"));
+    }).catch((err) => {
+      setJoinError(err instanceof Error ? err.message : "Join fehlgeschlagen");
+      setMessage("Session nicht verfügbar");
+    });
   }, [token, deviceId]);
 
   const roomName = useMemo(() => {
@@ -770,7 +777,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const openQueueItems = queueDetails?.openItems ?? [];
   const openQueueObjects = openQueueItems.filter((item) => item.type === "item_draft").length;
   const openQueuePhotos = openQueueItems.filter((item) => item.type === "photo_upload").length;
-  const hasOpenLocalQueue = isBgaSession && openQueueItems.length > 0;
+  const hasOpenLocalQueue = Boolean(joined) && isBgaSession && openQueueItems.length > 0;
   const openQueueIntro = openQueuePhotos
     ? `Es sind noch ${openQueuePhotos} Fotos auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`
     : `Es sind noch ${openQueueObjects} Objekte auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`;
@@ -779,7 +786,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const hasQueueFailure = queueSummary.failed > 0;
   const hasQueueConflict = queueSummary.conflict > 0;
   const hasForeignQueue = otherSessionOpen > 0;
-  const shouldPauseForQueue = isBgaSession && (hasForeignQueue || hasQueueConflict);
+  const shouldPauseForQueue = Boolean(joined) && isBgaSession && (hasForeignQueue || hasQueueConflict);
   const isCurrentSessionPendingOnly = hasOpenLocalQueue && currentSessionOpen > 0 && !hasForeignQueue && !hasQueueFailure && !hasQueueConflict;
   const syncText = isCurrentSessionPendingOnly && !isOnline
     ? "Offline-Erfassung aktiv"
@@ -801,7 +808,21 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     : queueSummary.pendingPhotos
       ? `${queueSummary.pendingPhotos} Fotos offen. Lokal gesichert, bis der Server den Upload bestätigt.`
       : syncMessage || "Lokale Queue ist leer.";
-  const canCaptureInThisSession = isBgaSession && !shouldPauseForQueue;
+  const canCaptureInThisSession = Boolean(joined) && isBgaSession && !shouldPauseForQueue;
+  const shouldShowSyncActions = !isOnline
+    || queueSummary.open > 0
+    || hasQueueFailure
+    || hasQueueConflict
+    || (Boolean(syncMessage) && syncMessage !== "Synchronisierung abgeschlossen.");
+
+  useEffect(() => {
+    if (!canCaptureInThisSession || savedItem) return;
+    if (lastStepRef.current === step) return;
+    lastStepRef.current = step;
+    window.requestAnimationFrame(() => {
+      activeStepRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [canCaptureInThisSession, savedItem, step]);
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
@@ -940,29 +961,43 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
       <section className="mobile-capture-shell bga-wizard">
-        <div className="mobile-room-bar">
+        {joined ? <div className="mobile-room-bar">
           <div>
             <strong>{roomName}</strong>
             <span>{inventoryTypeLabel(inventoryType)}</span>
           </div>
           <span className="live-indicator">Live</span>
-        </div>
+        </div> : null}
 
-        {isBgaSession && !shouldPauseForQueue ? (
-          <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed || queueSummary.conflict ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"}`}>
+        {!joined ? (
+          <section className={`wizard-card join-state-card ${joinError ? "is-error" : ""}`}>
+            <h1>{joinError ? "Session nicht verfügbar" : "Session wird geöffnet"}</h1>
+            <p>
+              {joinError
+                ? "Der QR-Code ist ungültig oder abgelaufen. Bitte öffne einen aktuellen QR-Code aus der Prüferliste."
+                : "Die Handy-Erfassung wird vorbereitet."}
+            </p>
+            {joinError ? <div className="summary-box danger"><strong>Hinweis</strong><span>{joinError}</span></div> : null}
+          </section>
+        ) : null}
+
+        {joined && isBgaSession && !shouldPauseForQueue ? (
+          <div className={`mobile-sync-bar ${!isOnline ? "is-offline" : queueSummary.failed || queueSummary.conflict ? "is-failed" : queueSummary.open ? "is-pending" : "is-synced"} ${shouldShowSyncActions ? "" : "is-compact"}`}>
             <div>
               <strong>{syncText}</strong>
               <span>{syncDetail}</span>
             </div>
-            <button
-              className="btn secondary"
-              type="button"
-              disabled={false}
-              onClick={() => void retrySync()}
-              title={!isOnline ? "Synchronisierung wird versucht. Wenn keine Verbindung besteht, bleiben die Daten lokal gesichert." : undefined}
-            >
-              Jetzt synchronisieren
-            </button>
+            {shouldShowSyncActions ? (
+              <button
+                className="btn secondary"
+                type="button"
+                disabled={false}
+                onClick={() => void retrySync()}
+                title={!isOnline ? "Synchronisierung wird versucht. Wenn keine Verbindung besteht, bleiben die Daten lokal gesichert." : undefined}
+              >
+                Jetzt synchronisieren
+              </button>
+            ) : null}
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
             {hasOpenLocalQueue ? <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button> : null}
           </div>
@@ -1064,6 +1099,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               key={label}
               className={index === step ? "is-active" : index < step ? "is-done" : ""}
               type="button"
+              aria-label={`Schritt ${index + 1}: ${label}`}
+              title={label}
               onClick={() => setStep(index)}
             >
               {index + 1}
@@ -1071,205 +1108,209 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           ))}
         </div> : null}
 
-        {canCaptureInThisSession && !savedItem && step === 0 ? (
-          <WizardCard title="Fotos & Nachweise" hint="Objekt vollständig fotografieren. Typenschild und weitere Nachweise direkt hier ergänzen.">
-            <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
-              <span>Objekt fotografieren</span>
-              <small>{photos.filter((photo) => photo.type === "object_front").length ? "Objektfoto gespeichert" : "Pflichtfoto"}</small>
-            </button>
-            <div className="summary-box info">
-              <strong>Typenschild</strong>
-              <span>Wenn vorhanden, gut lesbar fotografieren. Daraus können Hersteller, Modell und Baujahr besser erkannt werden.</span>
-            </div>
-            <div className="choice-grid">
-              <button
-                className={form.type_plate_status === "vorhanden" ? "is-active" : ""}
-                type="button"
-                disabled={busy}
-                onClick={() => decideTypePlate("vorhanden")}
-              >
-                Typenschild fotografieren
-              </button>
-              <button
-                className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""}
-                type="button"
-                disabled={busy}
-                onClick={() => decideTypePlate("nicht_vorhanden")}
-              >
-                Kein Typenschild vorhanden
-              </button>
-              <button
-                className={form.type_plate_status === "unklar" ? "is-active" : ""}
-                type="button"
-                disabled={busy}
-                onClick={() => decideTypePlate("unklar")}
-              >
-                Nicht erkennbar
-              </button>
-            </div>
-            <div className="summary-box">
-              <strong>Weiteres Foto hinzufügen</strong>
-              <span>Optional, falls es für Prüfung oder Nacharbeit hilft.</span>
-            </div>
-            <div className="choice-grid">
-              <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("condition_detail")}>Zustand/Schaden fotografieren</button>
-              <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("other")}>Weiteres Foto</button>
-            </div>
-            {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
-          </WizardCard>
-        ) : null}
-
-        {canCaptureInThisSession && !savedItem && step === 1 ? (
-          <WizardCard title="KI-Vorschlag" hint="KI kann Felder vorschlagen. Bitte alles prüfen.">
-            <div className="summary-box info">
-              <strong>KI-Vorschlag – bitte prüfen</strong>
-              <span>Die KI startet erst mit Objektfoto. Ein Typenschildfoto wird zusätzlich genutzt, wenn es vorhanden ist.</span>
-              {aiSuggestionMessage ? <span>{aiSuggestionMessage}</span> : null}
-            </div>
-            {aiSuggestion ? (
-              <div className="summary-list ai-suggestion-list">
-                {aiSuggestionRows(aiSuggestion).map((row) => (
-                  <span key={row.key}>
-                    <b>{row.label}</b>
-                    <span>{row.value}</span>
-                    <small>{row.note || aiConfidenceLabel(aiSuggestion)}</small>
-                    {row.field ? (
-                      <button
-                        className="btn secondary"
-                        type="button"
-                        onClick={() => applyAiSuggestionField(row.field, row.value)}
-                      >
-                        Übernehmen
-                      </button>
-                    ) : null}
-                  </span>
-                ))}
-                <button className="btn secondary" type="button" onClick={() => applyAiSuggestionsToEmptyFields(aiSuggestion)}>
-                  Vorschläge in leere Felder übernehmen
+        {canCaptureInThisSession && !savedItem ? (
+          <div className="wizard-step-anchor" ref={activeStepRef}>
+            {step === 0 ? (
+              <WizardCard title="Fotos & Nachweise" hint="Objekt vollständig fotografieren. Typenschild und weitere Nachweise direkt hier ergänzen.">
+                <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
+                  <span>Objekt fotografieren</span>
+                  <small>{photos.filter((photo) => photo.type === "object_front").length ? "Objektfoto gespeichert" : "Pflichtfoto"}</small>
                 </button>
-              </div>
+                <div className="summary-box info">
+                  <strong>Typenschild</strong>
+                  <span>Wenn vorhanden, gut lesbar fotografieren. Daraus können Hersteller, Modell und Baujahr besser erkannt werden.</span>
+                </div>
+                <div className="choice-grid">
+                  <button
+                    className={form.type_plate_status === "vorhanden" ? "is-active" : ""}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => decideTypePlate("vorhanden")}
+                  >
+                    Typenschild fotografieren
+                  </button>
+                  <button
+                    className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => decideTypePlate("nicht_vorhanden")}
+                  >
+                    Kein Typenschild vorhanden
+                  </button>
+                  <button
+                    className={form.type_plate_status === "unklar" ? "is-active" : ""}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => decideTypePlate("unklar")}
+                  >
+                    Nicht erkennbar
+                  </button>
+                </div>
+                <div className="summary-box">
+                  <strong>Weiteres Foto hinzufügen</strong>
+                  <span>Optional, falls es für Prüfung oder Nacharbeit hilft.</span>
+                </div>
+                <div className="choice-grid">
+                  <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("condition_detail")}>Zustand/Schaden fotografieren</button>
+                  <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("other")}>Weiteres Foto</button>
+                </div>
+                {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
+              </WizardCard>
             ) : null}
-            <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={() => void loadAiSuggestion()}>
-              KI-Vorschlag holen
-            </button>
-            {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
-          </WizardCard>
-        ) : null}
 
-        {canCaptureInThisSession && !savedItem && step === 2 ? (
-          <WizardCard title="Stammdaten" hint="Bezeichnung, Typ und Baujahr eintragen oder KI-Vorschlag prüfen.">
-            <label className="field">
-              <span>Bezeichnung</span>
-              <input value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Ölschlucker" />
-            </label>
-            <label className="field">
-              <span>Typ / Spezifikation</span>
-              <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
-            </label>
-            <label className="field">
-              <span>Baujahr</span>
-              <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
-            </label>
-            {aiSuggestion?.estimated_age_years ? <p className="muted">KI-Schätzung: ca. {aiSuggestion.estimated_age_years} Jahre. Bitte nicht als gesichertes Baujahr übernehmen, wenn keine Quelle erkennbar ist.</p> : null}
-          </WizardCard>
-        ) : null}
+            {step === 1 ? (
+              <WizardCard title="KI-Vorschlag" hint="KI kann Felder vorschlagen. Bitte alles prüfen.">
+                <div className="summary-box info">
+                  <strong>KI-Vorschlag – bitte prüfen</strong>
+                  <span>Die KI startet erst mit Objektfoto. Ein Typenschildfoto wird zusätzlich genutzt, wenn es vorhanden ist.</span>
+                  {aiSuggestionMessage ? <span>{aiSuggestionMessage}</span> : null}
+                </div>
+                {aiSuggestion ? (
+                  <div className="summary-list ai-suggestion-list">
+                    {aiSuggestionRows(aiSuggestion).map((row) => (
+                      <span key={row.key}>
+                        <b>{row.label}</b>
+                        <span>{row.value}</span>
+                        <small>{row.note || aiConfidenceLabel(aiSuggestion)}</small>
+                        {row.field ? (
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => applyAiSuggestionField(row.field, row.value)}
+                          >
+                            Übernehmen
+                          </button>
+                        ) : null}
+                      </span>
+                    ))}
+                    <button className="btn secondary" type="button" onClick={() => applyAiSuggestionsToEmptyFields(aiSuggestion)}>
+                      Vorschläge in leere Felder übernehmen
+                    </button>
+                  </div>
+                ) : null}
+                <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={() => void loadAiSuggestion()}>
+                  KI-Vorschlag holen
+                </button>
+                {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
+              </WizardCard>
+            ) : null}
 
-        {canCaptureInThisSession && !savedItem && step === 3 ? (
-          <WizardCard title="Zustand & Prüfung" hint="Zustand, Funktion, UVV und Bemerkung kompakt erfassen.">
-            <label className="field">
-              <span>Zustand</span>
-              <select value={form.condition} onChange={(event) => update("condition", event.target.value)}>
-                <option value="sehr_gut">sehr gut</option>
-                <option value="gut">gut</option>
-                <option value="gebraucht">gebraucht</option>
-                <option value="reparaturbeduerftig">reparaturbedürftig</option>
-                <option value="defekt">defekt</option>
-                <option value="unklar">unklar</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Zustandsbemerkung</span>
-              <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
-            </label>
-            <div className="summary-box">
-              <strong>Funktion i. O.</strong>
-              <span>Kurze Funktionsbewertung auswählen.</span>
-            </div>
-            <div className="choice-grid">
-              {[
-                ["ja", "Ja"],
-                ["nein", "Nein"],
-                ["nicht_geprueft", "Nicht geprüft"],
-              ].map(([value, label]) => (
-                <button key={value} className={form.function_ok === value ? "is-active" : ""} type="button" onClick={() => decideFunctionOk(value as FunctionOk)}>{label}</button>
-              ))}
-            </div>
-            <label className="field">
-              <span>UVV Status</span>
-              <select value={form.uvv_status} onChange={(event) => decideUvvStatus(event.target.value as UvvStatus)}>
-                <option value="vorhanden">UVV vorhanden</option>
-                <option value="nicht_vorhanden">UVV nicht vorhanden</option>
-                <option value="nicht_uvv_pflichtig">nicht UVV-pflichtig</option>
-                <option value="unklar">unklar</option>
-              </select>
-            </label>
-            {form.uvv_status === "vorhanden" ? (
-              <>
+            {step === 2 ? (
+              <WizardCard title="Stammdaten" hint="Bezeichnung, Typ und Baujahr eintragen oder KI-Vorschlag prüfen.">
                 <label className="field">
-                  <span>UVV gültig bis</span>
-                  <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
+                  <span>Bezeichnung</span>
+                  <input value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Ölschlucker" />
                 </label>
-                <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("uvv_label")}>UVV-Siegel fotografieren</button>
-              </>
-            ) : (
-              <div className="summary-box info">
-                <strong>Kein UVV-Foto nötig</strong>
-                <span>{form.uvv_status === "unklar" ? "UVV wird als Nacharbeit gekennzeichnet." : "Diese Entscheidung überspringt das UVV-Siegel-Foto."}</span>
-              </div>
-            )}
-            <label className="field">
-              <span>Bemerkung</span>
-              <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
-            </label>
-          </WizardCard>
-        ) : null}
-
-        {canCaptureInThisSession && !savedItem && step === 4 ? (
-          <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
-            <div className="summary-list">
-              <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
-              <span><b>Typ/Spezifikation</b>{form.specification || "offen"}</span>
-              <span><b>Baujahr</b>{form.construction_year || "offen"}</span>
-              <span><b>Zustand</b>{form.condition}</span>
-              <span><b>Funktion</b>{form.function_ok}</span>
-              <span><b>UVV</b>{form.uvv_status}{form.uvv_valid_until ? ` bis ${form.uvv_valid_until}` : ""}</span>
-              <span><b>Fotos</b>{photos.length}/5</span>
-            </div>
-            {photos.length ? (
-              <div className="photo-summary">
-                {photos.map((photo, index) => <span key={`${photo.type}-${index}`}>{photoLabels[photo.type]}</span>)}
-              </div>
+                <label className="field">
+                  <span>Typ / Spezifikation</span>
+                  <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
+                </label>
+                <label className="field">
+                  <span>Baujahr</span>
+                  <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
+                </label>
+                {aiSuggestion?.estimated_age_years ? <p className="muted">KI-Schätzung: ca. {aiSuggestion.estimated_age_years} Jahre. Bitte nicht als gesichertes Baujahr übernehmen, wenn keine Quelle erkennbar ist.</p> : null}
+              </WizardCard>
             ) : null}
-            <div className="summary-checks">
-              {summaryBlockers.length ? (
-                <div className="summary-box danger">
-                  <strong>Fehlt für Abschluss</strong>
-                  {summaryBlockers.map((entry) => <span key={entry}>{entry}</span>)}
-                  <span>Entwurf lokal speichern ist trotzdem möglich.</span>
+
+            {step === 3 ? (
+              <WizardCard title="Zustand & Prüfung" hint="Zustand, Funktion, UVV und Bemerkung kompakt erfassen.">
+                <label className="field">
+                  <span>Zustand</span>
+                  <select value={form.condition} onChange={(event) => update("condition", event.target.value)}>
+                    <option value="sehr_gut">sehr gut</option>
+                    <option value="gut">gut</option>
+                    <option value="gebraucht">gebraucht</option>
+                    <option value="reparaturbeduerftig">reparaturbedürftig</option>
+                    <option value="defekt">defekt</option>
+                    <option value="unklar">unklar</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Zustandsbemerkung</span>
+                  <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
+                </label>
+                <div className="summary-box">
+                  <strong>Funktion i. O.</strong>
+                  <span>Kurze Funktionsbewertung auswählen.</span>
                 </div>
-              ) : <div className="summary-box ok"><strong>Vollständig genug</strong><span>Pflichtfoto und Bezeichnung sind vorhanden.</span></div>}
-              {summaryRework.length ? (
-                <div className="summary-box warn">
-                  <strong>Erzeugt Nacharbeit</strong>
-                  {summaryRework.map((entry) => <span key={entry}>{entry}</span>)}
+                <div className="choice-grid">
+                  {[
+                    ["ja", "Ja"],
+                    ["nein", "Nein"],
+                    ["nicht_geprueft", "Nicht geprüft"],
+                  ].map(([value, label]) => (
+                    <button key={value} className={form.function_ok === value ? "is-active" : ""} type="button" onClick={() => decideFunctionOk(value as FunctionOk)}>{label}</button>
+                  ))}
                 </div>
-              ) : <div className="summary-box ok"><strong>Keine automatische Nacharbeit</strong><span>Keine kritischen Hinweise in dieser Aufnahme.</span></div>}
-            </div>
-            <button className="btn accent" type="button" disabled={!canSaveDraft || busy} onClick={saveObject}>
-              {summaryBlockers.length ? "Entwurf lokal speichern" : "Speichern & synchronisieren"}
-            </button>
-            <button className="btn secondary" type="button" onClick={() => setStep(0)}>Zurück bearbeiten</button>
-          </WizardCard>
+                <label className="field">
+                  <span>UVV Status</span>
+                  <select value={form.uvv_status} onChange={(event) => decideUvvStatus(event.target.value as UvvStatus)}>
+                    <option value="vorhanden">UVV vorhanden</option>
+                    <option value="nicht_vorhanden">UVV nicht vorhanden</option>
+                    <option value="nicht_uvv_pflichtig">nicht UVV-pflichtig</option>
+                    <option value="unklar">unklar</option>
+                  </select>
+                </label>
+                {form.uvv_status === "vorhanden" ? (
+                  <>
+                    <label className="field">
+                      <span>UVV gültig bis</span>
+                      <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
+                    </label>
+                    <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("uvv_label")}>UVV-Siegel fotografieren</button>
+                  </>
+                ) : (
+                  <div className="summary-box info">
+                    <strong>Kein UVV-Foto nötig</strong>
+                    <span>{form.uvv_status === "unklar" ? "UVV wird als Nacharbeit gekennzeichnet." : "Diese Entscheidung überspringt das UVV-Siegel-Foto."}</span>
+                  </div>
+                )}
+                <label className="field">
+                  <span>Bemerkung</span>
+                  <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
+                </label>
+              </WizardCard>
+            ) : null}
+
+            {step === 4 ? (
+              <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
+                <div className="summary-list">
+                  <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
+                  <span><b>Typ/Spezifikation</b>{form.specification || "offen"}</span>
+                  <span><b>Baujahr</b>{form.construction_year || "offen"}</span>
+                  <span><b>Zustand</b>{form.condition}</span>
+                  <span><b>Funktion</b>{form.function_ok}</span>
+                  <span><b>UVV</b>{form.uvv_status}{form.uvv_valid_until ? ` bis ${form.uvv_valid_until}` : ""}</span>
+                  <span><b>Fotos</b>{photos.length}/5</span>
+                </div>
+                {photos.length ? (
+                  <div className="photo-summary">
+                    {photos.map((photo, index) => <span key={`${photo.type}-${index}`}>{photoLabels[photo.type]}</span>)}
+                  </div>
+                ) : null}
+                <div className="summary-checks">
+                  {summaryBlockers.length ? (
+                    <div className="summary-box danger">
+                      <strong>Fehlt für Abschluss</strong>
+                      {summaryBlockers.map((entry) => <span key={entry}>{entry}</span>)}
+                      <span>Entwurf lokal speichern ist trotzdem möglich.</span>
+                    </div>
+                  ) : <div className="summary-box ok"><strong>Vollständig genug</strong><span>Pflichtfoto und Bezeichnung sind vorhanden.</span></div>}
+                  {summaryRework.length ? (
+                    <div className="summary-box warn">
+                      <strong>Erzeugt Nacharbeit</strong>
+                      {summaryRework.map((entry) => <span key={entry}>{entry}</span>)}
+                    </div>
+                  ) : <div className="summary-box ok"><strong>Keine automatische Nacharbeit</strong><span>Keine kritischen Hinweise in dieser Aufnahme.</span></div>}
+                </div>
+                <button className="btn accent" type="button" disabled={!canSaveDraft || busy} onClick={saveObject}>
+                  {summaryBlockers.length ? "Entwurf lokal speichern" : "Speichern & synchronisieren"}
+                </button>
+                <button className="btn secondary" type="button" onClick={() => setStep(0)}>Zurück bearbeiten</button>
+              </WizardCard>
+            ) : null}
+          </div>
         ) : null}
 
         {canCaptureInThisSession && !savedItem ? <div className="wizard-nav">

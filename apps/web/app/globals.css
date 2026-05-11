@@ -1584,7 +1584,7 @@ body {
 }
 
 .mobile-photo-stage {
-  min-height: 212px;
+  min-height: 168px;
   display: grid;
   place-items: center;
   gap: 6px;
@@ -1594,7 +1594,7 @@ body {
     repeating-linear-gradient(135deg, #f0f4ef, #f0f4ef 10px, #e8eee8 10px, #e8eee8 20px);
   color: #697570;
   cursor: pointer;
-  padding: 20px;
+  padding: 16px;
 }
 
 .mobile-photo-stage span {
@@ -4255,8 +4255,27 @@ body:has(.premium-session-page) {
   background-size: 42px 42px;
 }
 
+body:has(.bga-wizard-page) .topbar {
+  border-bottom-width: 1px;
+}
+
+body:has(.bga-wizard-page) .topbar-inner {
+  min-height: 48px;
+  padding: 8px 14px;
+}
+
+body:has(.bga-wizard-page) .brand {
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+body:has(.bga-wizard-page) .brand span,
+body:has(.bga-wizard-page) .topbar .status {
+  display: none;
+}
+
 .bga-wizard {
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -4284,6 +4303,15 @@ body:has(.premium-session-page) {
   border-radius: 16px;
   background: #f8fbff;
   padding: 10px;
+}
+
+.mobile-sync-bar.is-compact {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 8px 10px;
+}
+
+.mobile-sync-bar.is-compact span {
+  display: none;
 }
 
 .mobile-sync-bar strong {
@@ -4358,17 +4386,24 @@ body:has(.premium-session-page) {
 
 .wizard-progress {
   display: grid;
-  grid-template-columns: repeat(11, 1fr);
-  gap: 5px;
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
+  gap: 8px;
 }
 
 .wizard-progress button {
-  min-height: 34px;
+  min-height: 44px;
+  min-width: 44px;
   border: 1px solid #cfe0ee;
   border-radius: 999px;
   background: white;
   color: #5b6b80;
   font-weight: 900;
+}
+
+.wizard-step-anchor {
+  display: grid;
+  gap: 14px;
+  scroll-margin-top: 12px;
 }
 
 .wizard-progress button.is-active {
@@ -4385,13 +4420,24 @@ body:has(.premium-session-page) {
 
 .wizard-card {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
   border: 1px solid #cfe0ee;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.96);
   padding: 16px;
   box-shadow: 0 18px 48px rgba(15, 38, 66, 0.12);
+}
+
+.join-state-card {
+  min-height: 210px;
+  align-content: center;
+  text-align: center;
+}
+
+.join-state-card.is-error {
+  border-color: #fecaca;
+  background: #fff7f7;
 }
 
 .wizard-card h1 {
@@ -4423,7 +4469,7 @@ body:has(.premium-session-page) {
 .segmented,
 .choice-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 8px;
 }
 
@@ -4553,36 +4599,55 @@ body:has(.premium-session-page) {
 
 @media (max-width: 420px) {
   .bga-wizard-page {
-    padding: 10px;
+    padding: 8px;
   }
 
   .mobile-capture-shell {
-    border-radius: 18px;
+    border-radius: 16px;
+    padding: 10px;
+  }
+
+  .mobile-room-bar {
+    margin: -10px -10px 0;
+    border-radius: 16px 16px 0 0;
+    padding: 10px 12px;
+  }
+
+  .mobile-sync-bar {
+    grid-template-columns: 1fr;
+    padding: 8px;
   }
 
   .wizard-card {
-    padding: 14px;
+    padding: 12px;
   }
 
   .wizard-card h1 {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .wizard-progress {
-    gap: 4px;
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+    gap: 6px;
   }
 
   .wizard-progress button {
-    min-height: 30px;
+    min-height: 44px;
+    min-width: 44px;
     padding: 0;
     font-size: 12px;
   }
 
-  .mobile-photo-previews {
+  .choice-grid,
+  .segmented {
     grid-template-columns: 1fr;
   }
 
-  .mobile-sync-bar {
+  .mobile-photo-stage {
+    min-height: 148px;
+  }
+
+  .mobile-photo-previews {
     grid-template-columns: 1fr;
   }
 }
