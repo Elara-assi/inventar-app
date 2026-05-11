@@ -408,6 +408,9 @@ export default function DashboardPage() {
           <div>
             <h1>Inventar Anmeldung</h1>
             <p>Bitte anmelden, um Sessions, Prüferliste und Exporte zu verwalten.</p>
+            <a className="btn secondary compact-btn assessment-home-link" href="/app-bewertung">
+              App-Bewertung ansehen
+            </a>
           </div>
         </section>
         <section className="panel login-panel">
@@ -450,6 +453,7 @@ export default function DashboardPage() {
         <div className="today-meta">
           <span>Heute</span>
           <strong>{summary.open} aktive Räume · {summary.items} Objekte erfasst</strong>
+          <a className="btn secondary compact-btn" href="/app-bewertung">App-Bewertung</a>
           <button className="btn secondary compact-btn" type="button" onClick={logout}>Abmelden</button>
         </div>
       </section>
