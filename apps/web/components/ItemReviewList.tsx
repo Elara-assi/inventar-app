@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bootstrap, ItemTemplate, api, apiObjectUrl, downloadApiFile } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
@@ -180,9 +180,9 @@ const inspectionBookLabels: Record<string, string> = {
   unklar: "Unklar",
 };
 
-const reworkOptions = [
+const baseReworkOptions = [
   { role: "Erfasser", label: "Erfasser: Foto/Nachweis", missingField: "Foto/Nachweis" },
-  { role: "Technik", label: "Technik: UVV/Wartung/Prüfbuch", missingField: "UVV/Wartung/Prüfbuch" },
+  { role: "Technik", label: "Technik: UVV/Funktion", missingField: "UVV/Funktion prüfen" },
   { role: "Auswertung", label: "Spätere Auswertung: Wert/Zuordnung", missingField: "Wert/Zuordnung später klären" },
 ] as const;
 
@@ -211,13 +211,50 @@ function reviewSortPriority(item: ReviewItem) {
   return 4;
 }
 
+type ReviewFilterKey = "all" | "rework" | "missing_photo" | "function" | "uvv" | "ready" | "finalized";
+
+function isFinalized(item: ReviewItem) {
+  return item.review_status === "finalisiert" || item.status === "finalisiert";
+}
+
+function hasObjectPhoto(item: ReviewItem) {
+  return Boolean(item.has_object_photo || item.object_photo_id || item.photos?.some((photo) => photo.photo_type === "object" || photo.photo_type === "object_front"));
+}
+
+function needsRework(item: ReviewItem) {
+  return (item.blockers?.length ?? 0) > 0
+    || (item.open_tasks?.length ?? 0) > 0
+    || item.review_status?.startsWith("nacharbeit")
+    || item.process_hints?.some((hint) => hint.severity === "warn" || hint.severity === "danger");
+}
+
+function matchesReviewFilter(item: ReviewItem, filter: ReviewFilterKey) {
+  if (filter === "all") return true;
+  if (filter === "rework") return needsRework(item);
+  if (filter === "missing_photo") return !hasObjectPhoto(item);
+  if (filter === "function") return item.function_ok === "nein" || item.function_ok === "nicht_geprueft";
+  if (filter === "uvv") return ["unklar", "nicht_vorhanden", "abgelaufen"].includes(item.uvv_status ?? "");
+  if (filter === "ready") return !isFinalized(item) && (item.blockers?.length ?? 0) === 0;
+  if (filter === "finalized") return isFinalized(item);
+  return true;
+}
+
+const reviewFilters: Array<{ key: ReviewFilterKey; label: string; empty: string }> = [
+  { key: "all", label: "Alle", empty: "Noch keine Gegenstände in dieser Ansicht." },
+  { key: "rework", label: "Nacharbeit", empty: "Sehr gut: keine offene Nacharbeit." },
+  { key: "missing_photo", label: "Ohne Foto", empty: "Alle sichtbaren Gegenstände haben ein Objektfoto." },
+  { key: "function", label: "Funktion offen", empty: "Keine offene oder negative Funktionsprüfung." },
+  { key: "uvv", label: "UVV offen", empty: "Keine offenen UVV-Punkte." },
+  { key: "ready", label: "Finalisierbar", empty: "Noch nichts ist finalisierbar." },
+  { key: "finalized", label: "Finalisiert", empty: "Noch keine finalisierten Gegenstände." },
+];
+
 const evidencePhotoTypes = [
   { type: "object_front", label: "Objektfoto", hint: "Gesamtansicht" },
   { type: "type_plate", label: "Typenschild", hint: "Seriennummer" },
-  { type: "object_back", label: "Rückseite/Detail", hint: "Nachweis" },
+  { type: "condition_detail", label: "Zustandsfoto", hint: "Schaden/Detail" },
   { type: "uvv_label", label: "UVV-Siegel", hint: "Prüfplakette" },
-  { type: "dot", label: "DOT", hint: "Reifen" },
-  { type: "other", label: "Sonstiges", hint: "Zusatzfoto" },
+  { type: "other", label: "Weiteres Foto", hint: "Zusatznachweis" },
 ] as const;
 
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
@@ -253,11 +290,27 @@ export function ItemReviewList({
   onChanged: () => void;
   readOnly?: boolean;
 }) {
+  const [activeFilter, setActiveFilter] = useState<ReviewFilterKey>("all");
   const visibleItems = useMemo(
-    () => [...items].sort((left, right) => {
+    () => items.filter((item) => matchesReviewFilter(item, activeFilter)).sort((left, right) => {
       const priority = reviewSortPriority(left) - reviewSortPriority(right);
       if (priority !== 0) return priority;
       return (left.sequence_number ?? 999999) - (right.sequence_number ?? 999999);
+    }),
+    [activeFilter, items],
+  );
+  const filterCounts = useMemo(
+    () => reviewFilters.reduce<Record<ReviewFilterKey, number>>((acc, filter) => {
+      acc[filter.key] = items.filter((item) => matchesReviewFilter(item, filter.key)).length;
+      return acc;
+    }, {
+      all: 0,
+      rework: 0,
+      missing_photo: 0,
+      function: 0,
+      uvv: 0,
+      ready: 0,
+      finalized: 0,
     }),
     [items],
   );
@@ -274,11 +327,33 @@ export function ItemReviewList({
   return (
     <PhotoPreviewProvider>
       {(openPhoto) => (
-        <div className="item-list">
-          {visibleItems.map((item) => (
-            <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} />
-          ))}
-        </div>
+        <>
+          <div className="review-filter-bar" aria-label="Prüfliste filtern">
+            {reviewFilters.map((filter) => (
+              <button
+                className={activeFilter === filter.key ? "active" : ""}
+                key={filter.key}
+                type="button"
+                onClick={() => setActiveFilter(filter.key)}
+              >
+                <span>{filter.label}</span>
+                <b>{filterCounts[filter.key]}</b>
+              </button>
+            ))}
+          </div>
+          {visibleItems.length ? (
+            <div className="item-list">
+              {visibleItems.map((item) => (
+                <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} />
+              ))}
+            </div>
+          ) : (
+            <div className="filter-empty-state">
+              <strong>{reviewFilters.find((filter) => filter.key === activeFilter)?.empty}</strong>
+              <span>Mit den Filtern springt der Prüfer direkt zu den relevanten Gegenständen.</span>
+            </div>
+          )}
+        </>
       )}
     </PhotoPreviewProvider>
   );
@@ -373,6 +448,19 @@ function ItemReviewRow({
   onOpenPhoto: (url: string, label: string) => void;
   readOnly: boolean;
 }) {
+  const editPanelRef = useRef<HTMLDivElement | null>(null);
+  const inventoryType = item.inventory_type || "bga";
+  const isBga = inventoryType === "bga";
+  const reworkOptions = useMemo(
+    () => isBga
+      ? baseReworkOptions
+      : [
+          baseReworkOptions[0],
+          { role: "Technik", label: "Technik: UVV/Wartung/Prüfbuch", missingField: "UVV/Wartung/Prüfbuch" },
+          baseReworkOptions[2],
+        ] as const,
+    [isBga],
+  );
   const [draft, setDraft] = useState({
     object_type: item.object_type ?? "",
     brand: item.brand ?? "",
@@ -392,7 +480,7 @@ function ItemReviewRow({
     review_status: item.review_status ?? "erfasst",
   });
   const [message, setMessage] = useState("");
-  const [selectedRework, setSelectedRework] = useState<(typeof reworkOptions)[number]["label"]>(reworkOptions[0].label);
+  const [selectedRework, setSelectedRework] = useState<string>(reworkOptions[0].label);
   const [templateQuery, setTemplateQuery] = useState("");
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -418,6 +506,19 @@ function ItemReviewRow({
       review_status: item.review_status ?? "erfasst",
     });
   }, [item]);
+
+  useEffect(() => {
+    if (!reworkOptions.some((option) => option.label === selectedRework)) {
+      setSelectedRework(reworkOptions[0].label);
+    }
+  }, [reworkOptions, selectedRework]);
+
+  useEffect(() => {
+    if (!editOpen) return;
+    window.setTimeout(() => {
+      editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }, [editOpen]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -503,7 +604,7 @@ function ItemReviewRow({
 
   async function requestSelectedRework() {
     const option = reworkOptions.find((entry) => entry.label === selectedRework) ?? reworkOptions[0];
-    await requestRework(option.role, option.missingField);
+    await requestRework(option.role as "Auswertung" | "Erfasser" | "Technik", option.missingField);
   }
 
   async function finalize() {
@@ -608,8 +709,17 @@ function ItemReviewRow({
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
   const photoLabel = item.object_type || item.inventory_id || item.temporary_id || "Objektfoto";
+  const filteredObjectClasses = useMemo(
+    () => objectClasses.filter((entry) => {
+      const name = `${entry.name} ${entry.slug ?? ""}`.toLowerCase();
+      if (isBga) return !["reifen", "reifen/räder", "reifenraeder", "tires_wheels", "special_tools", "spezialwerkzeuge"].some((blocked) => name === blocked || name.includes(` ${blocked}`));
+      return true;
+    }),
+    [isBga, objectClasses],
+  );
   const itemName = draft.object_type || "Unbekanntes Objekt";
-  const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || item.object_class_name || "Details offen";
+  const selectedClassName = filteredObjectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen";
+  const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || selectedClassName || "Details offen";
   const isAiEstimate = Boolean(deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt");
   const compactValue = draft.value_estimate ? `${draft.value_estimate} €${isAiEstimate ? " (KI)" : ""}` : deepDive?.estimated_value ? `${deepDive.estimated_value} € (KI)` : "Wert offen";
   const compactKi = deepDive
@@ -617,6 +727,9 @@ function ItemReviewRow({
     : isAiEstimate
       ? `${item.estimated_age_years ?? "Alter offen"} Jahre · ${item.value_estimate ?? "Wert offen"} €`
       : item.status?.startsWith("ki_") ? "KI läuft" : "";
+  const blockerSummary = blockers.slice(0, 3).map(displayTaskField).join(", ");
+  const finalizeBlocked = blockers.length > 0;
+  const finalizableLabel = finalizeBlocked ? "Noch offen" : "Finalisieren";
 
   return (
     <div className="item-row">
@@ -634,7 +747,7 @@ function ItemReviewRow({
         </div>
 
         <div className="item-compact-grid">
-          <span><b>Klasse</b>{objectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen"}</span>
+          <span><b>Klasse</b>{selectedClassName}</span>
           <span><b>Zustand</b>{conditionLabels[draft.condition] ?? draft.condition}</span>
           <span><b>Bearbeitung</b>{reviewStatusLabels[draft.review_status] ?? draft.review_status}</span>
           <span><b>Funktion</b>{functionLabels[draft.function_ok] ?? draft.function_ok}</span>
@@ -642,6 +755,12 @@ function ItemReviewRow({
           <span><b>Schätzwert</b>{compactValue}</span>
           {compactKi ? <span className={isAiEstimate ? "ki-estimate-cell" : ""}><b>{isAiEstimate ? "KI-Schätzung" : "KI"}</b>{compactKi}</span> : null}
         </div>
+        {blockerSummary ? (
+          <div className="blocker-summary">
+            <strong>Fehlt für Abschluss</strong>
+            <span>{blockerSummary}</span>
+          </div>
+        ) : null}
 
         {itemPhotos.length > 1 ? (
           <div className="photo-strip compact-strip">
@@ -658,12 +777,26 @@ function ItemReviewRow({
           <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen((current) => !current)}>
             {editOpen ? "Schließen" : "Bearbeiten"}
           </button>
-          <button className="btn" onClick={finalize} disabled={readOnly}>Finalisieren</button>
+          <button className="btn" onClick={finalize} disabled={readOnly || finalizeBlocked} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
+            {finalizableLabel}
+          </button>
           <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
 
         {editOpen ? (
-          <div className="item-edit-panel">
+          <div className="item-edit-panel" ref={editPanelRef}>
+            <div className="item-edit-head">
+              <div>
+                <strong>{itemName}</strong>
+                <span>Prüfen, korrigieren, speichern. Manuelle Eingaben sind führend.</span>
+              </div>
+              <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen(false)}>Fertig</button>
+            </div>
+            <section className="item-edit-section">
+              <div className="item-edit-section-head">
+                <strong>Stammdaten</strong>
+                <span>Was ist es?</span>
+              </div>
             <div className="item-main-fields">
               <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
               <input disabled={readOnly} value={draft.specification} onChange={(event) => setDraft({ ...draft, specification: event.target.value })} placeholder="Typ / Spezifikation" />
@@ -679,7 +812,13 @@ function ItemReviewRow({
                 placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
               />
             </div>
+            </section>
 
+            <section className="item-edit-section">
+              <div className="item-edit-section-head">
+                <strong>Zustand & Prüfung</strong>
+                <span>Was entscheidet der Prüfer?</span>
+              </div>
             <div className="item-review-selects bga-review-selects">
               <label>
                 <span>Funktion i. O.</span>
@@ -702,7 +841,7 @@ function ItemReviewRow({
                 <span>UVV gültig bis</span>
                 <input disabled={readOnly} type="date" value={draft.uvv_valid_until} onChange={(event) => setDraft({ ...draft, uvv_valid_until: event.target.value })} />
               </label>
-              <label>
+              {!isBga ? <label>
                 <span>Prüfbuch</span>
                 <select disabled={readOnly} value={draft.inspection_book_available} onChange={(event) => setDraft({ ...draft, inspection_book_available: event.target.value })}>
                   <option value="ja">Ja</option>
@@ -710,9 +849,15 @@ function ItemReviewRow({
                   <option value="nicht_erforderlich">Nicht erforderlich</option>
                   <option value="unklar">Unklar</option>
                 </select>
-              </label>
+              </label> : null}
             </div>
+            </section>
 
+            <section className="item-edit-section">
+              <div className="item-edit-section-head">
+                <strong>Vorlage & Status</strong>
+                <span>Optional schneller zuordnen</span>
+              </div>
             <div className="template-picker compact">
               <input
                 value={templateQuery}
@@ -737,7 +882,7 @@ function ItemReviewRow({
                 <span>Klasse</span>
                 <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
                   <option value="">Offen</option>
-                  {objectClasses.map((entry) => (
+                  {filteredObjectClasses.map((entry) => (
                     <option key={entry.id} value={entry.id}>{entry.name}</option>
                   ))}
                 </select>
@@ -746,7 +891,7 @@ function ItemReviewRow({
                 <span>Zustand</span>
                 <select disabled={readOnly} value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
                   {conditions.map((entry) => (
-                    <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
+                    <option key={entry} value={entry}>{conditionLabels[entry] ?? entry}</option>
                   ))}
                 </select>
               </label>
@@ -759,7 +904,13 @@ function ItemReviewRow({
                 </select>
               </label>
             </div>
+            </section>
 
+            <section className="item-edit-section">
+              <div className="item-edit-section-head">
+                <strong>Bemerkung & Nachweise</strong>
+                <span>Was fehlt noch?</span>
+              </div>
             <label className="field">
               <span>Bemerkung</span>
               <textarea disabled={readOnly} rows={3} value={draft.remark} onChange={(event) => setDraft({ ...draft, remark: event.target.value })} placeholder="Bemerkung aus der Aufnahme" />
@@ -854,7 +1005,7 @@ function ItemReviewRow({
                     {readOnly ? null : <input
                       type="file"
                       accept="image/*"
-                      capture={entry.type === "type_plate" || entry.type === "uvv_label" || entry.type === "dot" ? "environment" : undefined}
+                      capture={entry.type === "type_plate" || entry.type === "uvv_label" ? "environment" : undefined}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         event.target.value = "";
@@ -876,6 +1027,7 @@ function ItemReviewRow({
                 <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
               </div>
             </div>
+            </section>
           </div>
         ) : null}
         {moreOpen ? (

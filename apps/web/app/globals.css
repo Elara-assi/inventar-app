@@ -1272,6 +1272,43 @@ body {
   justify-content: flex-end;
 }
 
+.table-more-actions {
+  position: relative;
+}
+
+.table-more-actions summary {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef4fb;
+  color: var(--steel);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+  list-style: none;
+  padding: 0 12px;
+}
+
+.table-more-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.table-more-actions[open] summary {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.table-more-actions .btn {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 150px;
+  box-shadow: 0 18px 38px rgba(15, 31, 58, 0.18);
+}
+
 .empty-table {
   color: var(--muted);
   text-align: center !important;
@@ -4078,6 +4115,64 @@ body:has(.premium-session-page) {
   font-weight: 820;
 }
 
+.premium-session-page .review-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.premium-session-page .review-filter-bar button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #38506c;
+  cursor: pointer;
+  font-weight: 920;
+  padding: 8px 12px;
+  transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
+}
+
+.premium-session-page .review-filter-bar button:hover {
+  transform: translateY(-1px);
+  border-color: #93c5fd;
+}
+
+.premium-session-page .review-filter-bar button.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.premium-session-page .review-filter-bar b {
+  min-width: 24px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #123f85;
+  font-size: 12px;
+  padding: 3px 7px;
+  text-align: center;
+}
+
+.premium-session-page .filter-empty-state {
+  display: grid;
+  gap: 6px;
+  border: 1px dashed #bfdbfe;
+  border-radius: 18px;
+  background: #f8fbff;
+  color: #38506c;
+  padding: 24px;
+}
+
+.premium-session-page .filter-empty-state strong {
+  color: #0f1f3a;
+  font-size: 18px;
+}
+
 .premium-session-page .item-list {
   gap: 0;
   overflow: hidden;
@@ -4157,6 +4252,27 @@ body:has(.premium-session-page) {
   font-size: 13px;
 }
 
+.premium-session-page .blocker-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #fed7aa;
+  border-radius: 14px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 860;
+  padding: 9px 11px;
+}
+
+.premium-session-page .blocker-summary strong {
+  color: #c2410c;
+  font-size: 12px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
 .premium-session-page .compact-row-actions {
   grid-template-columns: minmax(140px, .8fr) minmax(140px, .8fr) minmax(92px, .45fr);
 }
@@ -4175,11 +4291,65 @@ body:has(.premium-session-page) {
   color: #ffffff;
 }
 
+.premium-session-page .compact-row-actions .btn:disabled {
+  cursor: not-allowed;
+  background: #e5edf8;
+  color: #64748b;
+  opacity: 1;
+}
+
 .premium-session-page .item-edit-panel {
   border-top-color: #dbeafe;
   border-radius: 16px;
   background: #f8fbff;
+  scroll-margin-top: 18px;
+  padding: 14px;
+}
+
+.premium-session-page .item-edit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #ffffff;
   padding: 12px;
+}
+
+.premium-session-page .item-edit-head div,
+.premium-session-page .item-edit-section-head {
+  display: grid;
+  gap: 3px;
+}
+
+.premium-session-page .item-edit-head strong,
+.premium-session-page .item-edit-section-head strong {
+  color: #0f1f3a;
+}
+
+.premium-session-page .item-edit-head span,
+.premium-session-page .item-edit-section-head span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.premium-session-page .item-edit-section {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.premium-session-page .item-edit-section + .item-edit-section {
+  margin-top: 10px;
+}
+
+.premium-session-page .item-edit-section-head {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .premium-session-page .item-row input,

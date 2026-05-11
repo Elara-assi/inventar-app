@@ -743,14 +743,17 @@ export default function DashboardPage() {
                     <div className="table-actions">
                       <a className="btn secondary compact-btn" href={`/session/${session.id}`}>Inventarliste</a>
                       <button className="btn secondary compact-btn" onClick={() => exportSession(session)}>Excel</button>
-                      <button
-                        className="btn danger icon-btn"
-                        onClick={() => deleteSession(session)}
-                        title="Session löschen"
-                        aria-label={`Session ${session.room_name || "Raum"} löschen`}
-                      >
-                        ×
-                      </button>
+                      <details className="table-more-actions">
+                        <summary>Mehr</summary>
+                        <button
+                          className="btn danger compact-btn"
+                          onClick={() => deleteSession(session)}
+                          title="Session löschen"
+                          aria-label={`Session ${session.room_name || "Raum"} löschen`}
+                        >
+                          Session löschen
+                        </button>
+                      </details>
                     </div>
                   </td>
                 </tr>
