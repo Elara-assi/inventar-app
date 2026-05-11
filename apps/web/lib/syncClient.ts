@@ -1,4 +1,4 @@
-import { API_BASE, api } from "@/lib/api";
+import { API_BASE, api, getAuthToken } from "@/lib/api";
 import {
   QueueItem,
   clearOnlySyncedItems,
@@ -140,6 +140,11 @@ function photoSkipReason(photo: QueueItem, serverItemId?: string) {
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
   const controller = new AbortController();
+  const headers = new Headers(init.headers);
+  const token = getAuthToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   let settled = false;
   const timeoutPromise = new Promise<Response>((_, reject) => {
     window.setTimeout(() => {
@@ -150,6 +155,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   });
   const fetchPromise = fetch(url, {
     ...init,
+    headers,
     signal: controller.signal,
   });
   try {
