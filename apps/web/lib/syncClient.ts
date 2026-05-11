@@ -385,18 +385,18 @@ export async function syncPendingBundles(): Promise<SyncResult> {
   const bundles = bundleCandidates(initialItems);
   const bundleIds = new Set(bundles.map((item) => item.client_item_id));
   const orphanPhotos = openPhotoCandidates(initialItems).filter((photo) => !bundleIds.has(photo.client_item_id));
-  await Promise.all(orphanPhotos.map((photo) => updateQueueStatus(photo.id, "conflict", {
+  await Promise.all(orphanPhotos.map((photo) => updateQueueStatus(photo.id, photo.status, {
     sync_run_id: syncRunId,
     sync_checked_at: new Date().toISOString(),
-    eligible_for_upload: false,
-    skip_reason: "Foto hat kein lokales Objektpaket mehr.",
+    eligible_for_upload: undefined,
+    skip_reason: "Foto wird ohne lokales Objektpaket über die Foto-Quittung synchronisiert.",
     fetch_started: false,
-    last_error: "Dieses Foto ist eine lokale Altlast ohne Objektpaket. Bitte Details pruefen oder lokale Daten bewusst verwerfen.",
-    upload_debug_state: "guard_missing_item_bundle",
-    upload_debug: "Paket-Sync wurde nicht gestartet: Objektpaket fehlt.",
+    last_error: undefined,
+    upload_debug_state: "waiting_for_photo_receipt_sync",
+    upload_debug: "Bundle-Sync überspringt dieses Foto; der Foto-Receipt-Sync versucht die Server-Zuordnung.",
   })));
   if (!bundles.length) {
-    return { synced: 0, failed: orphanPhotos.length, open: (await getQueueSummary()).open };
+    return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
   }
   let health: { ok: boolean; url: string };
   try {
@@ -535,6 +535,35 @@ export async function syncPendingBundles(): Promise<SyncResult> {
     }
   }
   return { synced, failed, open: (await getQueueSummary()).open };
+}
+
+async function recoverResolvablePhotoConflicts(): Promise<number> {
+  const items = await listQueueItems();
+  const conflictPhotos = items.filter(
+    (item) => item.type === "photo_upload"
+      && item.status === "conflict"
+      && item.photo_blob
+      && item.session_id
+      && item.device_id
+      && item.client_item_id
+      && item.client_photo_id,
+  );
+  let recovered = 0;
+  for (const photo of conflictPhotos) {
+    const serverItemId = await findServerItemId(photo, items);
+    if (!serverItemId) continue;
+    await updateQueueStatus(photo.id, "pending", {
+      server_item_id: serverItemId,
+      eligible_for_upload: true,
+      skip_reason: undefined,
+      fetch_started: false,
+      last_error: undefined,
+      upload_debug_state: "photo_mapping_recovered",
+      upload_debug: "Server-Objekt wurde gefunden. Foto wird erneut synchronisiert.",
+    });
+    recovered += 1;
+  }
+  return recovered;
 }
 
 export async function syncPendingItems(): Promise<SyncResult> {
@@ -725,8 +754,13 @@ export async function syncNow(): Promise<SyncResult> {
     if (bundles.synced > 0) {
       await clearOnlySyncedItems();
     }
+    await recoverResolvablePhotoConflicts();
+    const photos = await syncPendingPhotos();
+    if (photos.synced > 0) {
+      await clearOnlySyncedItems();
+    }
     const summary = await getQueueSummary();
-    return { synced: bundles.synced, failed: bundles.failed, open: summary.open };
+    return { synced: bundles.synced + photos.synced, failed: bundles.failed + photos.failed, open: summary.open };
   } finally {
     syncRunning = false;
     syncRunningStartedAt = 0;
