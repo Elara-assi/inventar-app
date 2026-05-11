@@ -51,6 +51,14 @@ function previewText(value: string) {
   return value.trim() || "noch nicht angegeben";
 }
 
+function userFacingError(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "failed to fetch" || normalized.includes("failed to fetch")) {
+    return "Server gerade nicht erreichbar. Bitte Verbindung prüfen oder später erneut anmelden.";
+  }
+  return value;
+}
+
 function slugEmail(name: string) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9äöüß]+/gi, ".").replace(/^\.+|\.+$/g, "");
   return `${slug || "erfasser"}@example.local`;
@@ -403,18 +411,24 @@ export default function DashboardPage() {
 
   if (!isAuthenticated && !bootstrap) {
     return (
-      <main className="page grid">
-        <section className="hero-strip">
-          <div>
-            <h1>Inventar Anmeldung</h1>
-            <p>Bitte anmelden, um Sessions, Prüferliste und Exporte zu verwalten.</p>
-            <a className="btn secondary compact-btn assessment-home-link" href="/app-bewertung">
-              App-Bewertung ansehen
-            </a>
+      <main className="page login-page">
+        <section className="login-copy">
+          <p className="login-eyebrow">Inventar Maschine</p>
+          <h1>Inventur starten.</h1>
+          <p>Handy-Erfassung für Räume, Prüferliste am Laptop/iPad und papiernaher BGA-Excel-Export in einem Ablauf.</p>
+          <div className="login-flow">
+            <span>QR-Code</span>
+            <span>Live-Prüfung</span>
+            <span>Excel-Export</span>
           </div>
         </section>
-        <section className="panel login-panel">
-          {error ? <p className="status upload_fehler">{error}</p> : null}
+
+        <section className="panel login-panel login-card" aria-label="Anmeldung">
+          <div className="login-card-head">
+            <span>Prüferzugang</span>
+            <strong>Anmelden</strong>
+          </div>
+          {error ? <p className="status upload_fehler login-error">{userFacingError(error)}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
           <label className="field">
             <span>E-Mail</span>
@@ -453,7 +467,6 @@ export default function DashboardPage() {
         <div className="today-meta">
           <span>Heute</span>
           <strong>{summary.open} aktive Räume · {summary.items} Objekte erfasst</strong>
-          <a className="btn secondary compact-btn" href="/app-bewertung">App-Bewertung</a>
           <button className="btn secondary compact-btn" type="button" onClick={logout}>Abmelden</button>
         </div>
       </section>
