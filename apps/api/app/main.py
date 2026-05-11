@@ -2100,6 +2100,40 @@ def normalize_search_source(
     }
 
 
+def parse_searxng_html_sources(text: str, limit: int) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for article in re.finditer(
+        r'<article\b[^>]*class="[^"]*\bresult\b[^"]*"[^>]*>(.*?)</article>',
+        text or "",
+        re.IGNORECASE | re.DOTALL,
+    ):
+        body = article.group(1)
+        link_match = re.search(r"<h3>\s*<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>\s*</h3>", body, re.IGNORECASE | re.DOTALL)
+        if not link_match:
+            link_match = re.search(r'<a[^>]+class="url_header"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', body, re.IGNORECASE | re.DOTALL)
+        if not link_match:
+            continue
+        raw_url, raw_title = link_match.groups()
+        url = html.unescape(raw_url).strip()
+        if not url or url in seen:
+            continue
+        title = re.sub(r"<[^>]+>", "", raw_title)
+        snippet = ""
+        snippet_match = re.search(r'<p[^>]+class="content"[^>]*>(.*?)</p>', body, re.IGNORECASE | re.DOTALL)
+        if snippet_match:
+            snippet = re.sub(r"<[^>]+>", "", snippet_match.group(1))
+        source = normalize_search_source(title, url, snippet, "searxng", len(sources) + 1)
+        if not source:
+            continue
+        source["source_format"] = "html"
+        seen.add(url)
+        sources.append(source)
+        if len(sources) >= limit:
+            break
+    return sources
+
+
 def search_sources_searxng(
     query: str,
     limit: int = 5,
@@ -2109,6 +2143,7 @@ def search_sources_searxng(
     base_url = (settings.searxng_base_url or "").rstrip("/")
     if not base_url:
         return [], "SEARXNG_BASE_URL ist nicht gesetzt."
+    errors: list[str] = []
     try:
         response = httpx.get(
             f"{base_url}/search",
@@ -2122,10 +2157,15 @@ def search_sources_searxng(
             headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
             timeout=settings.search_timeout_seconds,
         )
-        response.raise_for_status()
-        payload = response.json()
+        if response.status_code == 403:
+            errors.append("JSON-Format nicht freigeschaltet (HTTP 403).")
+            payload = {"results": []}
+        else:
+            response.raise_for_status()
+            payload = response.json()
     except Exception as exc:
-        return [], f"{type(exc).__name__}: {str(exc)[:220]}"
+        errors.append(f"JSON: {type(exc).__name__}: {str(exc)[:220]}")
+        payload = {"results": []}
 
     sources: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -2146,9 +2186,29 @@ def search_sources_searxng(
         sources.append(source)
         if len(sources) >= limit:
             break
+    if sources:
+        return sources, "; ".join(errors) or None
+
+    try:
+        html_response = httpx.get(
+            f"{base_url}/search",
+            params={
+                "q": query,
+                "language": language,
+                "categories": "general",
+                "safesearch": "0",
+            },
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=settings.search_timeout_seconds,
+        )
+        html_response.raise_for_status()
+        sources = parse_searxng_html_sources(html_response.text, limit)
+    except Exception as exc:
+        errors.append(f"HTML: {type(exc).__name__}: {str(exc)[:220]}")
     if not sources:
-        return [], "SearXNG hat keine verwertbaren Quellen geliefert."
-    return sources, None
+        errors.append("SearXNG hat keine verwertbaren Quellen geliefert.")
+        return [], "; ".join(errors)
+    return sources, "; ".join(errors) or None
 
 
 def search_sources_duckduckgo_fallback(

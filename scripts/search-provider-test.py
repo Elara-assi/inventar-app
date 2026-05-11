@@ -107,6 +107,39 @@ def test_duckduckgo_fallback_after_searxng_error() -> None:
         main.settings.searxng_base_url = original_base_url
 
 
+def test_searxng_html_when_json_forbidden() -> None:
+    original_get = main.httpx.get
+    original_provider = main.settings.search_provider
+    original_base_url = main.settings.searxng_base_url
+    try:
+        main.settings.search_provider = "searxng"
+        main.settings.searxng_base_url = "http://searxng.local"
+
+        def fake_get(url: str, **kwargs: Any) -> FakeResponse:
+            if kwargs["params"].get("format") == "json":
+                return FakeResponse(text="Forbidden", status_code=403)
+            return FakeResponse(
+                text=(
+                    '<article class="result result-default category-general">'
+                    '<h3><a href="https://example.test/searx-html">Logitech Maus gebraucht kaufen</a></h3>'
+                    '<p class="content">Kabellose Maus in gutem Zustand, 12 EUR VB.</p>'
+                    "</article>"
+                )
+            )
+
+        main.httpx.get = fake_get
+        sources, provider, error = main.search_sources("Computermaus Logitech gebraucht Preis", limit=3)
+        assert provider == "searxng"
+        assert error and "JSON-Format" in error
+        assert sources[0]["url"] == "https://example.test/searx-html"
+        assert sources[0]["source_provider"] == "searxng"
+        assert sources[0]["source_format"] == "html"
+    finally:
+        main.httpx.get = original_get
+        main.settings.search_provider = original_provider
+        main.settings.searxng_base_url = original_base_url
+
+
 def test_deep_dive_without_sources_leaves_value_and_age_open() -> None:
     original_fetch_one = main.fetch_one
     original_search_sources = main.search_sources
@@ -142,6 +175,7 @@ def test_deep_dive_without_sources_leaves_value_and_age_open() -> None:
 
 if __name__ == "__main__":
     test_searxng_sources()
+    test_searxng_html_when_json_forbidden()
     test_duckduckgo_fallback_after_searxng_error()
     test_deep_dive_without_sources_leaves_value_and_age_open()
     print("Search provider guardrails passed.")
