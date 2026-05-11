@@ -2584,6 +2584,9 @@ def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any],
     limit = plausible_value_limit(object_class)
     if limit:
         candidates = [candidate for candidate in candidates if float(candidate["value"]) <= max(limit * 1.5, limit + 40)]
+    baseline_min, _ = estimate_value_range(item, ai_context)
+    low_outlier_floor = max(1, baseline_min * 0.45)
+    candidates = [candidate for candidate in candidates if float(candidate["value"]) >= low_outlier_floor]
     return candidates[:12]
 
 
@@ -2591,14 +2594,14 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
     price_candidates = source_price_candidates(sources, item, ai_context)
     condition = str(item.get("condition") or "gebraucht")
     condition_factor = {
-        "neu": 0.95,
-        "sehr_gut": 0.78,
-        "gut": 0.65,
-        "gebraucht": 0.55,
+        "neu": 1.0,
+        "sehr_gut": 0.95,
+        "gut": 0.90,
+        "gebraucht": 0.85,
         "reparaturbeduerftig": 0.25,
         "defekt": 0.10,
         "aussondern": 0.04,
-    }.get(condition, 0.55)
+    }.get(condition, 0.85)
     if price_candidates:
         sorted_values = sorted(float(candidate["value"]) for candidate in price_candidates)
         basis = sorted_values[min(len(sorted_values) - 1, max(0, len(sorted_values) // 3))]
