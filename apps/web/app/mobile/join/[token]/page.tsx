@@ -834,7 +834,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
-    return entries.find((entry) => entry.type === "item_draft" && entry.client_item_id === clientItemId && entry.server_item_id)?.server_item_id;
+    const queuedServerItemId = entries.find((entry) => entry.type === "item_draft" && entry.client_item_id === clientItemId && entry.server_item_id)?.server_item_id;
+    if (queuedServerItemId) return queuedServerItemId;
+    if (!joined?.session.id || !deviceId) return undefined;
+    const params = new URLSearchParams({
+      session_id: joined.session.id,
+      source_device_id: deviceId,
+      client_item_id: clientItemId,
+    });
+    const resolved = await api<{ id: string }>(`/items/resolve-client?${params.toString()}`).catch(() => null);
+    if (resolved?.id) {
+      setActiveItem((current) => current?.id === clientItemId ? { ...current, server_item_id: resolved.id } : current);
+    }
+    return resolved?.id;
   }
 
   function normalizeAiPayload(payload?: ServerItemSuggestion | null): ServerItemSuggestion | null {
