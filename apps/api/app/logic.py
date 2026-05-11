@@ -249,7 +249,7 @@ def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
         return "Drucker"
     if "scanner" in text:
         return "Scanner"
-    if "telefon" in text or "dect" in text:
+    if "telefon" in text or "dect" in text or "smartphone" in text or "iphone" in text:
         return "Telefon"
     if "schreibtisch" in text:
         return "Schreibtisch"

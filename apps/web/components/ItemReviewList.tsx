@@ -57,11 +57,19 @@ type AiSummary = {
   deep_dive?: {
     estimated_by_ai?: boolean;
     web_search_performed?: boolean;
+    search_provider?: string;
+    web_search_error?: string | null;
     query?: string;
-    sources?: Array<{ title?: string; url?: string }>;
+    search_queries?: string[];
+    sources?: Array<{ title?: string; url?: string; snippet?: string; source_provider?: string }>;
     estimated_age_years?: number | null;
     estimated_value?: number | null;
     estimated_value_range?: { min?: number; max?: number };
+    estimated_value_confidence?: number | null;
+    estimated_value_reason?: string | null;
+    age_confidence?: number | null;
+    age_reason?: string | null;
+    price_candidates?: Array<{ value?: number; source?: string; title?: string }>;
     value_source?: string;
     tire_valuation?: {
       lowest_new_price_basis?: number;
@@ -475,6 +483,7 @@ function ItemReviewRow({
     remark: item.remark ?? "",
     type_plate_status: item.type_plate_status ?? "nicht_geprueft",
     value_estimate: item.value_estimate?.toString() ?? "",
+    estimated_age_years: item.estimated_age_years?.toString() ?? "",
     object_class_id: item.object_class_id ?? "",
     condition: item.condition ?? "gebraucht",
     review_status: item.review_status ?? "erfasst",
@@ -501,6 +510,7 @@ function ItemReviewRow({
       remark: item.remark ?? "",
       type_plate_status: item.type_plate_status ?? "nicht_geprueft",
       value_estimate: item.value_estimate?.toString() ?? "",
+      estimated_age_years: item.estimated_age_years?.toString() ?? "",
       object_class_id: item.object_class_id ?? "",
       condition: item.condition ?? "gebraucht",
       review_status: item.review_status ?? "erfasst",
@@ -561,6 +571,21 @@ function ItemReviewRow({
     setMessage("KI-Vorschlag in leere Felder übernommen. Bitte prüfen und speichern.");
   }
 
+  function applyDeepDiveEstimate(kind: "age" | "value" | "both") {
+    setDraft((current) => ({
+      ...current,
+      estimated_age_years:
+        (kind === "age" || kind === "both") && deepDive?.estimated_age_years != null
+          ? String(deepDive.estimated_age_years)
+          : current.estimated_age_years,
+      value_estimate:
+        (kind === "value" || kind === "both") && deepDive?.estimated_value != null
+          ? String(deepDive.estimated_value)
+          : current.value_estimate,
+    }));
+    setMessage("KI-Schätzung übernommen. Bitte fachlich prüfen und speichern.");
+  }
+
   async function save() {
     if (readOnly) return;
     await api(`/items/${item.id}`, {
@@ -581,6 +606,9 @@ function ItemReviewRow({
         value_estimate: draft.value_estimate ? Number(draft.value_estimate) : null,
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
+        estimated_age_years: draft.estimated_age_years ? Number(draft.estimated_age_years) : null,
+        age_source: draft.estimated_age_years ? "manuell" : null,
+        age_verification_status: draft.estimated_age_years ? "geprueft" : "offen",
         review_status: draft.review_status,
       }),
     });
@@ -643,10 +671,10 @@ function ItemReviewRow({
     if (readOnly) return;
     try {
       await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
-      setMessage("KI Deep Dive gestartet");
+      setMessage("KI-Websuche gestartet");
       window.setTimeout(onChanged, 1200);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "KI Deep Dive konnte nicht gestartet werden");
+      setMessage(err instanceof Error ? err.message : "KI-Websuche konnte nicht gestartet werden");
     }
   }
 
@@ -780,6 +808,9 @@ function ItemReviewRow({
           <button className="btn" onClick={finalize} disabled={readOnly || finalizeBlocked} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
             {finalizableLabel}
           </button>
+          <button className="btn secondary compact-btn" type="button" onClick={runDeepDive} disabled={readOnly}>
+            KI-Websuche
+          </button>
           <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
 
@@ -810,6 +841,13 @@ function ItemReviewRow({
                 onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
                 inputMode="decimal"
                 placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
+              />
+              <input
+                disabled={readOnly}
+                value={draft.estimated_age_years}
+                onChange={(event) => setDraft({ ...draft, estimated_age_years: event.target.value })}
+                inputMode="decimal"
+                placeholder={deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}
               />
             </div>
             </section>
@@ -974,8 +1012,49 @@ function ItemReviewRow({
             <div className="deep-dive-grid">
               <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
-              <span>Quelle: <b>{deepDive.web_search_performed ? "Websuche + KI" : "KI-Schätzung ohne Webtreffer"}</b></span>
+              <span>Quelle: <b>{deepDive.web_search_performed ? `Websuche (${deepDive.search_provider || "Quelle"})` : "Keine verwertbare Webquelle"}</b></span>
             </div>
+            <div className="deep-dive-actions">
+              <button
+                className="btn secondary compact-btn"
+                type="button"
+                onClick={() => applyDeepDiveEstimate("value")}
+                disabled={readOnly || deepDive.estimated_value == null}
+              >
+                Wert übernehmen
+              </button>
+              <button
+                className="btn secondary compact-btn"
+                type="button"
+                onClick={() => applyDeepDiveEstimate("age")}
+                disabled={readOnly || deepDive.estimated_age_years == null}
+              >
+                Alter übernehmen
+              </button>
+              <button
+                className="btn secondary compact-btn"
+                type="button"
+                onClick={() => applyDeepDiveEstimate("both")}
+                disabled={readOnly || (deepDive.estimated_value == null && deepDive.estimated_age_years == null)}
+              >
+                Schätzung übernehmen
+              </button>
+            </div>
+            {deepDive.estimated_value_reason || deepDive.age_reason ? (
+              <p className="deep-dive-note">
+                {deepDive.estimated_value_reason || "Wertgrundlage offen"}
+                {deepDive.age_reason ? ` · ${deepDive.age_reason}` : ""}
+              </p>
+            ) : null}
+            {deepDive.price_candidates?.length ? (
+              <div className="deep-dive-grid">
+                {deepDive.price_candidates.slice(0, 3).map((candidate, index) => (
+                  <span key={`${candidate.source || "price"}-${index}`}>
+                    Preisfund: <b>{candidate.value ? `${candidate.value} €` : "offen"}</b>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             {deepDive.tire_valuation ? (
               <div className="deep-dive-grid">
                 <span>Reifen-Neupreis: <b>{deepDive.tire_valuation.lowest_new_price_basis ?? "offen"} €</b></span>
@@ -984,6 +1063,7 @@ function ItemReviewRow({
               </div>
             ) : null}
             {deepDive.notes ? <p className="deep-dive-note">{deepDive.notes}</p> : null}
+            {deepDive.web_search_error ? <p className="deep-dive-note">Suchhinweis: {deepDive.web_search_error}</p> : null}
             {deepDive.sources?.length ? (
               <div className="deep-dive-sources">
                 {deepDive.sources.slice(0, 3).filter((source) => source.url).map((source) => (
@@ -1033,7 +1113,7 @@ function ItemReviewRow({
         {moreOpen ? (
           <div className="more-actions">
             <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
-            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI Deep Dive</button>
+            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI-Websuche</button>
             <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
             <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
             <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>

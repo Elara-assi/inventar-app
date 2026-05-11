@@ -33,6 +33,7 @@ from .logic import (
     load_inventory_history_references,
     load_special_tool_references,
     next_inventory_id,
+    normalize_bga_object_class,
     tokenize_reference_text,
 )
 from .migrations import run_migrations
@@ -206,6 +207,9 @@ class ItemPatch(BaseModel):
     condition: str | None = None
     condition_note: str | None = None
     value_estimate: float | None = None
+    estimated_age_years: float | None = None
+    age_source: str | None = None
+    age_verification_status: str | None = None
     status: str | None = None
     review_status: str | None = None
     commercial_category: str | None = None
@@ -2061,17 +2065,177 @@ def latest_ai_context(item_id: str) -> str:
     return " ".join(str(part) for part in parts if part)
 
 
-def deep_dive_query(item: dict[str, Any], ai_context: str = "") -> str:
-    parts = [
-        item.get("object_type"),
+GENERIC_DEEP_DIVE_TERMS = {
+    "betriebs",
+    "geschaeftsausstattung",
+    "geschäftsausstattung",
+    "betriebsausstattung",
+    "inventar",
+    "inventur",
+    "anlagevermoegen",
+    "anlagevermögen",
+    "gwg",
+    "buchhaltung",
+    "abschreibung",
+}
+
+GENERIC_SOURCE_DOMAINS = (
+    "haufe.de",
+    "lexware.de",
+    "bwl-lexikon.de",
+    "buchhaltungsbutler.de",
+    "dasfinanzen.de",
+    "rechnungswesenforum.de",
+)
+
+SHOP_SOURCE_HINTS = (
+    "ebay.",
+    "kleinanzeigen.",
+    "amazon.",
+    "idealo.",
+    "geizhals.",
+    "backmarket.",
+    "rebuy.",
+    "asgoodasnew.",
+    "refurbed.",
+    "picclick.",
+    "pccomponentes.",
+    "notebooksbilliger.",
+)
+
+
+def normalize_deep_dive_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = (
+        text.replace("Ã¤", "ä")
+        .replace("Ã¶", "ö")
+        .replace("Ã¼", "ü")
+        .replace("ÃŸ", "ß")
+        .replace("â‚¬", "€")
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def search_tokens(value: str) -> list[str]:
+    text = normalize_deep_dive_text(value).lower()
+    text = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    tokens = re.findall(r"[a-z0-9]{3,}", text)
+    return [token for token in tokens if token not in GENERIC_DEEP_DIVE_TERMS]
+
+
+def deep_dive_product_terms(item: dict[str, Any], ai_context: str = "") -> list[str]:
+    raw_parts = [
         item.get("brand"),
         item.get("model"),
-        item.get("serial_number"),
+        item.get("object_type"),
         item.get("object_class_name"),
-        ai_context,
+        item.get("serial_number"),
     ]
-    value = " ".join(str(part).strip() for part in parts if part)
-    return f"{value} Gebrauchtpreis Alter Datenblatt".strip() or "Werkstattausstattung Gebrauchtpreis"
+    context = normalize_deep_dive_text(ai_context)
+    # Nur kurze, produktnahe Kontext-Hinweise übernehmen. Lange KI-Sätze
+    # verwässern SearXNG sonst mit Steuer-/BGA-Artikeln statt Produktquellen.
+    context_terms = []
+    for term in re.findall(r"\b[A-ZÄÖÜa-zäöüß0-9][A-ZÄÖÜa-zäöüß0-9+./-]{2,}\b", context):
+        if len(term) <= 28 and term.lower() not in GENERIC_DEEP_DIVE_TERMS:
+            context_terms.append(term)
+        if len(context_terms) >= 4:
+            break
+    parts: list[str] = []
+    seen: set[str] = set()
+    for part in raw_parts + context_terms:
+        text = normalize_deep_dive_text(part)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen or key in GENERIC_DEEP_DIVE_TERMS:
+            continue
+        seen.add(key)
+        parts.append(text)
+    return parts or ["Betriebs- und Geschäftsausstattung"]
+
+
+def deep_dive_queries(item: dict[str, Any], ai_context: str = "") -> list[str]:
+    terms = deep_dive_product_terms(item, ai_context)
+    product = " ".join(terms[:5]).strip()
+    object_type = normalize_deep_dive_text(item.get("object_type") or item.get("object_class_name") or "")
+    brand_model = " ".join(term for term in [item.get("brand"), item.get("model")] if term).strip()
+    base = brand_model or product or object_type
+    queries = [
+        f"{base} gebraucht Preis",
+        f"{base} Gebrauchtpreis",
+        f"{base} Datenblatt Erscheinungsjahr",
+    ]
+    if object_type and object_type.lower() not in base.lower():
+        queries.append(f"{base} {object_type} Preis gebraucht")
+    compact: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        query = normalize_deep_dive_text(query)
+        key = query.lower()
+        if query and key not in seen:
+            seen.add(key)
+            compact.append(query)
+    return compact[:4]
+
+
+def deep_dive_query(item: dict[str, Any], ai_context: str = "") -> str:
+    return deep_dive_queries(item, ai_context)[0]
+
+
+def source_host(url: str) -> str:
+    try:
+        return (urlparse(url).netloc or "").lower()
+    except Exception:
+        return ""
+
+
+def is_relevant_source(source: dict[str, Any], item: dict[str, Any], ai_context: str = "") -> bool:
+    text = " ".join(
+        normalize_deep_dive_text(source.get(key))
+        for key in ["title", "snippet", "url"]
+    ).lower()
+    host = source_host(str(source.get("url") or ""))
+    product_terms = [
+        token for token in search_tokens(" ".join(deep_dive_product_terms(item, ai_context)))
+        if token not in {"modell", "model", "objekt", "geraet", "gerät"}
+    ]
+    if any(domain in host for domain in GENERIC_SOURCE_DOMAINS) and not any(term in text for term in product_terms[:4]):
+        return False
+    if not product_terms:
+        return True
+    strong_terms = [term for term in product_terms if any(ch.isdigit() for ch in term) or len(term) >= 5]
+    matches = sum(1 for term in strong_terms[:8] if term in text)
+    if matches >= 1:
+        return True
+    if any(hint in host for hint in SHOP_SOURCE_HINTS) and any(term in text for term in product_terms[:8]):
+        return True
+    return False
+
+
+def collect_search_sources(item: dict[str, Any], ai_context: str = "", limit: int = 6) -> tuple[list[dict[str, Any]], str, str | None, list[str]]:
+    collected: list[dict[str, Any]] = []
+    errors: list[str] = []
+    provider_used = settings.search_provider or "searxng"
+    seen: set[str] = set()
+    queries = deep_dive_queries(item, ai_context)
+    for query in queries:
+        sources, provider, error = search_sources(query, limit=limit)
+        provider_used = provider
+        if error:
+            errors.append(error)
+        for source in sources:
+            url = str(source.get("url") or "")
+            if not url or url in seen:
+                continue
+            if not is_relevant_source(source, item, ai_context):
+                continue
+            seen.add(url)
+            source["query"] = query
+            source["rank"] = len(collected) + 1
+            collected.append(source)
+            if len(collected) >= limit:
+                return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
+    return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
 
 
 def decode_search_url(value: str) -> str:
@@ -2211,7 +2375,10 @@ def search_sources_searxng(
     if not sources:
         errors.append("SearXNG hat keine verwertbaren Quellen geliefert.")
         return [], "; ".join(errors)
-    return sources, "; ".join(errors) or None
+    # JSON ist bei manchen SearXNG-Instanzen deaktiviert. Wenn HTML-Treffer
+    # sauber gelesen wurden, gilt die Websuche trotzdem als erfolgreich.
+    non_json_errors = [error for error in errors if "JSON-Format" not in error]
+    return sources, "; ".join(non_json_errors) or None
 
 
 def search_sources_duckduckgo_fallback(
@@ -2226,6 +2393,7 @@ def search_sources_duckduckgo_fallback(
             params={"q": query, "kl": f"{language.lower()}-{country.lower()}"},
             headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
             timeout=settings.search_timeout_seconds,
+            follow_redirects=True,
         )
         response.raise_for_status()
     except Exception as exc:
@@ -2314,8 +2482,10 @@ def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[in
         (("rtx 3060", "rtx 3070", "12700h"), (700, 1600)),
         (("omen", "rog", "legion", "alienware", "gaming laptop"), (800, 1800)),
         (("notebook", "laptop", "thinkpad"), (120, 900)),
+        (("iphone", "smartphone"), (300, 1200)),
         (("monitor", "display"), (40, 300)),
         (("maus", "mouse", "tastatur", "keyboard"), (10, 80)),
+        (("telefon", "dect"), (20, 300)),
         (("reifen", "radsatz"), (80, 700)),
     ]
     base_min, base_max = 50, 500
@@ -2336,6 +2506,106 @@ def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[in
     return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
 
 
+def parse_euro_amount(raw: str) -> float | None:
+    text = raw.strip().replace("\u00a0", " ")
+    text = text.replace(".", "").replace(",", ".") if "," in text else text.replace(",", "")
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if value < 1 or value > 50000:
+        return None
+    return value
+
+
+def extract_price_candidates(text: str) -> list[float]:
+    normalized = normalize_deep_dive_text(text)
+    patterns = [
+        r"(?:€|eur|euro)\s*(\d{1,5}(?:[.,]\d{2})?)",
+        r"(\d{1,5}(?:[.,]\d{2})?)\s*(?:€|eur|euro)",
+    ]
+    values: list[float] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+            value = parse_euro_amount(match.group(1))
+            if value is not None:
+                values.append(value)
+    return values
+
+
+def fetch_source_excerpt(url: str) -> str:
+    try:
+        response = httpx.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=5.0,
+            follow_redirects=True,
+        )
+        content_type = response.headers.get("content-type", "").lower()
+        if response.status_code >= 400 or ("text/html" not in content_type and "text/plain" not in content_type):
+            return ""
+        text = response.text[:240_000]
+        meta_parts = re.findall(
+            r'<meta[^>]+(?:property|name)=["\'](?:og:price:amount|product:price:amount|twitter:data1|description)["\'][^>]+content=["\']([^"\']+)["\']',
+            text,
+            flags=re.IGNORECASE,
+        )
+        clean_text = re.sub(r"<script\b.*?</script>|<style\b.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+        clean_text = re.sub(r"<[^>]+>", " ", clean_text)
+        return " ".join(meta_parts + [clean_text[:40_000]])
+    except Exception:
+        return ""
+
+
+def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any], ai_context: str = "") -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for source in sources[:5]:
+        text = " ".join([str(source.get("title") or ""), str(source.get("snippet") or "")])
+        prices = extract_price_candidates(text)
+        if not prices and any(hint in source_host(str(source.get("url") or "")) for hint in SHOP_SOURCE_HINTS):
+            prices = extract_price_candidates(fetch_source_excerpt(str(source.get("url") or "")))
+        for price in prices[:4]:
+            candidates.append({
+                "value": price,
+                "source": source.get("url"),
+                "title": source.get("title"),
+            })
+    object_class = normalize_bga_object_class(item.get("object_class_name"), item.get("object_type"))
+    limit = plausible_value_limit(object_class)
+    if limit:
+        candidates = [candidate for candidate in candidates if float(candidate["value"]) <= max(limit * 1.5, limit + 40)]
+    return candidates[:12]
+
+
+def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
+    price_candidates = source_price_candidates(sources, item, ai_context)
+    condition = str(item.get("condition") or "gebraucht")
+    condition_factor = {
+        "neu": 0.95,
+        "sehr_gut": 0.78,
+        "gut": 0.65,
+        "gebraucht": 0.55,
+        "reparaturbeduerftig": 0.25,
+        "defekt": 0.10,
+        "aussondern": 0.04,
+    }.get(condition, 0.55)
+    if price_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in price_candidates)
+        basis = sorted_values[min(len(sorted_values) - 1, max(0, len(sorted_values) // 3))]
+        estimate = max(1, round(basis * condition_factor))
+        return {
+            "estimated_value": estimate,
+            "estimated_value_range": {"min": max(1, round(estimate * 0.75)), "max": max(1, round(estimate * 1.25))},
+            "estimated_value_confidence": 0.72,
+            "estimated_value_reason": f"Aus {len(price_candidates)} Web-Preisfund(en) konservativ abgeleitet; Zustand berücksichtigt.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:5],
+        }
+    value_min, value_max = estimate_value_range(item, ai_context)
+    estimate = conservative_value_estimate(value_min, value_max)
+    return bga_value_guardrail(item, ai_context, estimate)
+
+
 def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: int) -> dict[str, Any]:
     text = " ".join(
         str(item.get(key) or "").lower()
@@ -2348,6 +2618,7 @@ def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: 
         (("drucker",), 800, "Drucker: Ausreißer ohne Modell-/Marktbeleg nicht übernehmen."),
         (("bürostuhl", "buerostuhl", "stuhl"), 800, "Bürostuhl: Wert stark markenabhängig und prüfpflichtig."),
         (("schreibtisch", "regal"), 800, "Büroausstattung: ohne belastbare Marke kein hoher KI-Wert."),
+        (("iphone", "smartphone"), 1400, "Smartphone: Wert stark modell- und zustandsabhängig."),
         (("ladegerät", "ladegeraet"), 250, "Ladegerät: hoher Wert ohne Typenschild/Modell nicht plausibel."),
     ]
     for needles, max_value, reason in rules:
@@ -2569,9 +2840,8 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     ai_context = latest_ai_context(item_id)
-    query = deep_dive_query(item, ai_context)
-    sources, search_provider, web_search_error = search_sources(query)
-    search_queries = [query]
+    sources, search_provider, web_search_error, search_queries = collect_search_sources(item, ai_context)
+    query = search_queries[0] if search_queries else deep_dive_query(item, ai_context)
     if not sources:
         return {
             "ai_stage": "deep_dive",
@@ -2608,9 +2878,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         notes = tire_result["notes"]
         extra_result = {"tire_valuation": tire_result["tire_valuation"]}
     else:
-        value_min, value_max = estimate_value_range(item, ai_context)
-        raw_estimated_value = conservative_value_estimate(value_min, value_max)
-        guarded_value = bga_value_guardrail(item, ai_context, raw_estimated_value)
+        guarded_value = estimate_value_from_web(item, ai_context, sources)
         estimated_value = guarded_value["estimated_value"]
         value_min = guarded_value["estimated_value_range"]["min"]
         value_max = guarded_value["estimated_value_range"]["max"]
@@ -2620,6 +2888,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "estimated_value_confidence": guarded_value["estimated_value_confidence"],
             "estimated_value_reason": guarded_value["estimated_value_reason"],
             "value_requires_review": guarded_value["value_requires_review"],
+            "price_candidates": guarded_value.get("price_candidates") or [],
             "age_confidence": 0.55 if estimated_age is not None else 0.0,
             "age_reason": "Aus sichtbarem Baujahr/Modellhinweis abgeleitet." if estimated_age is not None else "Keine belastbare Altersgrundlage erkannt.",
             "age_requires_review": True,
