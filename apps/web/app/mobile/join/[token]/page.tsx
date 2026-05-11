@@ -259,6 +259,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [form, setForm] = useState<BgaForm>(emptyForm);
   const [photos, setPhotos] = useState<Array<{ type: PhotoType; id?: string; name: string; size: number; previewUrl?: string }>>([]);
   const [savedItem, setSavedItem] = useState<{ label: string } | null>(null);
+  const [editedFields, setEditedFields] = useState<Partial<Record<keyof BgaForm, boolean>>>({});
   const [message, setMessage] = useState("Bereit");
   const [busy, setBusy] = useState(false);
   const [uploadState, setUploadState] = useState("");
@@ -284,6 +285,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   };
   const activeStepRef = useRef<HTMLDivElement>(null);
   const lastStepRef = useRef(step);
+  const aiAutoRequestKeyRef = useRef("");
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
@@ -666,9 +668,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
+      setEditedFields({});
       setPhotos([]);
       setAiSuggestion(null);
       setAiSuggestionMessage("");
+      aiAutoRequestKeyRef.current = "";
       setStep(0);
       setMessage(
         isCompleteCapture
@@ -707,6 +711,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   function update<K extends keyof BgaForm>(key: K, value: BgaForm[K]) {
     setSavedItem(null);
+    setEditedFields((current) => ({ ...current, [key]: true }));
     setForm((current) => ({ ...current, [key]: value }));
   }
 
@@ -731,6 +736,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   function decideUvvStatus(value: UvvStatus) {
     setSavedItem(null);
+    setEditedFields((current) => ({ ...current, uvv_status: true, uvv_valid_until: true }));
     setForm((current) => ({
       ...current,
       uvv_status: value,
@@ -751,9 +757,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setSavedItem(null);
     setActiveItem(null);
     setForm(emptyForm);
+    setEditedFields({});
     setPhotos([]);
     setAiSuggestion(null);
     setAiSuggestionMessage("");
+    aiAutoRequestKeyRef.current = "";
     setStep(0);
     setMessage("Bereit für nächstes Objekt");
   }
@@ -894,6 +902,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   function applyAiSuggestionField(key: keyof BgaForm, value: string) {
+    setEditedFields((current) => ({ ...current, [key]: true }));
     setForm((current) => ({ ...current, [key]: value }));
     setAiSuggestionMessage("KI-Vorschlag übernommen. Bitte prüfen und bei Bedarf korrigieren.");
   }
@@ -901,14 +910,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   function applyAiSuggestionsToEmptyFields(item: ServerItemSuggestion) {
     const specSuggestion = aiSpecSuggestion(item);
     const remarkSuggestion = aiRemarkSuggestion(item);
+    const conditionSuggestion = item.suggested_fields?.condition || item.condition_guess || item.condition || "";
     setForm((current) => ({
       ...current,
       object_type: current.object_type || item.suggested_fields?.object_type || item.object_name || item.object_type || "",
       specification: current.specification || specSuggestion,
       construction_year: current.construction_year || item.suggested_fields?.construction_year || item.construction_year || "",
+      condition: editedFields.condition ? current.condition : conditionSuggestion || current.condition,
       remark: current.remark || remarkSuggestion,
     }));
-    setAiSuggestionMessage("KI-Vorschläge wurden nur in leere Felder übernommen. Bitte prüfen.");
+    setAiSuggestionMessage("Leere Felder wurden automatisch mit KI-Vorschlägen gefüllt. Bitte prüfen.");
   }
 
   async function loadAiSuggestion() {
@@ -947,7 +958,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       }
       if (serverSuggestion) {
         setAiSuggestion(serverSuggestion);
-        setAiSuggestionMessage("KI-Vorschlag bereit. Bitte prüfen und bei Bedarf übernehmen.");
+        applyAiSuggestionsToEmptyFields(serverSuggestion);
       } else {
         setAiSuggestionMessage("Noch kein KI-Vorschlag verfügbar. Du kannst normal weiterarbeiten.");
       }
@@ -957,6 +968,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (step !== 1 || !hasObjectPhoto || !activeItem || aiSuggestion || busy) return;
+    const requestKey = `${activeItem.id}:${photos.filter((photo) => photo.type === "object_front" || photo.type === "type_plate").length}`;
+    if (aiAutoRequestKeyRef.current === requestKey) return;
+    aiAutoRequestKeyRef.current = requestKey;
+    void loadAiSuggestion();
+  }, [activeItem, aiSuggestion, busy, hasObjectPhoto, photos, step]);
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -1159,10 +1178,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             ) : null}
 
             {step === 1 ? (
-              <WizardCard title="KI-Vorschlag" hint="KI kann Felder vorschlagen. Bitte alles prüfen.">
+              <WizardCard title="KI-Vorschlag" hint="KI füllt leere Felder automatisch. Bitte alles prüfen.">
                 <div className="summary-box info">
                   <strong>KI-Vorschlag – bitte prüfen</strong>
-                  <span>Die KI startet erst mit Objektfoto. Ein Typenschildfoto wird zusätzlich genutzt, wenn es vorhanden ist.</span>
+                  <span>Die KI startet mit Objektfoto automatisch. Ein Typenschildfoto wird zusätzlich genutzt, wenn es vorhanden ist.</span>
                   {aiSuggestionMessage ? <span>{aiSuggestionMessage}</span> : null}
                 </div>
                 {aiSuggestion ? (
@@ -1178,18 +1197,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                             type="button"
                             onClick={() => applyAiSuggestionField(row.field, row.value)}
                           >
-                            Übernehmen
+                            Ersetzen
                           </button>
                         ) : null}
                       </span>
                     ))}
-                    <button className="btn secondary" type="button" onClick={() => applyAiSuggestionsToEmptyFields(aiSuggestion)}>
-                      Vorschläge in leere Felder übernehmen
-                    </button>
                   </div>
                 ) : null}
                 <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={() => void loadAiSuggestion()}>
-                  KI-Vorschlag holen
+                  KI erneut prüfen
                 </button>
                 {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
               </WizardCard>
