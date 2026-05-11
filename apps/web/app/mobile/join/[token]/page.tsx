@@ -286,6 +286,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const activeStepRef = useRef<HTMLDivElement>(null);
   const lastStepRef = useRef(step);
   const aiAutoRequestKeyRef = useRef("");
+  const lastAutoSyncRef = useRef(0);
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
@@ -361,17 +362,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const isBgaSession = inventoryType === "bga";
 
   const runSync = useCallback(async (label = "Synchronisierung läuft") => {
-    setSyncMessage(getOnlineStatus() ? label : "Offline – Daten werden lokal gespeichert.");
+    setSyncMessage(label);
     try {
-      if (getOnlineStatus()) {
-        await syncNow();
-        setSyncMessage("Synchronisierung abgeschlossen.");
-      }
-    } catch {
-      setSyncMessage("Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
+      await syncNow();
+      setSyncMessage("Synchronisierung abgeschlossen.");
+      setIsOnline(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      setIsOnline(getOnlineStatus());
+      setSyncMessage(message.includes("API nicht erreichbar")
+        ? "Keine Verbindung. Daten bleiben lokal gesichert."
+        : "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
     } finally {
       await refreshQueueSummary();
-      setIsOnline(getOnlineStatus());
     }
   }, [refreshQueueSummary]);
 
@@ -495,16 +498,34 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     };
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener("focus", handleOnline);
+    document.addEventListener("visibilitychange", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("focus", handleOnline);
+      document.removeEventListener("visibilitychange", handleOnline);
     };
   }, [runSync]);
 
   useEffect(() => {
     if (!joined || !isBgaSession) return;
+    const interval = window.setInterval(async () => {
+      const summary = await getQueueSummary();
+      await refreshQueueSummary();
+      if (!summary.open) return;
+      const now = Date.now();
+      if (now - lastAutoSyncRef.current < 30_000) return;
+      lastAutoSyncRef.current = now;
+      void runSync("Offene lokale Daten werden erneut synchronisiert.");
+    }, 15_000);
+    return () => window.clearInterval(interval);
+  }, [joined, isBgaSession, refreshQueueSummary, runSync]);
+
+  useEffect(() => {
+    if (!joined || !isBgaSession) return;
     refreshQueueSummary().then(() => {
-      if (getOnlineStatus()) void runSync("Offene lokale Einträge werden synchronisiert.");
+      void runSync("Offene lokale Einträge werden synchronisiert.");
     });
   }, [joined, isBgaSession, refreshQueueSummary, runSync]);
 
