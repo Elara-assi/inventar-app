@@ -80,6 +80,7 @@ MOBILE_ALLOWED_PREFIXES = (
     "/items",
     "/offline-sync/photos",
     "/offline-sync/items",
+    "/uploads/photos",
 )
 
 
@@ -3706,10 +3707,23 @@ def download_export(export_id: str) -> FileResponse:
 
 
 @app.get("/uploads/photos/{photo_id}")
-def download_photo(photo_id: str) -> FileResponse:
-    row = fetch_one("SELECT * FROM item_photos WHERE id = %s", (photo_id,))
+def download_photo(photo_id: str, request: Request) -> FileResponse:
+    row = fetch_one(
+        """
+        SELECT p.*, i.session_id
+        FROM item_photos p
+        JOIN inventory_items i ON i.id = p.item_id
+        WHERE p.id = %s
+        """,
+        (photo_id,),
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Foto nicht gefunden")
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("kind") == "mobile_session" and str(row.get("session_id")) != str(auth.get("session_id")):
+        raise HTTPException(status_code=403, detail="Foto gehört nicht zu dieser mobilen Session")
+    if auth.get("tenant_id") and row.get("tenant_id") and str(row.get("tenant_id")) != str(auth.get("tenant_id")):
+        raise HTTPException(status_code=403, detail="Foto gehört nicht zu diesem Mandanten")
     path = safe_upload_path(row.get("stamped_path") or row["original_path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="Fotodatei nicht gefunden")
