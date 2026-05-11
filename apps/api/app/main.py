@@ -2585,7 +2585,17 @@ def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any],
     if limit:
         candidates = [candidate for candidate in candidates if float(candidate["value"]) <= max(limit * 1.5, limit + 40)]
     baseline_min, _ = estimate_value_range(item, ai_context)
-    low_outlier_floor = max(1, baseline_min * 0.45)
+    class_floor = {
+        "Computermaus": 10,
+        "Tastatur": 15,
+        "Monitor": 25,
+        "Telefon": 80,
+        "Drucker": 25,
+        "Scanner": 25,
+    }.get(object_class, 1)
+    if any(term in (" ".join(str(item.get(key) or "").lower() for key in ["object_type", "brand", "model"]) + " " + ai_context.lower()) for term in ["iphone", "smartphone"]):
+        class_floor = 150
+    low_outlier_floor = max(class_floor, baseline_min * 0.45)
     candidates = [candidate for candidate in candidates if float(candidate["value"]) >= low_outlier_floor]
     return candidates[:12]
 
