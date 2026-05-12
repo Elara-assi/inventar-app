@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { ItemReviewList, ReviewItem } from "@/components/ItemReviewList";
-import { Bootstrap, api, downloadApiFile, inventoryTypeLabel, joinUrl } from "@/lib/api";
+import { Bootstrap, api, clearAuthToken, downloadApiFile, inventoryTypeLabel, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -51,7 +51,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       setItems(itemData);
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Session konnte nicht geladen werden");
+      const message = err instanceof Error ? err.message : "Session konnte nicht geladen werden";
+      if (message.includes("Anmeldung")) clearAuthToken();
+      setError(message);
     }
   }
 
@@ -110,6 +112,27 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const isClosed = session?.status === "closed";
   const roomStatus = session?.status === "closed" ? "Abgeschlossen" : "Live";
   const hasCapturedItems = items.length > 0;
+  const authExpired = error.includes("Anmeldung abgelaufen") || error.includes("Anmeldung erforderlich");
+
+  if (authExpired) {
+    return (
+      <main className="page grid premium-session-page is-empty">
+        <section className="room-hero">
+          <div className="room-hero-main">
+            <Link className="btn secondary back-link compact-btn" href="/">← Dashboard</Link>
+            <div>
+              <span className="eyebrow">Anmeldung erneuern</span>
+              <h1>Session neu laden</h1>
+              <p className="muted">
+                Deine Anmeldung ist abgelaufen oder wurde ungültig. Bitte melde dich neu an, dann öffnet die Prüfliste wieder sauber.
+              </p>
+              <Link className="btn accent" href="/">Zum Login</Link>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className={`page grid premium-session-page ${hasCapturedItems ? "has-items" : "is-empty"}`}>

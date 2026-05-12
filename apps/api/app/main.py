@@ -86,10 +86,19 @@ MOBILE_ALLOWED_PREFIXES = (
 )
 
 
-def json_error(status_code: int, detail: str):
+def json_error(status_code: int, detail: str, request: Request | None = None):
     from fastapi.responses import JSONResponse
 
-    return JSONResponse({"detail": detail}, status_code=status_code)
+    response = JSONResponse({"detail": detail}, status_code=status_code)
+    if request is not None:
+        origin = request.headers.get("origin")
+        allowed_origins = settings.cors_origin_list()
+        if origin and ("*" in allowed_origins or origin in allowed_origins):
+            response.headers["access-control-allow-origin"] = origin
+            response.headers["access-control-allow-credentials"] = "true"
+            response.headers["vary"] = "Origin"
+        response.headers["x-request-id"] = getattr(request.state, "request_id", request_id())
+    return response
 
 
 def authorize_request(request: Request):
@@ -100,16 +109,16 @@ def authorize_request(request: Request):
         return None
     token = bearer_token_from_request(request)
     if not token:
-        return json_error(401, "Anmeldung erforderlich")
+        return json_error(401, "Anmeldung erforderlich", request)
     try:
         payload = decode_access_token(token)
     except HTTPException as exc:
-        return json_error(exc.status_code, str(exc.detail))
+        return json_error(exc.status_code, str(exc.detail), request)
     request.state.auth = payload
     if payload.get("kind") == "mobile_session":
         if any(path.startswith(prefix) for prefix in MOBILE_ALLOWED_PREFIXES):
             return None
-        return json_error(403, "Mobile Session darf diese Funktion nicht ausführen")
+        return json_error(403, "Mobile Session darf diese Funktion nicht ausführen", request)
     return None
 
 INVENTORY_TYPE_LABELS = {

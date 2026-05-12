@@ -48,29 +48,49 @@ export function clearAuthToken() {
   setAuthToken("");
 }
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function apiResponse(path: string, init?: RequestInit): Promise<Response> {
   const isFormData = init?.body instanceof FormData;
   const token = getAuthToken();
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("Server nicht erreichbar. Bitte Verbindung prüfen und erneut versuchen.");
+  }
   if (!response.ok) {
     const text = await response.text();
+    let message = text || `API error ${response.status}`;
     try {
       const parsed = JSON.parse(text);
       const detail = parsed?.detail;
-      if (typeof detail === "string") throw new Error(detail);
-      if (detail?.message) throw new Error(detail.message);
-    } catch (err) {
-      if (err instanceof Error && err.name === "Error") throw err;
+      if (typeof detail === "string") message = detail;
+      if (detail?.message) message = detail.message;
+    } catch {
+      // Keep the raw response text when the API did not return JSON.
     }
-    throw new Error(text || `API error ${response.status}`);
+    if (response.status === 401 && !path.startsWith("/auth/login")) {
+      clearAuthToken();
+      message = "Anmeldung abgelaufen. Bitte neu anmelden.";
+    }
+    throw new ApiError(message, response.status);
   }
   return response;
 }
