@@ -958,7 +958,10 @@ function ItemReviewRow({
                 <strong>{itemName}</strong>
                 <span>Prüfen, korrigieren, speichern. Manuelle Eingaben sind führend.</span>
               </div>
-              <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen(false)}>Fertig</button>
+              <div className="item-edit-head-actions">
+                <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly}>Speichern</button>
+                <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen(false)}>Fertig</button>
+              </div>
             </div>
             <section className="item-edit-section">
               <div className="item-edit-section-head">
