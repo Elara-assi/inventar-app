@@ -599,8 +599,7 @@ function ItemReviewRow({
     setMessage("KI-Schätzung übernommen. Bitte fachlich prüfen und speichern.");
   }
 
-  async function save() {
-    if (readOnly) return;
+  async function persistDraft() {
     const valueEstimate = optionalNumber(draft.value_estimate);
     const ageEstimate = optionalNumber(draft.estimated_age_years);
     await api(`/items/${item.id}`, {
@@ -628,6 +627,11 @@ function ItemReviewRow({
       }),
     });
     setDraftDirty(false);
+  }
+
+  async function save() {
+    if (readOnly) return;
+    await persistDraft();
     setMessage("Gespeichert");
     onChanged();
   }
@@ -686,8 +690,12 @@ function ItemReviewRow({
   async function runDeepDive() {
     if (readOnly) return;
     try {
+      if (draftDirty) {
+        setMessage("Änderungen werden gespeichert und danach neu bewertet");
+        await persistDraft();
+      }
       await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
-      setMessage("KI-Websuche gestartet");
+      setMessage("KI-Websuche mit aktuellen Eingaben gestartet");
       window.setTimeout(onChanged, 1200);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "KI-Websuche konnte nicht gestartet werden");

@@ -2825,7 +2825,31 @@ def conservative_value_estimate(value_min: int, value_max: int) -> int:
     return max(1, round(lower_quartile * 0.9))
 
 
+def parse_construction_year(item: dict[str, Any]) -> int | None:
+    value = normalize_deep_dive_text(item.get("construction_year"))
+    if not value:
+        return None
+    match = re.search(r"\b(19[8-9][0-9]|20[0-3][0-9])\b", value)
+    if not match:
+        return None
+    year = int(match.group(1))
+    current_year = datetime.utcnow().year
+    if year > current_year + 1:
+        return None
+    return year
+
+
+def construction_year_age(item: dict[str, Any]) -> float | None:
+    year = parse_construction_year(item)
+    if year is None:
+        return None
+    return round(max(0.0, datetime.utcnow().year - year), 1)
+
+
 def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_context: str = "") -> float | None:
+    construction_age = construction_year_age(item)
+    if construction_age is not None:
+        return construction_age
     if item.get("estimated_age_years") is not None and item.get("age_source") != "schaetzung":
         try:
             return round(float(item["estimated_age_years"]), 1)
@@ -2925,7 +2949,19 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         estimated_value = guarded_value["estimated_value"]
         value_min = guarded_value["estimated_value_range"]["min"]
         value_max = guarded_value["estimated_value_range"]["max"]
-        estimated_age = conservative_age_estimate(estimate_age_years(item, sources, ai_context))
+        raw_age = estimate_age_years(item, sources, ai_context)
+        age_from_construction_year = construction_year_age(item)
+        manual_age = item.get("estimated_age_years") is not None and item.get("age_source") not in {None, "", "schaetzung", "unbekannt"}
+        estimated_age = raw_age if (age_from_construction_year is not None or manual_age) else conservative_age_estimate(raw_age)
+        age_reason = (
+            "Aus eingegebenem Baujahr abgeleitet."
+            if age_from_construction_year is not None
+            else "Aus manuell geprüftem Alter übernommen."
+            if manual_age and estimated_age is not None
+            else "Aus sichtbarem Modellhinweis abgeleitet."
+            if estimated_age is not None
+            else "Keine belastbare Altersgrundlage erkannt."
+        )
         notes = "Vorsichtige KI-Schätzung aus Objektangaben, Zustand und Referenzhinweisen. Unsichere oder unplausible Alter-/Wertangaben bleiben leer und müssen manuell geprüft werden."
         extra_result = {
             "estimated_value_confidence": guarded_value["estimated_value_confidence"],
@@ -2933,7 +2969,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "value_requires_review": guarded_value["value_requires_review"],
             "price_candidates": guarded_value.get("price_candidates") or [],
             "age_confidence": 0.55 if estimated_age is not None else 0.0,
-            "age_reason": "Aus sichtbarem Baujahr/Modellhinweis abgeleitet." if estimated_age is not None else "Keine belastbare Altersgrundlage erkannt.",
+            "age_reason": age_reason,
             "age_requires_review": True,
         }
     return {
