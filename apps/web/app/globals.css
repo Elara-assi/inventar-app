@@ -78,6 +78,10 @@ textarea {
   gap: 16px;
 }
 
+.page.grid {
+  align-content: start;
+}
+
 .grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
