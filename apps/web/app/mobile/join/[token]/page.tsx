@@ -981,6 +981,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   async function loadAiSuggestion() {
     if (!activeItem || busy) return;
+    if (!getOnlineStatus()) {
+      setIsOnline(false);
+      setAiSuggestionMessage("Offline - KI-Prüfung wird übersprungen. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
+      return;
+    }
     setBusy(true);
     setAiSuggestionMessage("KI-Vorschlag wird vorbereitet.");
     try {
@@ -992,6 +997,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         draft: buildDraft(activeItem.id),
       });
       await runSync("Fotos und Objekt werden für KI synchronisiert.");
+      if (!getOnlineStatus()) {
+        setIsOnline(false);
+        setAiSuggestionMessage("Offline - KI-Prüfung wurde gestoppt. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
+        return;
+      }
       let serverItemId = await findServerItemId(activeItem.id);
       for (let attempt = 0; !serverItemId && attempt < 4; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 550));
@@ -1028,11 +1038,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   useEffect(() => {
     if (step !== 1 || !hasObjectPhoto || !activeItem || aiSuggestion || busy) return;
+    if (!isOnline || !getOnlineStatus()) {
+      setAiSuggestionMessage("Offline - KI-Prüfung wird nicht gestartet. Du kannst normal weiter erfassen.");
+      return;
+    }
     const requestKey = `${activeItem.id}:${photos.filter((photo) => photo.type === "object_front" || photo.type === "type_plate").length}`;
     if (aiAutoRequestKeyRef.current === requestKey) return;
     aiAutoRequestKeyRef.current = requestKey;
     void loadAiSuggestion();
-  }, [activeItem, aiSuggestion, busy, hasObjectPhoto, photos, step]);
+  }, [activeItem, aiSuggestion, busy, hasObjectPhoto, isOnline, photos, step]);
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -1267,7 +1281,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     ))}
                   </div>
                 ) : null}
-                <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={() => void loadAiSuggestion()}>
+                <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto || !isOnline} onClick={() => void loadAiSuggestion()}>
                   KI erneut prüfen
                 </button>
                 {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
