@@ -515,26 +515,30 @@ def run_bga_rework_check(item_id: str) -> None:
 
     open_critical = fetch_one(
         """
-        SELECT count(*)::int AS count
+        SELECT
+          count(*)::int AS count,
+          count(*) FILTER (WHERE assigned_role = 'Erfasser')::int AS erfasser_count,
+          count(*) FILTER (WHERE assigned_role = 'Technik')::int AS technik_count
         FROM accounting_tasks
         WHERE item_id = %s AND status = 'open' AND assigned_role IN ('Erfasser', 'Technik')
         """,
         (item_id,),
     )
     if open_critical and int(open_critical["count"]) > 0:
+        next_review_status = "nacharbeit_erfasser" if int(open_critical.get("erfasser_count") or 0) > 0 else "nacharbeit_technik"
         execute(
             """
             UPDATE inventory_items
             SET review_status = CASE
                   WHEN review_status = 'finalisiert' THEN review_status
-                  ELSE 'nacharbeit_erfasser'
+                  ELSE %s
                 END,
                 status = CASE WHEN status = 'finalisiert' THEN status ELSE 'nacharbeit_noetig' END,
                 updated_at = now()
             WHERE id = %s
             RETURNING id
             """,
-            (item_id,),
+            (next_review_status, item_id),
         )
     else:
         execute(
@@ -1628,7 +1632,7 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Item not found")
     audit("item_changed", "inventory_item", item_id, data)
     run_inventory_rework_check(item_id)
-    return row
+    return get_item(item_id)
 
 
 @app.delete("/items/{item_id}")

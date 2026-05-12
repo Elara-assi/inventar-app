@@ -43,6 +43,12 @@ type AiSummary = {
   bga_detection?: {
     object_name?: string | null;
     object_class?: string | null;
+    manufacturer?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    serial_number?: string | null;
+    specification?: string | null;
+    suggested_remark?: string | null;
     confidence?: number | string | null;
     uncertainty_reason?: string | null;
     suggested_fields?: AiSuggestedFields | null;
@@ -266,25 +272,35 @@ const evidencePhotoTypes = [
 ] as const;
 
 function draftFromItem(item: ReviewItem) {
+  const detection = item.ai_summary?.bga_detection;
+  const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
+  const deepDive = item.ai_summary?.deep_dive;
   return {
-    object_type: item.object_type ?? "",
-    brand: item.brand ?? "",
-    model: item.model ?? "",
-    serial_number: item.serial_number ?? "",
-    specification: item.specification ?? "",
-    construction_year: item.construction_year ?? "",
+    object_type: item.object_type || fields.object_type || detection?.object_name || "",
+    brand: item.brand || detection?.manufacturer || detection?.brand || "",
+    model: item.model || detection?.model || "",
+    serial_number: item.serial_number || detection?.serial_number || "",
+    specification: item.specification || fields.specification || detection?.specification || "",
+    construction_year: item.construction_year || fields.construction_year || "",
     function_ok: item.function_ok ?? "nicht_geprueft",
     uvv_status: item.uvv_status ?? "unklar",
     uvv_valid_until: item.uvv_valid_until ?? "",
     inspection_book_available: item.inspection_book_available ?? "unklar",
-    remark: item.remark ?? "",
+    remark: item.remark || fields.remark || detection?.suggested_remark || "",
     type_plate_status: item.type_plate_status ?? "nicht_geprueft",
-    value_estimate: item.value_estimate?.toString() ?? "",
-    estimated_age_years: item.estimated_age_years?.toString() ?? "",
+    value_estimate: item.value_estimate?.toString() ?? (deepDive?.estimated_value != null ? String(deepDive.estimated_value) : detection?.estimated_value_eur != null ? String(detection.estimated_value_eur) : ""),
+    estimated_age_years: item.estimated_age_years?.toString() ?? (deepDive?.estimated_age_years != null ? String(deepDive.estimated_age_years) : detection?.estimated_age_years != null ? String(detection.estimated_age_years) : ""),
     object_class_id: item.object_class_id ?? "",
     condition: item.condition ?? "gebraucht",
     review_status: item.review_status ?? "erfasst",
   };
+}
+
+function optionalNumber(value: string) {
+  const normalized = value.trim().replace(",", ".").replace(/[^\d.-]/g, "");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
@@ -585,6 +601,8 @@ function ItemReviewRow({
 
   async function save() {
     if (readOnly) return;
+    const valueEstimate = optionalNumber(draft.value_estimate);
+    const ageEstimate = optionalNumber(draft.estimated_age_years);
     await api(`/items/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -600,12 +618,12 @@ function ItemReviewRow({
         inspection_book_available: draft.inspection_book_available,
         remark: draft.remark || null,
         type_plate_status: draft.type_plate_status,
-        value_estimate: draft.value_estimate ? Number(draft.value_estimate) : null,
+        value_estimate: valueEstimate,
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
-        estimated_age_years: draft.estimated_age_years ? Number(draft.estimated_age_years) : null,
-        age_source: draft.estimated_age_years ? "manuell" : null,
-        age_verification_status: draft.estimated_age_years ? "geprueft" : "offen",
+        estimated_age_years: ageEstimate,
+        age_source: ageEstimate != null ? "manuell" : null,
+        age_verification_status: ageEstimate != null ? "geprueft" : "offen",
         review_status: draft.review_status,
       }),
     });
@@ -823,30 +841,13 @@ function ItemReviewRow({
             </div>
             <section className="item-edit-section">
               <div className="item-edit-section-head">
-                <strong>Stammdaten</strong>
-                <span>Was ist es?</span>
+                <strong>Papierliste</strong>
+                <span>Die Felder der ursprünglichen BGA-Zählliste. KI füllt nur leere Felder vor.</span>
               </div>
             <div className="item-main-fields">
               <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="Objektart" />
               <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="Typ / Spezifikation" />
-              <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="Marke" />
-              <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="Modell" />
-              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="Seriennummer" />
               <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateDraft({ construction_year: event.target.value })} placeholder="Baujahr" />
-              <input
-                disabled={readOnly}
-                value={draft.value_estimate}
-                onChange={(event) => updateDraft({ value_estimate: event.target.value })}
-                inputMode="decimal"
-                placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
-              />
-              <input
-                disabled={readOnly}
-                value={draft.estimated_age_years}
-                onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
-                inputMode="decimal"
-                placeholder={deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}
-              />
             </div>
             </section>
 
@@ -886,6 +887,32 @@ function ItemReviewRow({
                   <option value="unklar">Unklar</option>
                 </select>
               </label> : null}
+            </div>
+            </section>
+
+            <section className="item-edit-section">
+              <div className="item-edit-section-head">
+                <strong>Optionale KI-Details</strong>
+                <span>Marke, Modell, Seriennummer, Wert und Alter sind Zusatzfelder, nicht Teil der Papierpflicht.</span>
+              </div>
+            <div className="item-main-fields">
+              <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="Marke" />
+              <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="Modell" />
+              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="Seriennummer" />
+              <input
+                disabled={readOnly}
+                value={draft.value_estimate}
+                onChange={(event) => updateDraft({ value_estimate: event.target.value })}
+                inputMode="decimal"
+                placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
+              />
+              <input
+                disabled={readOnly}
+                value={draft.estimated_age_years}
+                onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
+                inputMode="decimal"
+                placeholder={deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}
+              />
             </div>
             </section>
 
