@@ -853,9 +853,18 @@ function ItemReviewRow({
                 <span>Die Felder der ursprünglichen BGA-Zählliste. KI füllt nur leere Felder vor.</span>
               </div>
             <div className="item-main-fields">
-              <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="Objektart" />
-              <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="Typ / Spezifikation" />
-              <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateDraft({ construction_year: event.target.value })} placeholder="Baujahr" />
+              <label className="field">
+                <span>Bezeichnung</span>
+                <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="z. B. Computermaus" />
+              </label>
+              <label className="field">
+                <span>Typ / Spezifikation</span>
+                <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="z. B. Modell, Größe, Ausführung" />
+              </label>
+              <label className="field">
+                <span>Baujahr</span>
+                <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateDraft({ construction_year: event.target.value })} placeholder="z. B. 2025" />
+              </label>
             </div>
             </section>
 
@@ -904,23 +913,38 @@ function ItemReviewRow({
                 <span>Marke, Modell, Seriennummer, Wert und Alter sind Zusatzfelder, nicht Teil der Papierpflicht.</span>
               </div>
             <div className="item-main-fields">
-              <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="Marke" />
-              <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="Modell" />
-              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="Seriennummer" />
-              <input
-                disabled={readOnly}
-                value={draft.value_estimate}
-                onChange={(event) => updateDraft({ value_estimate: event.target.value })}
-                inputMode="decimal"
-                placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
-              />
-              <input
-                disabled={readOnly}
-                value={draft.estimated_age_years}
-                onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
-                inputMode="decimal"
-                placeholder={deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}
-              />
+              <label className="field">
+                <span>Marke</span>
+                <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="z. B. Logitech" />
+              </label>
+              <label className="field">
+                <span>Modell</span>
+                <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="z. B. M908" />
+              </label>
+              <label className="field">
+                <span>Seriennummer</span>
+                <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="falls vorhanden" />
+              </label>
+              <label className="field">
+                <span>{deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}</span>
+                <input
+                  disabled={readOnly}
+                  value={draft.value_estimate}
+                  onChange={(event) => updateDraft({ value_estimate: event.target.value })}
+                  inputMode="decimal"
+                  placeholder="z. B. 26"
+                />
+              </label>
+              <label className="field">
+                <span>{deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}</span>
+                <input
+                  disabled={readOnly}
+                  value={draft.estimated_age_years}
+                  onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
+                  inputMode="decimal"
+                  placeholder="z. B. 1"
+                />
+              </label>
             </div>
             </section>
 
@@ -930,12 +954,15 @@ function ItemReviewRow({
                 <span>Optional schneller zuordnen</span>
               </div>
             <div className="template-picker compact">
+              <label className="field">
+                <span>Vorlage suchen</span>
               <input
                 value={templateQuery}
                 disabled={readOnly}
                 placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
                 onChange={(event) => setTemplateQuery(event.target.value)}
               />
+              </label>
               {templates.length ? (
                 <div className="template-results">
                   {templates.map((template) => (
