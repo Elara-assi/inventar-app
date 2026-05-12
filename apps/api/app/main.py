@@ -1618,6 +1618,14 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
+    if data.get("construction_year"):
+        derived_age = construction_year_age({"construction_year": data.get("construction_year")})
+        if derived_age is not None:
+            typed_age = numeric_or_none(data.get("estimated_age_years"))
+            if typed_age is None or abs(typed_age - derived_age) < 0.01:
+                data["estimated_age_years"] = derived_age
+                data["age_source"] = "baujahr"
+                data["age_verification_status"] = "geprueft"
     reviewer_id = demo_user_id()
     allowed = list(data.keys())
     sql_parts = [f"{key} = %s" for key in allowed]

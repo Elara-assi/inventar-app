@@ -313,13 +313,16 @@ function draftFromItem(item: ReviewItem) {
   const detection = item.ai_summary?.bga_detection;
   const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
   const deepDive = item.ai_summary?.deep_dive;
+  const constructionYear = item.construction_year || fields.construction_year || "";
+  const derivedAge = ageFromConstructionYear(constructionYear);
+  const itemAgeIsEstimate = item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt";
   return {
     object_type: item.object_type || fields.object_type || detection?.object_name || "",
     brand: item.brand || detection?.manufacturer || detection?.brand || "",
     model: item.model || detection?.model || "",
     serial_number: item.serial_number || detection?.serial_number || "",
     specification: item.specification || fields.specification || detection?.specification || "",
-    construction_year: item.construction_year || fields.construction_year || "",
+    construction_year: constructionYear,
     function_ok: item.function_ok ?? "nicht_geprueft",
     uvv_status: item.uvv_status ?? "unklar",
     uvv_valid_until: item.uvv_valid_until ?? "",
@@ -327,7 +330,10 @@ function draftFromItem(item: ReviewItem) {
     remark: item.remark || fields.remark || detection?.suggested_remark || "",
     type_plate_status: item.type_plate_status ?? "nicht_geprueft",
     value_estimate: item.value_estimate?.toString() ?? (deepDive?.estimated_value != null ? String(deepDive.estimated_value) : detection?.estimated_value_eur != null ? String(detection.estimated_value_eur) : ""),
-    estimated_age_years: item.estimated_age_years?.toString() ?? (deepDive?.estimated_age_years != null ? String(deepDive.estimated_age_years) : detection?.estimated_age_years != null ? String(detection.estimated_age_years) : ""),
+    estimated_age_years:
+      derivedAge != null && (item.estimated_age_years == null || itemAgeIsEstimate)
+        ? String(derivedAge)
+        : item.estimated_age_years?.toString() ?? (deepDive?.estimated_age_years != null ? String(deepDive.estimated_age_years) : detection?.estimated_age_years != null ? String(detection.estimated_age_years) : ""),
     object_class_id: item.object_class_id ?? "",
     condition: item.condition ?? "gebraucht",
     review_status: item.review_status ?? "erfasst",
@@ -339,6 +345,15 @@ function optionalNumber(value: string) {
   if (!normalized) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function ageFromConstructionYear(value?: string | null) {
+  const match = String(value ?? "").match(/\b(19[8-9][0-9]|20[0-3][0-9])\b/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const currentYear = new Date().getFullYear();
+  if (!Number.isFinite(year) || year > currentYear + 1) return null;
+  return Math.max(0, currentYear - year);
 }
 
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
@@ -606,6 +621,17 @@ function ItemReviewRow({
     setDraftDirty(true);
   }
 
+  function updateConstructionYear(value: string) {
+    const derivedAge = ageFromConstructionYear(value);
+    setDraft((current) => ({
+      ...current,
+      construction_year: value,
+      estimated_age_years: derivedAge != null ? String(derivedAge) : current.estimated_age_years,
+    }));
+    setDraftDirty(true);
+    if (derivedAge != null) setMessage(`Alter aus Baujahr abgeleitet: ${derivedAge} Jahre`);
+  }
+
   function applyAiSuggestionToDraft() {
     const detection = item.ai_summary?.bga_detection;
     const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
@@ -650,7 +676,10 @@ function ItemReviewRow({
 
   async function persistDraft() {
     const valueEstimate = optionalNumber(draft.value_estimate);
-    const ageEstimate = optionalNumber(draft.estimated_age_years);
+    const derivedAge = ageFromConstructionYear(draft.construction_year);
+    const typedAge = optionalNumber(draft.estimated_age_years);
+    const ageEstimate = typedAge ?? derivedAge;
+    const ageComesFromConstructionYear = derivedAge != null && (typedAge == null || Math.abs(typedAge - derivedAge) < 0.01);
     await api(`/items/${item.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -670,7 +699,7 @@ function ItemReviewRow({
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
         estimated_age_years: ageEstimate,
-        age_source: ageEstimate != null ? "manuell" : null,
+        age_source: ageEstimate != null ? (ageComesFromConstructionYear ? "baujahr" : "manuell") : null,
         age_verification_status: ageEstimate != null ? "geprueft" : "offen",
         review_status: draft.review_status,
       }),
@@ -852,12 +881,16 @@ function ItemReviewRow({
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const selectedClassName = filteredObjectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen";
   const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || selectedClassName || "Details offen";
-  const isAiEstimate = Boolean(deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt");
+  const derivedAgeFromYear = ageFromConstructionYear(draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year);
+  const displayedAge = derivedAgeFromYear ?? deepDive?.estimated_age_years ?? item.estimated_age_years ?? null;
+  const displayedAgeLabel = displayedAge != null ? `${displayedAge} Jahre` : "Alter offen";
+  const ageBasis = derivedAgeFromYear != null ? `aus Baujahr ${draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year}` : null;
+  const isAiEstimate = Boolean(!ageBasis && (deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt"));
   const compactValue = draft.value_estimate ? `${draft.value_estimate} €${isAiEstimate ? " (KI)" : ""}` : deepDive?.estimated_value ? `${deepDive.estimated_value} € (KI)` : "Wert offen";
   const compactKi = deepDive
-    ? `${deepDive.estimated_age_years ?? "Alter offen"} Jahre · ${deepDive.estimated_value ?? "Wert offen"} €`
+    ? `${displayedAgeLabel}${ageBasis ? ` (${ageBasis})` : ""} · ${deepDive.estimated_value ?? "Wert offen"} €`
     : isAiEstimate
-      ? `${item.estimated_age_years ?? "Alter offen"} Jahre · ${item.value_estimate ?? "Wert offen"} €`
+      ? `${displayedAgeLabel} · ${item.value_estimate ?? "Wert offen"} €`
       : item.status?.startsWith("ki_") ? "KI läuft" : "";
   const blockerSummary = blockers.slice(0, 3).map(displayTaskField).join(", ");
   const finalizeBlocked = blockers.length > 0;
@@ -943,7 +976,7 @@ function ItemReviewRow({
               </label>
               <label className="field">
                 <span>Baujahr</span>
-                <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateDraft({ construction_year: event.target.value })} placeholder="z. B. 2025" />
+                <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateConstructionYear(event.target.value)} placeholder="z. B. 2025" />
               </label>
             </div>
             </section>
@@ -1142,7 +1175,8 @@ function ItemReviewRow({
             <summary>
               <strong>KI-Webrecherche</strong>
               <span>
-                {deepDive.estimated_age_years ? `${deepDive.estimated_age_years} Jahre` : "Alter offen"}
+                {displayedAgeLabel}
+                {ageBasis ? ` (${ageBasis})` : ""}
                 {" · "}
                 {deepDive.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen"}
                 {deepDive.web_search_performed ? " · Websuche" : ""}
@@ -1170,7 +1204,7 @@ function ItemReviewRow({
               </div>
             ) : null}
             <div className="deep-dive-grid">
-              <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
+              <span>Alter: <b>{displayedAge != null ? `${displayedAge} Jahre` : "offen"}</b>{ageBasis ? ` · ${ageBasis}` : ""}</span>
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
               <span>Quelle: <b>{deepDive.web_search_performed ? `Websuche (${deepDive.search_provider || "Quelle"})` : "Keine verwertbare Webquelle"}</b></span>
               <span>Wert-Sicherheit: <b>{percentLabel(deepDive.estimated_value_confidence)}</b></span>
