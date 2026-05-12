@@ -265,6 +265,28 @@ const evidencePhotoTypes = [
   { type: "other", label: "Weiteres Foto", hint: "Zusatznachweis" },
 ] as const;
 
+function draftFromItem(item: ReviewItem) {
+  return {
+    object_type: item.object_type ?? "",
+    brand: item.brand ?? "",
+    model: item.model ?? "",
+    serial_number: item.serial_number ?? "",
+    specification: item.specification ?? "",
+    construction_year: item.construction_year ?? "",
+    function_ok: item.function_ok ?? "nicht_geprueft",
+    uvv_status: item.uvv_status ?? "unklar",
+    uvv_valid_until: item.uvv_valid_until ?? "",
+    inspection_book_available: item.inspection_book_available ?? "unklar",
+    remark: item.remark ?? "",
+    type_plate_status: item.type_plate_status ?? "nicht_geprueft",
+    value_estimate: item.value_estimate?.toString() ?? "",
+    estimated_age_years: item.estimated_age_years?.toString() ?? "",
+    object_class_id: item.object_class_id ?? "",
+    condition: item.condition ?? "gebraucht",
+    review_status: item.review_status ?? "erfasst",
+  };
+}
+
 async function compressEvidencePhoto(file: File, photoType: string): Promise<File> {
   if (!file.type.startsWith("image/")) return file;
   const maxSide = photoType === "nameplate" || photoType === "type_plate" || photoType === "uvv_label" || photoType === "dot" || photoType === "condition_detail" ? 2400 : 1600;
@@ -469,25 +491,8 @@ function ItemReviewRow({
         ] as const,
     [isBga],
   );
-  const [draft, setDraft] = useState({
-    object_type: item.object_type ?? "",
-    brand: item.brand ?? "",
-    model: item.model ?? "",
-    serial_number: item.serial_number ?? "",
-    specification: item.specification ?? "",
-    construction_year: item.construction_year ?? "",
-    function_ok: item.function_ok ?? "nicht_geprueft",
-    uvv_status: item.uvv_status ?? "unklar",
-    uvv_valid_until: item.uvv_valid_until ?? "",
-    inspection_book_available: item.inspection_book_available ?? "unklar",
-    remark: item.remark ?? "",
-    type_plate_status: item.type_plate_status ?? "nicht_geprueft",
-    value_estimate: item.value_estimate?.toString() ?? "",
-    estimated_age_years: item.estimated_age_years?.toString() ?? "",
-    object_class_id: item.object_class_id ?? "",
-    condition: item.condition ?? "gebraucht",
-    review_status: item.review_status ?? "erfasst",
-  });
+  const [draft, setDraft] = useState(() => draftFromItem(item));
+  const [draftDirty, setDraftDirty] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedRework, setSelectedRework] = useState<string>(reworkOptions[0].label);
   const [templateQuery, setTemplateQuery] = useState("");
@@ -496,26 +501,10 @@ function ItemReviewRow({
   const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
-    setDraft({
-      object_type: item.object_type ?? "",
-      brand: item.brand ?? "",
-      model: item.model ?? "",
-      serial_number: item.serial_number ?? "",
-      specification: item.specification ?? "",
-      construction_year: item.construction_year ?? "",
-      function_ok: item.function_ok ?? "nicht_geprueft",
-      uvv_status: item.uvv_status ?? "unklar",
-      uvv_valid_until: item.uvv_valid_until ?? "",
-      inspection_book_available: item.inspection_book_available ?? "unklar",
-      remark: item.remark ?? "",
-      type_plate_status: item.type_plate_status ?? "nicht_geprueft",
-      value_estimate: item.value_estimate?.toString() ?? "",
-      estimated_age_years: item.estimated_age_years?.toString() ?? "",
-      object_class_id: item.object_class_id ?? "",
-      condition: item.condition ?? "gebraucht",
-      review_status: item.review_status ?? "erfasst",
-    });
-  }, [item]);
+    if (editOpen && draftDirty) return;
+    setDraft(draftFromItem(item));
+    setDraftDirty(false);
+  }, [item, editOpen, draftDirty]);
 
   useEffect(() => {
     if (!reworkOptions.some((option) => option.label === selectedRework)) {
@@ -552,9 +541,15 @@ function ItemReviewRow({
       brand: template.brand || current.brand,
       model: template.model || current.model,
     }));
+    setDraftDirty(true);
     setTemplateQuery(template.label);
     setTemplates([]);
     setMessage("Vorlage gewählt");
+  }
+
+  function updateDraft(patch: Partial<typeof draft>) {
+    setDraft((current) => ({ ...current, ...patch }));
+    setDraftDirty(true);
   }
 
   function applyAiSuggestionToDraft() {
@@ -568,6 +563,7 @@ function ItemReviewRow({
       remark: current.remark || fields.remark || current.remark,
       condition: current.condition || fields.condition || "gebraucht",
     }));
+    setDraftDirty(true);
     setMessage("KI-Vorschlag in leere Felder übernommen. Bitte prüfen und speichern.");
   }
 
@@ -583,6 +579,7 @@ function ItemReviewRow({
           ? String(deepDive.estimated_value)
           : current.value_estimate,
     }));
+    setDraftDirty(true);
     setMessage("KI-Schätzung übernommen. Bitte fachlich prüfen und speichern.");
   }
 
@@ -612,6 +609,7 @@ function ItemReviewRow({
         review_status: draft.review_status,
       }),
     });
+    setDraftDirty(false);
     setMessage("Gespeichert");
     onChanged();
   }
@@ -829,23 +827,23 @@ function ItemReviewRow({
                 <span>Was ist es?</span>
               </div>
             <div className="item-main-fields">
-              <input disabled={readOnly} value={draft.object_type} onChange={(event) => setDraft({ ...draft, object_type: event.target.value })} placeholder="Objektart" />
-              <input disabled={readOnly} value={draft.specification} onChange={(event) => setDraft({ ...draft, specification: event.target.value })} placeholder="Typ / Spezifikation" />
-              <input disabled={readOnly} value={draft.brand} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} placeholder="Marke" />
-              <input disabled={readOnly} value={draft.model} onChange={(event) => setDraft({ ...draft, model: event.target.value })} placeholder="Modell" />
-              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => setDraft({ ...draft, serial_number: event.target.value })} placeholder="Seriennummer" />
-              <input disabled={readOnly} value={draft.construction_year} onChange={(event) => setDraft({ ...draft, construction_year: event.target.value })} placeholder="Baujahr" />
+              <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="Objektart" />
+              <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="Typ / Spezifikation" />
+              <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="Marke" />
+              <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="Modell" />
+              <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="Seriennummer" />
+              <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateDraft({ construction_year: event.target.value })} placeholder="Baujahr" />
               <input
                 disabled={readOnly}
                 value={draft.value_estimate}
-                onChange={(event) => setDraft({ ...draft, value_estimate: event.target.value })}
+                onChange={(event) => updateDraft({ value_estimate: event.target.value })}
                 inputMode="decimal"
                 placeholder={deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}
               />
               <input
                 disabled={readOnly}
                 value={draft.estimated_age_years}
-                onChange={(event) => setDraft({ ...draft, estimated_age_years: event.target.value })}
+                onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
                 inputMode="decimal"
                 placeholder={deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}
               />
@@ -860,7 +858,7 @@ function ItemReviewRow({
             <div className="item-review-selects bga-review-selects">
               <label>
                 <span>Funktion i. O.</span>
-                <select disabled={readOnly} value={draft.function_ok} onChange={(event) => setDraft({ ...draft, function_ok: event.target.value })}>
+                <select disabled={readOnly} value={draft.function_ok} onChange={(event) => updateDraft({ function_ok: event.target.value })}>
                   <option value="ja">Ja</option>
                   <option value="nein">Nein</option>
                   <option value="nicht_geprueft">Nicht geprüft</option>
@@ -868,7 +866,7 @@ function ItemReviewRow({
               </label>
               <label>
                 <span>UVV Status</span>
-                <select disabled={readOnly} value={draft.uvv_status} onChange={(event) => setDraft({ ...draft, uvv_status: event.target.value })}>
+                <select disabled={readOnly} value={draft.uvv_status} onChange={(event) => updateDraft({ uvv_status: event.target.value })}>
                   <option value="vorhanden">UVV vorhanden</option>
                   <option value="nicht_vorhanden">UVV nicht vorhanden</option>
                   <option value="nicht_uvv_pflichtig">nicht UVV-pflichtig</option>
@@ -877,11 +875,11 @@ function ItemReviewRow({
               </label>
               <label>
                 <span>UVV gültig bis</span>
-                <input disabled={readOnly} type="date" value={draft.uvv_valid_until} onChange={(event) => setDraft({ ...draft, uvv_valid_until: event.target.value })} />
+                <input disabled={readOnly} type="date" value={draft.uvv_valid_until} onChange={(event) => updateDraft({ uvv_valid_until: event.target.value })} />
               </label>
               {!isBga ? <label>
                 <span>Prüfbuch</span>
-                <select disabled={readOnly} value={draft.inspection_book_available} onChange={(event) => setDraft({ ...draft, inspection_book_available: event.target.value })}>
+                <select disabled={readOnly} value={draft.inspection_book_available} onChange={(event) => updateDraft({ inspection_book_available: event.target.value })}>
                   <option value="ja">Ja</option>
                   <option value="nein">Nein</option>
                   <option value="nicht_erforderlich">Nicht erforderlich</option>
@@ -918,7 +916,7 @@ function ItemReviewRow({
             <div className="item-review-selects">
               <label>
                 <span>Klasse</span>
-                <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => setDraft({ ...draft, object_class_id: event.target.value })}>
+                <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => updateDraft({ object_class_id: event.target.value })}>
                   <option value="">Offen</option>
                   {filteredObjectClasses.map((entry) => (
                     <option key={entry.id} value={entry.id}>{entry.name}</option>
@@ -927,7 +925,7 @@ function ItemReviewRow({
               </label>
               <label>
                 <span>Zustand</span>
-                <select disabled={readOnly} value={draft.condition} onChange={(event) => setDraft({ ...draft, condition: event.target.value })}>
+                <select disabled={readOnly} value={draft.condition} onChange={(event) => updateDraft({ condition: event.target.value })}>
                   {conditions.map((entry) => (
                     <option key={entry} value={entry}>{conditionLabels[entry] ?? entry}</option>
                   ))}
@@ -935,7 +933,7 @@ function ItemReviewRow({
               </label>
               <label>
                 <span>Bearbeitung</span>
-                <select disabled={readOnly} value={draft.review_status} onChange={(event) => setDraft({ ...draft, review_status: event.target.value })}>
+                <select disabled={readOnly} value={draft.review_status} onChange={(event) => updateDraft({ review_status: event.target.value })}>
                   {reviewStatuses.map((entry) => (
                     <option key={entry} value={entry}>{reviewStatusLabels[entry] ?? entry}</option>
                   ))}
@@ -951,7 +949,7 @@ function ItemReviewRow({
               </div>
             <label className="field">
               <span>Bemerkung</span>
-              <textarea disabled={readOnly} rows={3} value={draft.remark} onChange={(event) => setDraft({ ...draft, remark: event.target.value })} placeholder="Bemerkung aus der Aufnahme" />
+              <textarea disabled={readOnly} rows={3} value={draft.remark} onChange={(event) => updateDraft({ remark: event.target.value })} placeholder="Bemerkung aus der Aufnahme" />
             </label>
 
             {(blockers.length || tasks.length || hints.length || firstSpecial || firstHistory || message) ? (
