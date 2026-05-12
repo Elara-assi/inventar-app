@@ -67,7 +67,8 @@ type AiSummary = {
     web_search_error?: string | null;
     query?: string;
     search_queries?: string[];
-    sources?: Array<{ title?: string; url?: string; snippet?: string; source_provider?: string }>;
+    research_basis?: Record<string, string | null | undefined>;
+    sources?: Array<{ title?: string; url?: string; snippet?: string; source_provider?: string; query?: string; rank?: number }>;
     estimated_age_years?: number | null;
     estimated_value?: number | null;
     estimated_value_range?: { min?: number; max?: number };
@@ -214,6 +215,25 @@ function displayTaskField(field?: string) {
     "Anlagenummer/Buchwert": "Wert/Zuordnung später klären",
   };
   return replacements[value] ?? value.replace(/^Buchhaltung:\s*/i, "").replace(/^BUCHHALTUNG:\s*/i, "");
+}
+
+function hostLabel(url?: string) {
+  if (!url) return "Quelle";
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] || "Quelle";
+  }
+}
+
+function compactText(value?: string | number | null) {
+  const text = String(value ?? "").trim();
+  return text || "";
+}
+
+function percentLabel(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value))) return "offen";
+  return `${Math.round(Number(value) * 100)} %`;
 }
 
 function reviewSortPriority(item: ReviewItem) {
@@ -757,6 +777,18 @@ function ItemReviewRow({
   const aiProposal = item.ai_summary?.bga_detection;
   const aiProposalFields = aiProposal?.suggested_fields ?? item.ai_summary?.suggested_fields;
   const deepDive = item.ai_summary?.deep_dive;
+  const researchBasis = [
+    { label: "Bezeichnung", value: draft.object_type || compactText(deepDive?.research_basis?.designation) },
+    { label: "Typ/Spezifikation", value: draft.specification || compactText(deepDive?.research_basis?.specification) },
+    { label: "Marke", value: draft.brand || compactText(deepDive?.research_basis?.brand) },
+    { label: "Modell", value: draft.model || compactText(deepDive?.research_basis?.model) },
+    { label: "Seriennummer", value: draft.serial_number || compactText(deepDive?.research_basis?.serial_number) },
+    { label: "Baujahr", value: draft.construction_year || compactText(deepDive?.research_basis?.construction_year) },
+    { label: "Zustand", value: (conditionLabels[draft.condition] ?? draft.condition) || compactText(deepDive?.research_basis?.condition) },
+  ].filter((entry) => compactText(entry.value));
+  const searchQueries = deepDive?.search_queries?.length ? deepDive.search_queries : deepDive?.query ? [deepDive.query] : [];
+  const priceCandidates = deepDive?.price_candidates ?? [];
+  const sourceList = deepDive?.sources ?? [];
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
@@ -833,7 +865,7 @@ function ItemReviewRow({
             {finalizableLabel}
           </button>
           <button className="btn secondary compact-btn" type="button" onClick={runDeepDive} disabled={readOnly}>
-            KI-Websuche
+            KI-Websuche neu starten
           </button>
           <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
@@ -1058,9 +1090,9 @@ function ItemReviewRow({
               </details>
             ) : null}
             {deepDive ? (
-              <details className="deep-dive-box">
+              <details className="deep-dive-box deep-dive-research-box" open>
             <summary>
-              <strong>KI-Schätzung</strong>
+              <strong>KI-Webrecherche</strong>
               <span>
                 {deepDive.estimated_age_years ? `${deepDive.estimated_age_years} Jahre` : "Alter offen"}
                 {" · "}
@@ -1068,11 +1100,34 @@ function ItemReviewRow({
                 {deepDive.web_search_performed ? " · Websuche" : ""}
               </span>
             </summary>
-            <p className="deep-dive-note">Schätzung – bitte prüfen. Manuelle Eingaben im Datensatz sind führend.</p>
+            <p className="deep-dive-note">Diese Recherche nutzt die aktuell gespeicherten Eingaben. Wenn du Baujahr, Marke, Modell oder Zustand änderst, starte die KI-Websuche neu.</p>
+            {researchBasis.length ? (
+              <div className="research-block">
+                <strong>Verwendete Eingaben</strong>
+                <div className="research-chip-list">
+                  {researchBasis.map((entry) => (
+                    <span className="research-chip" key={entry.label}>
+                      <b>{entry.label}</b>{entry.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {searchQueries.length ? (
+              <div className="research-block">
+                <strong>Suchanfragen</strong>
+                <div className="research-query-list">
+                  {searchQueries.slice(0, 4).map((query) => <span key={query}>{query}</span>)}
+                </div>
+              </div>
+            ) : null}
             <div className="deep-dive-grid">
               <span>Alter: <b>{deepDive.estimated_age_years ?? "offen"} Jahre</b></span>
               <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
               <span>Quelle: <b>{deepDive.web_search_performed ? `Websuche (${deepDive.search_provider || "Quelle"})` : "Keine verwertbare Webquelle"}</b></span>
+              <span>Wert-Sicherheit: <b>{percentLabel(deepDive.estimated_value_confidence)}</b></span>
+              <span>Alter-Sicherheit: <b>{percentLabel(deepDive.age_confidence)}</b></span>
+              <span>Preisfunde: <b>{priceCandidates.length || 0}</b></span>
             </div>
             <div className="deep-dive-actions">
               <button
@@ -1106,15 +1161,21 @@ function ItemReviewRow({
                 {deepDive.age_reason ? ` · ${deepDive.age_reason}` : ""}
               </p>
             ) : null}
-            {deepDive.price_candidates?.length ? (
-              <div className="deep-dive-grid">
-                {deepDive.price_candidates.slice(0, 3).map((candidate, index) => (
-                  <span key={`${candidate.source || "price"}-${index}`}>
-                    Preisfund: <b>{candidate.value ? `${candidate.value} €` : "offen"}</b>
-                  </span>
-                ))}
+            {priceCandidates.length ? (
+              <div className="research-block">
+                <strong>Gefundene Preis-Indizien</strong>
+                <div className="research-source-list">
+                  {priceCandidates.slice(0, 5).map((candidate, index) => (
+                    <a key={`${candidate.source || "price"}-${index}`} href={candidate.source || "#"} target="_blank" rel="noreferrer">
+                      <b>{candidate.value ? `${candidate.value} €` : "Preis offen"}</b>
+                      <span>{candidate.title || hostLabel(candidate.source)}</span>
+                    </a>
+                  ))}
+                </div>
               </div>
-            ) : null}
+            ) : (
+              <p className="deep-dive-note">Keine konkrete Preisangabe in den Quellen erkannt. Ein angezeigter Wert ist dann nur eine konservative Orientierung und muss fachlich geprüft werden.</p>
+            )}
             {deepDive.tire_valuation ? (
               <div className="deep-dive-grid">
                 <span>Reifen-Neupreis: <b>{deepDive.tire_valuation.lowest_new_price_basis ?? "offen"} €</b></span>
@@ -1124,13 +1185,17 @@ function ItemReviewRow({
             ) : null}
             {deepDive.notes ? <p className="deep-dive-note">{deepDive.notes}</p> : null}
             {deepDive.web_search_error ? <p className="deep-dive-note">Suchhinweis: {deepDive.web_search_error}</p> : null}
-            {deepDive.sources?.length ? (
-              <div className="deep-dive-sources">
-                {deepDive.sources.slice(0, 3).filter((source) => source.url).map((source) => (
-                  <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
-                    {source.title || source.url}
-                  </a>
-                ))}
+            {sourceList.length ? (
+              <div className="research-block">
+                <strong>Quellen</strong>
+                <div className="research-source-list">
+                  {sourceList.slice(0, 5).filter((source) => source.url).map((source) => (
+                    <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
+                      <b>{source.title || hostLabel(source.url)}</b>
+                      <span>{hostLabel(source.url)}{source.snippet ? ` · ${source.snippet}` : ""}</span>
+                    </a>
+                  ))}
+                </div>
               </div>
             ) : null}
               </details>
@@ -1173,7 +1238,7 @@ function ItemReviewRow({
         {moreOpen ? (
           <div className="more-actions">
             <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
-            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI-Websuche</button>
+            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI-Websuche neu starten</button>
             <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
             <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
             <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>

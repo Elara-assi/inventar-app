@@ -2133,6 +2133,7 @@ def deep_dive_product_terms(item: dict[str, Any], ai_context: str = "") -> list[
         item.get("brand"),
         item.get("model"),
         item.get("object_type"),
+        item.get("specification"),
         item.get("object_class_name"),
         item.get("serial_number"),
     ]
@@ -2159,20 +2160,41 @@ def deep_dive_product_terms(item: dict[str, Any], ai_context: str = "") -> list[
     return parts or ["Betriebs- und Geschäftsausstattung"]
 
 
+def deep_dive_research_basis(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "designation": normalize_deep_dive_text(item.get("object_type")),
+        "specification": normalize_deep_dive_text(item.get("specification")),
+        "brand": normalize_deep_dive_text(item.get("brand")),
+        "model": normalize_deep_dive_text(item.get("model")),
+        "serial_number": normalize_deep_dive_text(item.get("serial_number")),
+        "construction_year": normalize_deep_dive_text(item.get("construction_year")),
+        "condition": normalize_deep_dive_text(item.get("condition")),
+        "object_class": normalize_deep_dive_text(item.get("object_class_name")),
+    }
+
+
 def deep_dive_queries(item: dict[str, Any], ai_context: str = "") -> list[str]:
     terms = deep_dive_product_terms(item, ai_context)
     product = " ".join(terms[:5]).strip()
     object_type = normalize_deep_dive_text(item.get("object_type") or item.get("object_class_name") or "")
     brand_model = " ".join(term for term in [item.get("brand"), item.get("model")] if term).strip()
+    specification = normalize_deep_dive_text(item.get("specification"))
+    construction_year = normalize_deep_dive_text(item.get("construction_year"))
     if brand_model and object_type and object_type.lower() not in brand_model.lower():
         base = f"{brand_model} {object_type}"
     else:
         base = brand_model or product or object_type
-    queries = [
-        f"{base} gebraucht Preis",
+    exact_base = base
+    if specification and specification.lower() not in exact_base.lower():
+        exact_base = f"{exact_base} {specification[:80]}".strip()
+    queries = []
+    if construction_year:
+        queries.append(f"{exact_base} {construction_year} gebraucht Preis")
+    queries.extend([
+        f"{exact_base} gebraucht Preis",
         f"{base} Gebrauchtpreis",
         f"{base} Datenblatt Erscheinungsjahr",
-    ]
+    ])
     if object_type and object_type.lower() not in base.lower():
         queries.append(f"{base} {object_type} Preis gebraucht")
     compact: list[str] = []
@@ -2918,6 +2940,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "search_provider": search_provider,
             "search_queries": search_queries,
             "query": query,
+            "research_basis": deep_dive_research_basis(item),
             "technical_context": ai_context,
             "sources": [],
             "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden.",
@@ -2980,6 +3003,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "search_provider": search_provider,
         "search_queries": search_queries,
         "query": query,
+        "research_basis": deep_dive_research_basis(item),
         "technical_context": ai_context,
         "sources": sources,
         "web_search_error": web_search_error,

@@ -2700,6 +2700,83 @@ body {
   font-weight: 700;
 }
 
+.research-block {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.research-block > strong {
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.research-chip-list,
+.research-query-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.research-chip,
+.research-query-list span {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.research-chip b {
+  margin-right: 5px;
+  color: #1e3a8a;
+}
+
+.research-source-list {
+  display: grid;
+  gap: 7px;
+}
+
+.research-source-list a {
+  display: grid;
+  gap: 2px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #1d4ed8;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.research-source-list a b,
+.research-source-list a span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-source-list a b {
+  color: #0f1f3a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.research-source-list a span {
+  color: #52657e;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .deep-dive-sources {
   display: flex;
   flex-wrap: wrap;
