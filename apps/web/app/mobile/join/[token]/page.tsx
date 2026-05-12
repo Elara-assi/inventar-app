@@ -273,6 +273,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
   const [diagnosisMessage, setDiagnosisMessage] = useState("");
+  const [diagnosisText, setDiagnosisText] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
@@ -473,10 +474,33 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const copySyncDiagnostics = useCallback(async () => {
     try {
       const diagnosis = await buildSyncDiagnosis();
-      await copyToClipboard(JSON.stringify(diagnosis, null, 2));
+      const text = JSON.stringify(diagnosis, null, 2);
+      setDiagnosisText(text);
+      await copyToClipboard(text);
       setDiagnosisMessage("Diagnose kopiert. Du kannst sie jetzt einfügen und senden.");
     } catch (error) {
-      setDiagnosisMessage(error instanceof Error ? `Diagnose konnte nicht kopiert werden: ${error.message}` : "Diagnose konnte nicht kopiert werden.");
+      setDiagnosisMessage(error instanceof Error ? `Diagnose konnte nicht kopiert werden. Die Diagnose wird unten angezeigt: ${error.message}` : "Diagnose konnte nicht kopiert werden. Die Diagnose wird unten angezeigt.");
+    }
+  }, [buildSyncDiagnosis]);
+
+  const showSyncDiagnostics = useCallback(async () => {
+    const diagnosis = await buildSyncDiagnosis();
+    setDiagnosisText(JSON.stringify(diagnosis, null, 2));
+    setDiagnosisMessage("Diagnose unten eingeblendet. Text bei Bedarf markieren und senden.");
+  }, [buildSyncDiagnosis]);
+
+  const sendSyncDiagnostics = useCallback(async () => {
+    try {
+      const diagnosis = await buildSyncDiagnosis();
+      const text = JSON.stringify(diagnosis, null, 2);
+      setDiagnosisText(text);
+      const result = await api<{ id: string }>("/mobile-diagnostics", {
+        method: "POST",
+        body: JSON.stringify(diagnosis),
+      });
+      setDiagnosisMessage(`Diagnose an Server gesendet: ${result.id}`);
+    } catch (error) {
+      setDiagnosisMessage(error instanceof Error ? `Diagnose konnte nicht gesendet werden: ${error.message}` : "Diagnose konnte nicht gesendet werden.");
     }
   }, [buildSyncDiagnosis]);
 
@@ -1067,7 +1091,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               queueDetails={queueDetails}
               joinedSessionId={joined?.session.id}
               diagnosisMessage={diagnosisMessage}
+              diagnosisText={diagnosisText}
               copySyncDiagnostics={() => void copySyncDiagnostics()}
+              showSyncDiagnostics={() => void showSyncDiagnostics()}
+              sendSyncDiagnostics={() => void sendSyncDiagnostics()}
               runBundleDiagnosticSync={() => void runBundleDiagnosticSync()}
               discardConfirm={discardConfirm}
               setDiscardConfirm={setDiscardConfirm}
@@ -1105,7 +1132,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 queueDetails={queueDetails}
                 joinedSessionId={joined?.session.id}
                 diagnosisMessage={diagnosisMessage}
+                diagnosisText={diagnosisText}
                 copySyncDiagnostics={() => void copySyncDiagnostics()}
+                showSyncDiagnostics={() => void showSyncDiagnostics()}
+                sendSyncDiagnostics={() => void sendSyncDiagnostics()}
                 runBundleDiagnosticSync={() => void runBundleDiagnosticSync()}
                 discardConfirm={discardConfirm}
                 setDiscardConfirm={setDiscardConfirm}
@@ -1390,7 +1420,10 @@ function QueueDetailsPanel({
   queueDetails,
   joinedSessionId,
   diagnosisMessage,
+  diagnosisText,
   copySyncDiagnostics,
+  showSyncDiagnostics,
+  sendSyncDiagnostics,
   runBundleDiagnosticSync,
   discardConfirm,
   setDiscardConfirm,
@@ -1399,7 +1432,10 @@ function QueueDetailsPanel({
   queueDetails: QueueDetails;
   joinedSessionId?: string;
   diagnosisMessage: string;
+  diagnosisText: string;
   copySyncDiagnostics: () => void;
+  showSyncDiagnostics: () => void;
+  sendSyncDiagnostics: () => void;
   runBundleDiagnosticSync: () => void;
   discardConfirm: string;
   setDiscardConfirm: (value: string) => void;
@@ -1409,9 +1445,14 @@ function QueueDetailsPanel({
     <div className="queue-detail-list">
       <div className="queue-diagnostics-actions">
         <button className="btn secondary" type="button" onClick={copySyncDiagnostics}>Diagnose kopieren</button>
+        <button className="btn secondary" type="button" onClick={showSyncDiagnostics}>Diagnose anzeigen</button>
+        <button className="btn secondary" type="button" onClick={sendSyncDiagnostics}>Diagnose an Server senden</button>
         <button className="btn secondary" type="button" onClick={runBundleDiagnosticSync}>Foto-Sync erneut testen</button>
         {diagnosisMessage ? <small>{diagnosisMessage}</small> : null}
       </div>
+      {diagnosisText ? (
+        <textarea className="queue-diagnosis-text" readOnly value={diagnosisText} rows={10} aria-label="Sync-Diagnose" />
+      ) : null}
       {queueDetails.sessions.map((session) => (
         <div className="queue-session-card" key={session.session_id}>
           <strong>{session.session_id === joinedSessionId ? "Aktuelle Session" : "Andere Session"}</strong>

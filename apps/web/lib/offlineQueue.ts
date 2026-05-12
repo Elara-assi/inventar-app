@@ -267,6 +267,12 @@ export async function markFailedAsPending(): Promise<void> {
   const failed = (await listQueueItems()).filter((item) => item.status === "failed");
   await Promise.all(failed.map((item) => updateQueueStatus(item.id, "pending", {
     last_error: undefined,
+    eligible_for_upload: undefined,
+    skip_reason: undefined,
+    fetch_started: false,
+    upload_response_status: undefined,
+    upload_response_text: undefined,
+    upload_debug_state: "retry_pending",
     upload_debug: "Fehler wurde für erneuten Versuch zurückgesetzt.",
   })));
 }

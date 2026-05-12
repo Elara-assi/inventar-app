@@ -82,6 +82,7 @@ MOBILE_ALLOWED_PREFIXES = (
     "/items",
     "/offline-sync/photos",
     "/offline-sync/items",
+    "/mobile-diagnostics",
     "/uploads/photos",
 )
 
@@ -2056,6 +2057,42 @@ async def offline_sync_item_bundle(payload: str = Form(...), files: list[UploadF
         "created_or_updated": "updated" if existing_before else "created",
         "photo_results": photo_results,
     }
+
+
+@app.post("/mobile-diagnostics")
+async def mobile_diagnostics(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    ensure_upload_dirs()
+    auth = getattr(request.state, "auth", {}) or {}
+    body_session_id = str(((body.get("allgemein") or {}) if isinstance(body.get("allgemein"), dict) else {}).get("session_id") or "")
+    auth_session_id = str(auth.get("session_id") or "")
+    if auth.get("kind") == "mobile_session" and auth_session_id and body_session_id and body_session_id != auth_session_id:
+        raise HTTPException(status_code=403, detail="Diagnose gehört nicht zu dieser mobilen Session")
+    session_id = body_session_id or auth_session_id or "unknown"
+    diagnostic_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}"
+    path = Path(settings.upload_root, "temp", f"mobile-sync-{diagnostic_id}.json")
+    payload = {
+        "diagnostic_id": diagnostic_id,
+        "received_at": datetime.utcnow().isoformat() + "Z",
+        "request_id": getattr(request.state, "request_id", None),
+        "auth": {
+            "kind": auth.get("kind"),
+            "session_id": auth_session_id or None,
+            "device_id": auth.get("device_id"),
+        },
+        "body": body,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    audit(
+        "mobile_sync_diagnostic",
+        "inventory_session",
+        session_id if session_id != "unknown" else None,
+        {
+            "diagnostic_id": diagnostic_id,
+            "path": str(path),
+            "queue_summary": body.get("queue_summary") if isinstance(body.get("queue_summary"), dict) else None,
+        },
+    )
+    return {"id": diagnostic_id, "stored": True}
 
 
 @app.post("/items/{item_id}/audio")

@@ -2241,6 +2241,32 @@ body {
   gap: 10px;
 }
 
+.queue-diagnostics-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.queue-diagnostics-actions small {
+  grid-column: 1 / -1;
+  color: #52657e;
+}
+
+.queue-diagnosis-text {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #c9d8ea;
+  border-radius: 12px;
+  padding: 12px;
+  color: #10233f;
+  background: #f8fbff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+  overflow-x: auto;
+}
+
 .queue-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

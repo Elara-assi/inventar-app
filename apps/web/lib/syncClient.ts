@@ -39,6 +39,13 @@ type PhotoReceiptResponse = {
   status: "synced" | "already_exists";
 };
 
+type FormUploadResponse = {
+  ok: boolean;
+  status: number;
+  text: string;
+  transport: "xhr" | "fetch";
+};
+
 let syncRunning = false;
 let syncRunningStartedAt = 0;
 const SYNC_LOCK_STALE_MS = 60_000;
@@ -165,6 +172,50 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
+async function postFormDataWithTimeout(url: string, form: FormData, timeoutMs: number): Promise<FormUploadResponse> {
+  const token = getAuthToken();
+  if (typeof XMLHttpRequest !== "undefined") {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      xhr.timeout = timeoutMs;
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+      xhr.onload = () => resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        text: typeof xhr.responseText === "string" ? xhr.responseText : "",
+        transport: "xhr",
+      });
+      xhr.onerror = () => reject(new Error("Load failed"));
+      xhr.ontimeout = () => reject(new SyncTimeoutError());
+      xhr.onabort = () => reject(new SyncTimeoutError("Upload wurde abgebrochen."));
+      try {
+        xhr.send(form);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+  const response = await fetchWithTimeout(url, { method: "POST", body: form }, timeoutMs);
+  return {
+    ok: response.ok,
+    status: response.status,
+    text: await response.text(),
+    transport: "fetch",
+  };
+}
+
+async function clonePhotoBlobForUpload(item: QueueItem): Promise<Blob> {
+  if (!item.photo_blob) {
+    throw new Error("Lokales Foto ist unvollstaendig");
+  }
+  const type = item.file_type || item.photo_blob.type || "image/jpeg";
+  const data = await item.photo_blob.arrayBuffer();
+  return new Blob([data], { type });
+}
+
 async function assertApiHealth() {
   const healthUrl = `${API_BASE}/health`;
   try {
@@ -205,23 +256,24 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
   console.warn("[inventar-sync] Foto-Upload Request wird vorbereitet", describePhotoForLog(item, serverItemId));
   const form = new FormData();
   const fileName = item.file_name || `${item.client_photo_id}.jpg`;
-  const file = new File([item.photo_blob], fileName, { type: item.file_type || item.photo_blob.type || "image/jpeg" });
-  form.append("file", file);
+  const blob = await clonePhotoBlobForUpload(item);
+  form.append("file", blob, fileName);
   const url = photoUploadUrl(item, serverItemId);
   console.warn("[inventar-sync] POST Foto startet", {
     url,
     ...describePhotoForLog(item, serverItemId),
   });
-  const response = await fetchWithTimeout(url, { method: "POST", body: form }, 45_000);
+  const response = await postFormDataWithTimeout(url, form, 45_000);
   console.warn("[inventar-sync] POST Foto Antwort", {
     response_status: response.status,
     ok: response.ok,
+    transport: response.transport,
     ...describePhotoForLog(item, serverItemId),
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new Error(response.text);
   }
-  return response.json() as Promise<{ id: string }>;
+  return JSON.parse(response.text) as { id: string };
 }
 
 async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
@@ -231,13 +283,13 @@ async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
   const url = photoReceiptUploadUrl();
   const form = new FormData();
   const fileName = item.file_name || `${item.client_photo_id}.jpg`;
-  const file = new File([item.photo_blob], fileName, { type: item.file_type || item.photo_blob.type || "image/jpeg" });
+  const blob = await clonePhotoBlobForUpload(item);
   form.append("session_id", item.session_id);
   form.append("source_device_id", item.device_id);
   form.append("client_item_id", item.client_item_id);
   form.append("client_photo_id", item.client_photo_id);
   form.append("photo_type", item.photo_type);
-  form.append("file", file);
+  form.append("file", blob, fileName);
   await updateQueueStatus(item.id, "uploading", {
     sync_run_id: syncRunId,
     sync_checked_at: new Date().toISOString(),
@@ -254,8 +306,8 @@ async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
     upload_response_text: undefined,
     upload_debug: `Foto-Sync gestartet: ${item.photo_blob.size} Byte, ${item.photo_blob.type || item.file_type || "unbekannter Typ"}.`,
   });
-  const response = await fetchWithTimeout(url, { method: "POST", body: form }, 45_000);
-  const responseText = await response.text();
+  const response = await postFormDataWithTimeout(url, form, 45_000);
+  const responseText = response.text;
   if (!response.ok) {
     throw new Error(responseText || `Foto-Sync HTTP ${response.status}`);
   }
@@ -336,19 +388,15 @@ async function postItemBundle(item: QueueItem, photos: QueueItem[], syncRunId: s
   form.append("payload", JSON.stringify(buildBundlePayload(item, photos)));
   for (const photo of photos) {
     if (!photo.photo_blob || !photo.client_photo_id) continue;
-    const file = new File(
-      [photo.photo_blob],
-      photo.file_name || `${photo.client_photo_id}.jpg`,
-      { type: photo.file_type || photo.photo_blob.type || "image/jpeg" },
-    );
-    form.append("files", file);
+    const blob = await clonePhotoBlobForUpload(photo);
+    form.append("files", blob, photo.file_name || `${photo.client_photo_id}.jpg`);
   }
   await updateQueueStatus(item.id, "uploading", {
     sync_run_id: syncRunId,
     sync_checked_at: new Date().toISOString(),
     upload_url: url,
     upload_debug_state: "bundle_fetch_starting",
-    upload_debug: `Paket-Sync gestartet: ${photos.length} Foto(s).`,
+    upload_debug: `Paket-Sync gestartet: ${photos.length} Foto(s). Upload erfolgt Safari-robust per Multipart/XHR.`,
     last_error: undefined,
   });
   await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, "uploading", {
@@ -361,11 +409,11 @@ async function postItemBundle(item: QueueItem, photos: QueueItem[], syncRunId: s
     upload_started_at: new Date().toISOString(),
     upload_url: url,
     upload_debug_state: "bundle_fetch_starting",
-    upload_debug: `Paket-Sync gestartet: ${photo.photo_blob?.size ?? photo.file_size ?? 0} Byte, ${photo.photo_blob?.type || photo.file_type || "unbekannter Typ"}.`,
+    upload_debug: `Paket-Sync gestartet: ${photo.photo_blob?.size ?? photo.file_size ?? 0} Byte, ${photo.photo_blob?.type || photo.file_type || "unbekannter Typ"}. Upload erfolgt Safari-robust per Multipart/XHR.`,
     last_error: undefined,
   })));
-  const response = await fetchWithTimeout(url, { method: "POST", body: form }, 45_000);
-  const responseText = await response.text();
+  const response = await postFormDataWithTimeout(url, form, 45_000);
+  const responseText = response.text;
   if (!response.ok) {
     throw new Error(responseText || `Bundle Sync HTTP ${response.status}`);
   }
@@ -639,17 +687,23 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
     const photo = currentItems.find((entry) => entry.id === queuedPhoto.id) ?? queuedPhoto;
     const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
     if (linkedDraft && linkedDraft.status !== "synced" && !linkedDraft.server_item_id) {
-      await updateQueueStatus(photo.id, "pending", {
+      const bundleFailed = linkedDraft.status === "failed" || linkedDraft.status === "conflict";
+      await updateQueueStatus(photo.id, bundleFailed ? linkedDraft.status : "pending", {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
         health_result: "ok",
         eligible_for_upload: false,
-        skip_reason: "Objekt wird zuerst synchronisiert.",
-        fetch_started: false,
-        last_error: "Objekt wird zuerst synchronisiert. Foto bleibt lokal gespeichert.",
-        upload_debug_state: "waiting_for_item_receipt",
-        upload_debug: "Foto-Sync wartet auf Server-Quittung des Objekts.",
+        skip_reason: bundleFailed ? "Objektpaket wurde nicht erfolgreich synchronisiert." : "Objekt wird zuerst synchronisiert.",
+        fetch_started: photo.fetch_started,
+        last_error: bundleFailed
+          ? (linkedDraft.last_error || "Objektpaket fehlgeschlagen. Foto bleibt lokal gespeichert und wird beim naechsten Paket-Sync erneut versucht.")
+          : "Objekt wird zuerst synchronisiert. Foto bleibt lokal gespeichert.",
+        upload_debug_state: bundleFailed ? "bundle_failed_waiting_for_retry" : "waiting_for_item_receipt",
+        upload_debug: bundleFailed
+          ? "Foto wurde nicht einzeln hochgeladen, weil das Objektpaket keine Server-Quittung erhalten hat. Der naechste Sync sendet Objekt und Foto erneut gemeinsam."
+          : "Foto-Sync wartet auf Server-Quittung des Objekts.",
+        upload_response_text: bundleFailed ? linkedDraft.upload_response_text : photo.upload_response_text,
       });
       continue;
     }
