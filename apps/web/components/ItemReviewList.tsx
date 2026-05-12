@@ -77,6 +77,8 @@ type AiSummary = {
     age_confidence?: number | null;
     age_reason?: string | null;
     price_candidates?: Array<{ value?: number; source?: string; title?: string }>;
+    value_reference_used?: ValueReference | null;
+    matching_value_references?: ValueReference[];
     value_source?: string;
     tire_valuation?: {
       lowest_new_price_basis?: number;
@@ -91,6 +93,22 @@ type AiSummary = {
     };
     notes?: string;
   } | null;
+};
+
+type ValueReference = {
+  id?: string;
+  object_type?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  specification?: string | null;
+  construction_year?: string | null;
+  condition?: string | null;
+  value_estimate?: number | null;
+  estimated_age_years?: number | null;
+  match_score?: number;
+  match_reason?: string;
+  notes?: string | null;
+  created_at?: string;
 };
 
 type ItemPhoto = {
@@ -619,6 +637,17 @@ function ItemReviewRow({
     setMessage("KI-Schätzung übernommen. Bitte fachlich prüfen und speichern.");
   }
 
+  function applyValueReference(reference?: ValueReference | null) {
+    if (!reference) return;
+    setDraft((current) => ({
+      ...current,
+      value_estimate: reference.value_estimate != null ? String(reference.value_estimate) : current.value_estimate,
+      estimated_age_years: reference.estimated_age_years != null ? String(reference.estimated_age_years) : current.estimated_age_years,
+    }));
+    setDraftDirty(true);
+    setMessage("Geprüfte Wertreferenz übernommen. Bitte speichern.");
+  }
+
   async function persistDraft() {
     const valueEstimate = optionalNumber(draft.value_estimate);
     const ageEstimate = optionalNumber(draft.estimated_age_years);
@@ -649,10 +678,26 @@ function ItemReviewRow({
     setDraftDirty(false);
   }
 
+  function hasValueReferenceDraft() {
+    return optionalNumber(draft.value_estimate) != null || optionalNumber(draft.estimated_age_years) != null;
+  }
+
+  async function persistLearningReference(notes = "Geprüfte Wertreferenz aus manueller Prüferkorrektur") {
+    await api(`/items/${item.id}/ai/learning-example`, {
+      method: "POST",
+      body: JSON.stringify({ notes }),
+    });
+  }
+
   async function save() {
     if (readOnly) return;
     await persistDraft();
-    setMessage("Gespeichert");
+    if (hasValueReferenceDraft()) {
+      await persistLearningReference("Automatisch aus gespeicherten Prüferwerten als Wertreferenz gemerkt");
+      setMessage("Gespeichert und als Wertreferenz gemerkt");
+    } else {
+      setMessage("Gespeichert");
+    }
     onChanged();
   }
 
@@ -725,13 +770,14 @@ function ItemReviewRow({
   async function saveLearningExample() {
     if (readOnly) return;
     try {
-      await api(`/items/${item.id}/ai/learning-example`, {
-        method: "POST",
-        body: JSON.stringify({ notes: "Menschlich korrigierter Raumtest-Datensatz" }),
-      });
-      setMessage("Als KI-Beispiel gespeichert");
+      if (draftDirty) {
+        setMessage("Änderungen werden gespeichert und als Referenz gemerkt");
+        await persistDraft();
+      }
+      await persistLearningReference();
+      setMessage("Als geprüfte Wertreferenz gespeichert");
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "KI-Beispiel konnte nicht gespeichert werden");
+      setMessage(err instanceof Error ? err.message : "Wertreferenz konnte nicht gespeichert werden");
     }
   }
 
@@ -789,6 +835,8 @@ function ItemReviewRow({
   const searchQueries = deepDive?.search_queries?.length ? deepDive.search_queries : deepDive?.query ? [deepDive.query] : [];
   const priceCandidates = deepDive?.price_candidates ?? [];
   const sourceList = deepDive?.sources ?? [];
+  const valueReferences = deepDive?.matching_value_references ?? [];
+  const usedValueReference = deepDive?.value_reference_used ?? valueReferences[0];
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
@@ -1129,6 +1177,32 @@ function ItemReviewRow({
               <span>Alter-Sicherheit: <b>{percentLabel(deepDive.age_confidence)}</b></span>
               <span>Preisfunde: <b>{priceCandidates.length || 0}</b></span>
             </div>
+            {valueReferences.length ? (
+              <div className="research-block value-reference-block">
+                <strong>Geprüfte Wertreferenzen</strong>
+                <div className="value-reference-list">
+                  {valueReferences.slice(0, 3).map((reference) => (
+                    <div className="value-reference-card" key={reference.id || `${reference.object_type}-${reference.created_at}`}>
+                      <div>
+                        <b>{reference.object_type || "Ähnliches Objekt"}</b>
+                        <span>
+                          {[reference.brand, reference.model, reference.specification, reference.construction_year, reference.condition].filter(Boolean).join(" · ") || "geprüfter Vergleich"}
+                        </span>
+                        <small>{reference.match_reason || "ähnliche geprüfte Eingaben"}</small>
+                      </div>
+                      <div className="value-reference-values">
+                        <span>{reference.value_estimate != null ? `${reference.value_estimate} €` : "Wert offen"}</span>
+                        <span>{reference.estimated_age_years != null ? `${reference.estimated_age_years} Jahre` : "Alter offen"}</span>
+                      </div>
+                      <button className="btn secondary compact-btn" type="button" onClick={() => applyValueReference(reference)} disabled={readOnly}>
+                        Referenz übernehmen
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {usedValueReference ? <p className="deep-dive-note">Beste Referenz: {usedValueReference.match_reason || "ähnliches geprüftes Objekt"}. Manuell prüfen, dann speichern.</p> : null}
+              </div>
+            ) : null}
             <div className="deep-dive-actions">
               <button
                 className="btn secondary compact-btn"
@@ -1240,7 +1314,7 @@ function ItemReviewRow({
             <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
             <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI-Websuche neu starten</button>
             <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
-            <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Beispiel merken</button>
+            <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Wertreferenz merken</button>
             <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
           </div>
         ) : null}

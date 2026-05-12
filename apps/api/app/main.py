@@ -1744,35 +1744,72 @@ def save_learning_example(item_id: str, body: LearningExampleIn | None = None) -
         "brand": item.get("brand"),
         "model": item.get("model"),
         "serial_number_present": bool(item.get("serial_number")),
+        "serial_number": item.get("serial_number"),
+        "specification": item.get("specification"),
+        "construction_year": item.get("construction_year"),
         "condition": item.get("condition"),
+        "value_estimate": item.get("value_estimate"),
+        "estimated_age_years": item.get("estimated_age_years"),
+        "age_source": item.get("age_source"),
+        "age_verification_status": item.get("age_verification_status"),
         "commercial_category": item.get("commercial_category"),
+        "reference_kind": "gepruefte_wertreferenz" if item.get("value_estimate") is not None or item.get("estimated_age_years") is not None else "ki_lernbeispiel",
     }
-    row = execute(
-        """
-        INSERT INTO ai_learning_examples (
-          item_id, session_id, object_class_id, object_class_name, object_type,
-          brand, model, serial_number, condition, corrected_json, ai_suggestion_json,
-          photo_ids, notes, approved
+    note = (body.notes if body else None) or "Vom Prüfer als geprüfte Wertreferenz markiert"
+    existing = fetch_one("SELECT id FROM ai_learning_examples WHERE item_id = %s AND approved = true ORDER BY created_at DESC LIMIT 1", (item_id,))
+    if existing:
+        row = execute(
+            """
+            UPDATE ai_learning_examples
+            SET object_class_id = %s, object_class_name = %s, object_type = %s,
+                brand = %s, model = %s, serial_number = %s, condition = %s,
+                corrected_json = %s::jsonb, ai_suggestion_json = %s::jsonb,
+                photo_ids = %s, notes = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                item.get("object_class_id"),
+                item.get("object_class_name"),
+                item.get("object_type"),
+                item.get("brand"),
+                item.get("model"),
+                item.get("serial_number"),
+                item.get("condition"),
+                json_string(corrected),
+                json_string(ai_row.get("result_json") if ai_row else {}),
+                [photo["id"] for photo in photo_rows],
+                note,
+                existing["id"],
+            ),
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,true)
-        RETURNING *
-        """,
-        (
-            item_id,
-            item.get("session_id"),
-            item.get("object_class_id"),
-            item.get("object_class_name"),
-            item.get("object_type"),
-            item.get("brand"),
-            item.get("model"),
-            item.get("serial_number"),
-            item.get("condition"),
-            json_string(corrected),
-            json_string(ai_row.get("result_json") if ai_row else {}),
-            [photo["id"] for photo in photo_rows],
-            (body.notes if body else None) or "Vom Prüfer als gutes Beispiel markiert",
-        ),
-    )
+    else:
+        row = execute(
+            """
+            INSERT INTO ai_learning_examples (
+              item_id, session_id, object_class_id, object_class_name, object_type,
+              brand, model, serial_number, condition, corrected_json, ai_suggestion_json,
+              photo_ids, notes, approved
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,true)
+            RETURNING *
+            """,
+            (
+                item_id,
+                item.get("session_id"),
+                item.get("object_class_id"),
+                item.get("object_class_name"),
+                item.get("object_type"),
+                item.get("brand"),
+                item.get("model"),
+                item.get("serial_number"),
+                item.get("condition"),
+                json_string(corrected),
+                json_string(ai_row.get("result_json") if ai_row else {}),
+                [photo["id"] for photo in photo_rows],
+                note,
+            ),
+        )
     audit("ai_learning_example_created", "inventory_item", item_id, {"learning_example_id": str(row["id"]), **corrected})
     return row
 
@@ -2626,6 +2663,106 @@ def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any],
     return candidates[:12]
 
 
+def numeric_or_none(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def select_value_references(item: dict[str, Any], ai_context: str = "", limit: int = 3) -> list[dict[str, Any]]:
+    query_text = " ".join(
+        normalize_deep_dive_text(item.get(key))
+        for key in ["object_type", "object_class_name", "brand", "model", "serial_number", "specification", "construction_year", "condition"]
+    )
+    query_tokens = set(tokenize_reference_text(f"{query_text} {ai_context}"))
+    rows = fetch_all(
+        """
+        SELECT id, item_id, object_class_name, object_type, brand, model, serial_number,
+               condition, corrected_json, notes, created_at
+        FROM ai_learning_examples
+        WHERE approved = true
+        ORDER BY created_at DESC
+        LIMIT 300
+        """
+    )
+    scored: list[tuple[int, dict[str, Any]]] = []
+    current = {key: normalize_deep_dive_text(item.get(key)).lower() for key in ["object_type", "object_class_name", "brand", "model", "specification", "construction_year", "condition"]}
+    for row in rows:
+        corrected = row.get("corrected_json") or {}
+        value_estimate = numeric_or_none(corrected.get("value_estimate"))
+        estimated_age = numeric_or_none(corrected.get("estimated_age_years"))
+        if value_estimate is None and estimated_age is None:
+            continue
+        reference_text = " ".join(
+            normalize_deep_dive_text(value)
+            for value in [
+                row.get("object_class_name"),
+                row.get("object_type"),
+                row.get("brand"),
+                row.get("model"),
+                row.get("serial_number"),
+                row.get("condition"),
+                corrected.get("specification"),
+                corrected.get("construction_year"),
+                corrected.get("object_type"),
+                corrected.get("brand"),
+                corrected.get("model"),
+            ]
+        )
+        reference_tokens = set(tokenize_reference_text(reference_text))
+        score = len(query_tokens & reference_tokens)
+        reasons: list[str] = []
+
+        def add_exact(field: str, label: str, weight: int) -> None:
+            nonlocal score
+            current_value = current.get(field) or ""
+            reference_value = normalize_deep_dive_text(corrected.get(field) or row.get(field)).lower()
+            if current_value and reference_value and current_value == reference_value:
+                score += weight
+                reasons.append(label)
+
+        add_exact("object_type", "gleiche Bezeichnung", 5)
+        add_exact("brand", "gleiche Marke", 5)
+        add_exact("model", "gleiches Modell", 7)
+        add_exact("construction_year", "gleiches Baujahr", 3)
+        add_exact("condition", "gleicher Zustand", 2)
+        if current.get("object_class_name") and normalize_deep_dive_text(row.get("object_class_name")).lower() == current["object_class_name"]:
+            score += 2
+            reasons.append("gleiche Klasse")
+        specification_overlap = query_tokens & set(tokenize_reference_text(str(corrected.get("specification") or "")))
+        if specification_overlap:
+            score += min(4, len(specification_overlap))
+            reasons.append("ähnliche Spezifikation")
+        if score < 7:
+            continue
+        scored.append((
+            score,
+            {
+                "id": str(row.get("id")),
+                "item_id": str(row.get("item_id")) if row.get("item_id") else None,
+                "object_class": row.get("object_class_name"),
+                "object_type": row.get("object_type"),
+                "brand": row.get("brand"),
+                "model": row.get("model"),
+                "specification": corrected.get("specification"),
+                "construction_year": corrected.get("construction_year"),
+                "condition": row.get("condition") or corrected.get("condition"),
+                "value_estimate": value_estimate,
+                "estimated_age_years": estimated_age,
+                "match_score": score,
+                "match_reason": ", ".join(dict.fromkeys(reasons)) or "ähnliche geprüfte Eingaben",
+                "notes": row.get("notes"),
+                "created_at": row.get("created_at").isoformat() if hasattr(row.get("created_at"), "isoformat") else str(row.get("created_at") or ""),
+                "source": "gepruefte_wertreferenz",
+            },
+        ))
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+    return [row for _, row in scored[:limit]]
+
+
 def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
     price_candidates = source_price_candidates(sources, item, ai_context)
     condition = str(item.get("condition") or "gebraucht")
@@ -2929,9 +3066,47 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     ai_context = latest_ai_context(item_id)
+    value_references = select_value_references(item, ai_context)
+    best_value_reference = value_references[0] if value_references else None
     sources, search_provider, web_search_error, search_queries = collect_search_sources(item, ai_context)
     query = search_queries[0] if search_queries else deep_dive_query(item, ai_context)
     if not sources:
+        reference_value = numeric_or_none(best_value_reference.get("value_estimate")) if best_value_reference else None
+        reference_age = numeric_or_none(best_value_reference.get("estimated_age_years")) if best_value_reference else None
+        construction_age = construction_year_age(item)
+        if best_value_reference and (reference_value is not None or reference_age is not None):
+            return {
+                "ai_stage": "deep_dive",
+                "estimated_by_ai": True,
+                "estimation_policy": "verified_reference",
+                "web_search_performed": False,
+                "search_provider": search_provider,
+                "search_queries": search_queries,
+                "query": query,
+                "research_basis": deep_dive_research_basis(item),
+                "technical_context": ai_context,
+                "sources": [],
+                "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden; geprüfte Referenz genutzt.",
+                "estimated_age_years": construction_age if construction_age is not None else reference_age,
+                "age_source": "gepruefte_wertreferenz" if construction_age is None and reference_age is not None else "baujahr",
+                "age_verification_status": "geschaetzt",
+                "age_confidence": 0.78 if construction_age is None and reference_age is not None else 0.9,
+                "age_reason": "Aus geprüfter Wertreferenz übernommen." if construction_age is None and reference_age is not None else "Aus eingegebenem Baujahr abgeleitet.",
+                "age_requires_review": True,
+                "estimated_value": round(reference_value) if reference_value is not None else None,
+                "estimated_value_range": {
+                    "min": max(1, round(reference_value * 0.9)) if reference_value is not None else None,
+                    "max": max(1, round(reference_value * 1.1)) if reference_value is not None else None,
+                },
+                "estimated_value_confidence": 0.82 if reference_value is not None else 0.0,
+                "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}.",
+                "value_requires_review": True,
+                "value_source": "gepruefte_wertreferenz",
+                "value_reference_used": best_value_reference,
+                "matching_value_references": value_references,
+                "notes": "Geprüfte interne Referenz genutzt. Wert und Alter bleiben prüfpflichtige Vorschläge.",
+                "manual_review_required": True,
+            }
         return {
             "ai_stage": "deep_dive",
             "estimated_by_ai": True,
@@ -2956,6 +3131,8 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "estimated_value_reason": "Keine belastbare Webquelle gefunden; Wert bleibt offen.",
             "value_requires_review": True,
             "value_source": "keine_webquelle",
+            "value_reference_used": None,
+            "matching_value_references": value_references,
             "notes": "Websuche ohne verwertbare Quelle. Preis und Alter werden nicht geraten und müssen manuell geprüft werden.",
             "manual_review_required": True,
         }
@@ -2972,15 +3149,31 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         estimated_value = guarded_value["estimated_value"]
         value_min = guarded_value["estimated_value_range"]["min"]
         value_max = guarded_value["estimated_value_range"]["max"]
+        reference_value = numeric_or_none(best_value_reference.get("value_estimate")) if best_value_reference else None
+        if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
+            estimated_value = round(reference_value)
+            value_min = max(1, round(reference_value * 0.9))
+            value_max = max(1, round(reference_value * 1.1))
+            guarded_value = {
+                **guarded_value,
+                "estimated_value": estimated_value,
+                "estimated_value_range": {"min": value_min, "max": value_max},
+                "estimated_value_confidence": max(float(guarded_value.get("estimated_value_confidence") or 0), 0.82),
+                "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}. Webquellen wurden zusätzlich geprüft.",
+                "value_requires_review": True,
+            }
         raw_age = estimate_age_years(item, sources, ai_context)
         age_from_construction_year = construction_year_age(item)
         manual_age = item.get("estimated_age_years") is not None and item.get("age_source") not in {None, "", "schaetzung", "unbekannt"}
-        estimated_age = raw_age if (age_from_construction_year is not None or manual_age) else conservative_age_estimate(raw_age)
+        reference_age = numeric_or_none(best_value_reference.get("estimated_age_years")) if best_value_reference else None
+        estimated_age = raw_age if (age_from_construction_year is not None or manual_age) else reference_age if reference_age is not None else conservative_age_estimate(raw_age)
         age_reason = (
             "Aus eingegebenem Baujahr abgeleitet."
             if age_from_construction_year is not None
             else "Aus manuell geprüftem Alter übernommen."
             if manual_age and estimated_age is not None
+            else "Aus geprüfter Wertreferenz übernommen."
+            if reference_age is not None and estimated_age is not None
             else "Aus sichtbarem Modellhinweis abgeleitet."
             if estimated_age is not None
             else "Keine belastbare Altersgrundlage erkannt."
@@ -2990,8 +3183,10 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "estimated_value_confidence": guarded_value["estimated_value_confidence"],
             "estimated_value_reason": guarded_value["estimated_value_reason"],
             "value_requires_review": guarded_value["value_requires_review"],
+            "value_reference_used": best_value_reference if reference_value is not None else None,
+            "matching_value_references": value_references,
             "price_candidates": guarded_value.get("price_candidates") or [],
-            "age_confidence": 0.55 if estimated_age is not None else 0.0,
+            "age_confidence": 0.8 if reference_age is not None and age_from_construction_year is None else 0.55 if estimated_age is not None else 0.0,
             "age_reason": age_reason,
             "age_requires_review": True,
         }

@@ -2777,6 +2777,79 @@ body {
   font-weight: 750;
 }
 
+.value-reference-list {
+  display: grid;
+  gap: 8px;
+}
+
+.value-reference-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  background: #f0f9ff;
+  padding: 10px;
+}
+
+.value-reference-card div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.value-reference-card b,
+.value-reference-card span,
+.value-reference-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value-reference-card b {
+  color: #0f1f3a;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.value-reference-card span {
+  color: #52657e;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.value-reference-card small {
+  color: #0369a1;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.value-reference-values {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: 5px;
+}
+
+.value-reference-values span {
+  border: 1px solid #7dd3fc;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #075985;
+  padding: 5px 8px;
+}
+
+@media (max-width: 760px) {
+  .value-reference-card {
+    grid-template-columns: 1fr;
+  }
+
+  .value-reference-values {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .deep-dive-sources {
   display: flex;
   flex-wrap: wrap;

@@ -542,10 +542,11 @@ def select_learning_examples(
     )
     scored: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
+        corrected = row.get("corrected_json") or {}
         haystack = " ".join(
             str(row.get(key) or "")
             for key in ["object_class_name", "object_type", "brand", "model", "serial_number", "notes"]
-        )
+        ) + " " + " ".join(str(corrected.get(key) or "") for key in ["specification", "construction_year", "value_estimate", "estimated_age_years"])
         score = len(query_tokens & tokenize_reference_text(haystack))
         if object_class_name and str(row.get("object_class_name") or "").lower() == object_class_name.lower():
             score += 5
@@ -563,6 +564,10 @@ def select_learning_examples(
             "serial_number_present": bool(row.get("serial_number")),
             "condition": row.get("condition"),
             "corrected_fields": row.get("corrected_json") or {},
+            "specification": (row.get("corrected_json") or {}).get("specification"),
+            "construction_year": (row.get("corrected_json") or {}).get("construction_year"),
+            "value_estimate": (row.get("corrected_json") or {}).get("value_estimate"),
+            "estimated_age_years": (row.get("corrected_json") or {}).get("estimated_age_years"),
             "notes": row.get("notes"),
         }
         for _, row in scored[:limit]
