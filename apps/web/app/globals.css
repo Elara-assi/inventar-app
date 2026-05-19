@@ -54,6 +54,24 @@ textarea {
   gap: 16px;
 }
 
+.topbar-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.build-strip {
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 6px 20px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #c8d7df;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
 .brand {
   display: flex;
   flex-direction: column;
@@ -194,6 +212,7 @@ textarea {
 .status.upload_fehler,
 .status.ki_fehler { background: #fee2e2; color: #991b1b; }
 .status.dublette { background: #ede9fe; color: #6d28d9; }
+.status.version_badge { background: #e2e8f0; color: #1e293b; text-transform: none; }
 
 .photo-placeholder {
   aspect-ratio: 4 / 3;
@@ -225,5 +244,9 @@ textarea {
 
   .topbar-inner {
     padding: 12px;
+  }
+
+  .build-strip {
+    padding: 6px 12px 8px;
   }
 }
