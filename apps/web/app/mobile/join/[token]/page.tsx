@@ -288,10 +288,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const lastStepRef = useRef(step);
   const aiAutoRequestKeyRef = useRef("");
   const lastAutoSyncRef = useRef(0);
+  const joinedRef = useRef<Joined | null>(null);
+  const lastJoinRefreshRef = useRef(0);
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
   }, [params]);
+
+  useEffect(() => {
+    joinedRef.current = joined;
+  }, [joined]);
 
   useEffect(() => {
     async function checkStorage() {
@@ -355,6 +361,23 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     });
   }, [token, deviceId]);
 
+  const refreshMobileSession = useCallback(async (force = false) => {
+    if (!token || !deviceId) return joinedRef.current;
+    const now = Date.now();
+    if (!force && joinedRef.current && now - lastJoinRefreshRef.current < 5 * 60_000) {
+      return joinedRef.current;
+    }
+    const result = await api<Joined>("/sessions/join", {
+      method: "POST",
+      body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
+    });
+    if (result.access_token) setAuthToken(result.access_token);
+    joinedRef.current = result;
+    lastJoinRefreshRef.current = now;
+    setJoined(result);
+    return result;
+  }, [deviceId, token]);
+
   const roomName = useMemo(() => {
     const room = bootstrap?.rooms.find((entry) => entry.id === joined?.session.room_id);
     return room?.name ?? "Raum";
@@ -365,6 +388,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const runSync = useCallback(async (label = "Synchronisierung läuft") => {
     setSyncMessage(label);
     try {
+      await refreshMobileSession();
       await syncNow();
       setSyncMessage("Synchronisierung abgeschlossen.");
       setIsOnline(true);
@@ -377,7 +401,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     } finally {
       await refreshQueueSummary();
     }
-  }, [refreshQueueSummary]);
+  }, [refreshMobileSession, refreshQueueSummary]);
 
   const buildSyncDiagnosis = useCallback(async () => {
     const [summary, details, items, currentDeviceId] = await Promise.all([
@@ -735,6 +759,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   async function retrySync() {
     setSyncMessage("Fehler werden erneut synchronisiert.");
     try {
+      await refreshMobileSession(true);
       await retryFailed();
       const summary = await getQueueSummary();
       setSyncMessage(summary.open ? `${summary.pendingPhotos} Fotos warten noch auf Synchronisierung.` : "Synchronisierung abgeschlossen.");
