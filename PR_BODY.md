@@ -14,12 +14,13 @@
 - `python -m py_compile apps/api/app/main.py apps/api/app/security.py apps/api/app/settings.py apps/api/app/logic.py`
 - `PYTHONPATH=apps/api python -m pytest apps/api/tests`
 - `python scripts/ai-guardrail-test.py`
-- live VPS deploy: `ai-stop-reference-values-20260610084939`
+- live VPS deploy: `security-hardening-20260610102303`
 - live health check: `https://inventar-api.elarahub.cloud/health`
-- live DB verification: `ai_cancel_generation`, `ai_cancelled_at`
+- live health field: `auth_secret_configured: true`
+- live DB verification: `password_reset_required`, `ai_cancel_generation`, `ai_cancelled_at`, migration `011_security_hardening.sql`
+- live container command: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
 - live browser check: app title `Inventar Maschine`, no console errors
 
 ## Notes
 
 - The deployed app is already running this branch state on the VPS.
-- `gh` is not authenticated in the local environment, so PR creation may need GitHub login if not done through the web UI.
