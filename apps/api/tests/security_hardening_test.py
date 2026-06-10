@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app import main
-from app.security import verify_password
+from app.security import hash_password, verify_password
 
 
 def test_audio_upload_ignores_dangerous_filename(monkeypatch, tmp_path):
@@ -102,6 +102,43 @@ def test_created_user_gets_random_hashed_password_not_demo(monkeypatch):
     assert created["password_hash"] != "demo"
     assert verify_password(payload["initial_password"], created["password_hash"])
     assert not verify_password("demo", created["password_hash"])
+
+
+def test_login_accepts_display_name_identifier(monkeypatch):
+    captured = {}
+    password_hash = hash_password("!Scherer!")
+
+    def fake_fetch_one(sql, params=()):
+        if "FROM users u" in sql and "lower(u.display_name)" in sql:
+            captured["params"] = params
+            return {
+                "id": "user-1",
+                "tenant_id": "tenant-1",
+                "tenant_slug": "default",
+                "email": "pruefer@example.local",
+                "display_name": "SAH",
+                "password_hash": password_hash,
+                "roles": ["pruefer"],
+            }
+        return None
+
+    def fake_execute(sql, params=()):
+        if "UPDATE users SET last_login_at" in sql:
+            captured["updated_user_id"] = params[0]
+            return {"id": params[0]}
+        return {"id": "audit-1"}
+
+    monkeypatch.setattr(main, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(main, "execute", fake_execute)
+    monkeypatch.setattr(main, "audit", lambda *args, **kwargs: None)
+
+    client = TestClient(main.app)
+    response = client.post("/auth/login", json={"email": "SAH", "password": "!Scherer!"})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["display_name"] == "SAH"
+    assert captured["params"] == ("SAH", "SAH", "SAH")
+    assert captured["updated_user_id"] == "user-1"
 
 
 def test_default_auth_secret_is_not_used_for_signing():

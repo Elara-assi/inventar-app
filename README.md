@@ -174,7 +174,7 @@ Kurzfassung:
 
 ## Demo-Accounts
 
-- `pruefer@example.local` / `demo`
+- `SAH` / `!Scherer!`
 - `erfasser@example.local` / `demo`
 - `buchhaltung@example.local` / `demo`
 

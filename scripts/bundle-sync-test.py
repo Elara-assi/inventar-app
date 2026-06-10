@@ -12,7 +12,7 @@ import requests
 
 API = os.environ.get("INVENTAR_API", "http://127.0.0.1:8000")
 EMAIL = os.environ.get("INVENTAR_TEST_EMAIL", "pruefer@example.local")
-PASSWORD = os.environ.get("INVENTAR_TEST_PASSWORD", "demo")
+PASSWORD = os.environ.get("INVENTAR_TEST_PASSWORD", "!Scherer!")
 UPLOAD_HOST_ROOT = os.environ.get("INVENTAR_UPLOAD_HOST_ROOT", "/opt/stacks/inventar-app/storage/uploads")
 
 

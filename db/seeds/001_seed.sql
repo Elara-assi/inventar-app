@@ -8,7 +8,7 @@
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO users (email, display_name, password_hash) VALUES
-  ('pruefer@example.local', 'Demo Prüfer', 'demo'),
+  ('pruefer@example.local', 'SAH', 'pbkdf2_sha256$260000$YxT8PD2223ge85CuRThlOg$Tm8RUiK40RX4OxPZpf93qgxynQQiQl4fkKAk8E8-mxM'),
   ('erfasser@example.local', 'Demo Erfasser', 'demo'),
   ('buchhaltung@example.local', 'Demo Buchhaltung', 'demo')
 ON CONFLICT (email) DO NOTHING;

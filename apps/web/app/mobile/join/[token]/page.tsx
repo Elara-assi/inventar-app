@@ -392,6 +392,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [designationPromptOpen, setDesignationPromptOpen] = useState(false);
   const [listeningField, setListeningField] = useState<SpeechField | "">("");
   const [speechMessage, setSpeechMessage] = useState("");
+  const [showAdvancedFlow, setShowAdvancedFlow] = useState(false);
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -1001,6 +1002,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setDismissedValueKey("");
       setAbortConfirm(false);
       setDesignationPromptOpen(false);
+      setShowAdvancedFlow(false);
       stopSpeechInput();
       aiAutoRequestKeyRef.current = "";
       setStep(0);
@@ -1221,6 +1223,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setDismissedValueKey("");
     setAbortConfirm(false);
     setDesignationPromptOpen(false);
+    setShowAdvancedFlow(false);
     stopSpeechInput();
     aiAutoRequestKeyRef.current = "";
     setStep(0);
@@ -1384,6 +1387,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setDismissedValueKey("");
     setAbortConfirm(false);
     setDesignationPromptOpen(false);
+    setShowAdvancedFlow(false);
     stopSpeechInput();
     aiAutoRequestKeyRef.current = "";
     setStep(0);
@@ -1409,6 +1413,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setDismissedValueKey("");
       setAbortConfirm(false);
       setDesignationPromptOpen(false);
+      setShowAdvancedFlow(false);
       stopSpeechInput();
       aiAutoRequestKeyRef.current = "";
       setStep(0);
@@ -1832,7 +1837,17 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         ) : null}
 
         {canCaptureInThisSession ? <div className={`capture-status ${busy ? "is-busy" : savedItem ? "is-done" : ""}`}>
-          <strong>{busy ? uploadState || "Bitte warten" : savedItem ? "Objekt gespeichert" : `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`}</strong>
+          <strong>
+            {busy
+              ? uploadState || "Bitte warten"
+              : savedItem
+                ? "Objekt gespeichert"
+                : showAdvancedFlow
+                  ? `Schritt ${step + 1} von ${steps.length}: ${steps[step]}`
+                  : photos.length
+                    ? `${photos.length}/5 Fotos lokal gesichert`
+                    : "Bereit für das erste Foto"}
+          </strong>
           <span>{busy && uploadProgress ? `${uploadProgress}% lokal gesichert` : message}</span>
         </div> : null}
 
@@ -1914,6 +1929,106 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               onFinish={() => void saveObject()}
               onAbort={() => void abortCurrentObject()}
             />
+            <section className="mobile-conveyor-card" aria-label="Schnelle Erfassung">
+              <div className="mobile-conveyor-head">
+                <div>
+                  <strong>Fließband-Erfassung</strong>
+                  <span>Foto, Bezeichnung, Zustand, speichern. Alles andere bleibt optional.</span>
+                </div>
+                <span>{photos.length}/5 Fotos</span>
+              </div>
+
+              <label className="field mobile-voice-field">
+                <span>Bezeichnung</span>
+                <div className="speech-input-row">
+                  <input
+                    ref={designationInputRef}
+                    value={form.object_type}
+                    onChange={(event) => update("object_type", event.target.value)}
+                    placeholder="z. B. Computermaus"
+                  />
+                  {speechButton("object_type", "Bezeichnung")}
+                </div>
+                <small>{form.object_type ? "Kann überschrieben werden." : "Nach zwei Fotos schlägt die KI hier etwas vor."}</small>
+              </label>
+
+              <div className="mobile-condition-grid">
+                <label className="field">
+                  <span>Zustand</span>
+                  <select value={form.condition} onChange={(event) => update("condition", event.target.value)}>
+                    <option value="sehr_gut">sehr gut</option>
+                    <option value="gut">gut</option>
+                    <option value="gebraucht">gebraucht</option>
+                    <option value="reparaturbeduerftig">reparaturbedürftig</option>
+                    <option value="defekt">defekt</option>
+                    <option value="unklar">unklar</option>
+                  </select>
+                </label>
+                <label className="field mobile-voice-field">
+                  <span>Zustand sprechen</span>
+                  <div className="speech-input-row">
+                    <input
+                      value={form.condition_note}
+                      onChange={(event) => update("condition_note", event.target.value)}
+                      placeholder="z. B. gut, leichte Kratzer"
+                    />
+                    {speechButton("condition_note", "Zustand")}
+                  </div>
+                </label>
+              </div>
+
+              <div className="mobile-function-rail" aria-label="Funktion">
+                {[
+                  ["ja", "Funktion i. O."],
+                  ["nein", "Defekt"],
+                  ["nicht_geprueft", "Nicht geprüft"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={form.function_ok === value ? "is-active" : ""}
+                    type="button"
+                    onClick={() => decideFunctionOk(value as FunctionOk)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <label className="field mobile-voice-field">
+                <span>Bemerkung</span>
+                <div className="speech-input-row is-textarea">
+                  <textarea
+                    rows={3}
+                    value={form.remark}
+                    onChange={(event) => update("remark", event.target.value)}
+                    placeholder="z. B. Zubehör, Standort, Schaden, Nutzerhinweis"
+                  />
+                  {speechButton("remark", "Bemerkung")}
+                </div>
+              </label>
+
+              {speechMessage ? <p className="speech-live-status" aria-live="polite">{speechMessage}</p> : null}
+
+              <div className="mobile-conveyor-actions">
+                <button className="btn accent" type="button" disabled={busy || !canSaveDraft} onClick={() => void saveObject()}>
+                  Speichern · nächstes Objekt
+                </button>
+                <button className="btn secondary" type="button" disabled={busy} onClick={() => void abortCurrentObject()}>
+                  {abortConfirm ? "Verwerfen bestätigen" : "Abbrechen"}
+                </button>
+                <button
+                  className="btn secondary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setStep(1);
+                    setShowAdvancedFlow((current) => !current);
+                  }}
+                >
+                  {showAdvancedFlow ? "Details ausblenden" : "Details öffnen"}
+                </button>
+              </div>
+            </section>
           </>
         ) : null}
 
@@ -1928,7 +2043,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </section>
         ) : null}
 
-        {canCaptureInThisSession && !savedItem ? <div className="wizard-progress">
+        {canCaptureInThisSession && !savedItem && showAdvancedFlow ? <div className="wizard-progress">
           {steps.map((label, index) => (
             <button
               key={label}
@@ -1943,7 +2058,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           ))}
         </div> : null}
 
-        {canCaptureInThisSession && !savedItem ? (
+        {canCaptureInThisSession && !savedItem && showAdvancedFlow ? (
           <div className="wizard-step-anchor" ref={activeStepRef}>
             {step === 0 ? (
               <WizardCard title="Fotos & Nachweise" hint="Objekt vollständig fotografieren. Typenschild und weitere Nachweise direkt hier ergänzen.">
@@ -2179,7 +2294,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </div>
         ) : null}
 
-        {canCaptureInThisSession && !savedItem ? <div className="wizard-nav">
+        {canCaptureInThisSession && !savedItem && showAdvancedFlow ? <div className="wizard-nav">
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
           <button className="btn accent" type="button" disabled={mobilePrimaryDisabled} onClick={runMobilePrimaryAction}>{mobilePrimaryLabel}</button>
         </div> : null}

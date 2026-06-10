@@ -157,7 +157,7 @@ def inventory_type_label(value: Any) -> str:
 
 class LoginIn(BaseModel):
     email: str
-    password: str = "demo"
+    password: str = "!Scherer!"
 
 
 class SessionIn(BaseModel):
@@ -847,6 +847,7 @@ def resolve_location(location_id: str | None, location_name: str | None) -> dict
 
 @app.post("/auth/login")
 def login(body: LoginIn) -> dict[str, Any]:
+    login_name = body.email.strip()
     user = fetch_one(
         """
         SELECT u.*, t.slug AS tenant_slug, array_remove(array_agg(r.slug), null) AS roles
@@ -854,16 +855,18 @@ def login(body: LoginIn) -> dict[str, Any]:
         LEFT JOIN tenants t ON t.id = u.tenant_id
         LEFT JOIN user_roles ur ON ur.user_id = u.id
         LEFT JOIN roles r ON r.id = ur.role_id
-        WHERE u.email = %s AND u.active = true
+        WHERE (lower(u.email) = lower(%s) OR lower(u.display_name) = lower(%s)) AND u.active = true
         GROUP BY u.id, t.slug
+        ORDER BY CASE WHEN lower(u.email) = lower(%s) THEN 0 ELSE 1 END, u.created_at ASC
+        LIMIT 1
         """,
-        (body.email,),
+        (login_name, login_name, login_name),
     )
     if not user or not verify_password(body.password, user.get("password_hash")):
-        raise HTTPException(status_code=401, detail="E-Mail oder Passwort ist falsch")
+        raise HTTPException(status_code=401, detail="Login Name oder Passwort ist falsch")
     execute("UPDATE users SET last_login_at = now(), updated_at = now() WHERE id = %s RETURNING id", (user["id"],))
     token = create_access_token(user)
-    audit("login", "user", str(user["id"]), {"email": body.email})
+    audit("login", "user", str(user["id"]), {"login_name": login_name, "email": user.get("email")})
     return {"access_token": token, "token_type": "bearer", "user": user}
 
 

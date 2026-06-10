@@ -54,7 +54,7 @@ Expected:
 
 ## Demo Accounts
 
-- Reviewer: `pruefer@example.local` / `demo`
+- Reviewer: `SAH` / `!Scherer!`
 - Capturer: `erfasser@example.local` / `demo`
 - Accounting: `buchhaltung@example.local` / `demo`
 

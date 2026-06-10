@@ -17,8 +17,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="de">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+      </head>
       <body>
-        <div className="shell">
+        <div className="shell app-shell">
+          <aside className="app-rail" aria-label="App Navigation">
+            <a className="rail-logo" href="/" aria-label="Inventar Dashboard">▣</a>
+            <nav className="rail-nav" aria-label="Hauptbereiche">
+              <a className="is-active" href="/" aria-label="Dashboard">⌂</a>
+              <a href="/review" aria-label="Prüfung">▤</a>
+              <a href="/design-preview" aria-label="Design">◇</a>
+              <a href="/design-preview-premium" aria-label="Premium Design">▥</a>
+            </nav>
+            <div className="rail-bottom" aria-hidden="true">◌</div>
+          </aside>
           <header className="topbar">
             <div className="topbar-inner">
               <div className="brand">

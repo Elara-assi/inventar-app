@@ -88,8 +88,8 @@ export default function DashboardPage() {
   const [activeSessionPreview, setActiveSessionPreview] = useState<SessionPreviewSnapshot | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [loginEmail, setLoginEmail] = useState("pruefer@example.local");
-  const [loginPassword, setLoginPassword] = useState("demo");
+  const [loginName, setLoginName] = useState("SAH");
+  const [loginPassword, setLoginPassword] = useState("!Scherer!");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   function beginNewPreparation() {
@@ -134,7 +134,7 @@ export default function DashboardPage() {
       setError("");
       const result = await api<{ access_token: string }>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email: loginEmail.trim(), password: loginPassword }),
+        body: JSON.stringify({ email: loginName.trim(), password: loginPassword }),
       });
       setAuthToken(result.access_token);
       setIsAuthenticated(true);
@@ -431,8 +431,8 @@ export default function DashboardPage() {
           {error ? <p className="status upload_fehler login-error">{userFacingError(error)}</p> : null}
           {message ? <p className="muted">{message}</p> : null}
           <label className="field">
-            <span>E-Mail</span>
-            <input value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} autoComplete="username" />
+            <span>Login Name</span>
+            <input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" />
           </label>
           <label className="field">
             <span>Passwort</span>

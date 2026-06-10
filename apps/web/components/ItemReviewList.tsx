@@ -488,8 +488,10 @@ export function ItemReviewList({
   readOnly?: boolean;
 }) {
   const [activeFilter, setActiveFilter] = useState<ReviewFilterKey>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedItemId, setSelectedItemId] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const visibleItems = useMemo(
+  const baseVisibleItems = useMemo(
     () => items.filter((item) => matchesReviewFilter(item, activeFilter)).sort((left, right) => {
       const priority = reviewSortPriority(left) - reviewSortPriority(right);
       if (priority !== 0) return priority;
@@ -497,6 +499,20 @@ export function ItemReviewList({
     }),
     [activeFilter, items],
   );
+  const visibleItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return baseVisibleItems;
+    return baseVisibleItems.filter((item) => [
+      item.object_type,
+      item.inventory_id,
+      item.temporary_id,
+      item.brand,
+      item.model,
+      item.serial_number,
+      item.specification,
+      item.object_class_name,
+    ].some((value) => String(value ?? "").toLowerCase().includes(query)));
+  }, [baseVisibleItems, searchQuery]);
   const filterCounts = useMemo(
     () => reviewFilters.reduce<Record<ReviewFilterKey, number>>((acc, filter) => {
       acc[filter.key] = items.filter((item) => matchesReviewFilter(item, filter.key)).length;
@@ -513,6 +529,10 @@ export function ItemReviewList({
     [items],
   );
   const aiWorkingItems = useMemo(() => items.filter(isAiWorking), [items]);
+  const selectedItem = visibleItems.find((item) => item.id === selectedItemId)
+    ?? visibleItems[0]
+    ?? baseVisibleItems[0]
+    ?? null;
 
   useEffect(() => {
     if (!aiWorkingItems.length) return;
@@ -520,6 +540,11 @@ export function ItemReviewList({
     const timer = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(timer);
   }, [aiWorkingItems.length]);
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    if (selectedItem.id !== selectedItemId) setSelectedItemId(selectedItem.id);
+  }, [selectedItem, selectedItemId]);
 
   if (!items.length) {
     return (
@@ -549,10 +574,55 @@ export function ItemReviewList({
           </div>
           {aiWorkingItems.length ? <AiWorkOverview items={aiWorkingItems} now={now} /> : null}
           {visibleItems.length ? (
-            <div className="item-list">
-              {visibleItems.map((item) => (
-                <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} now={now} />
-              ))}
+            <div className="review-cockpit-layout">
+              <section className="review-list-pane" aria-label="Inventarliste">
+                <div className="review-list-toolbar">
+                  <label>
+                    <span>Objekte suchen</span>
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Bezeichnung, Modell, Seriennummer ..."
+                    />
+                  </label>
+                  <div>
+                    <strong>{visibleItems.length}</strong>
+                    <span>sichtbar</span>
+                  </div>
+                </div>
+                <div className="review-cockpit-table" role="table" aria-label="Gegenstände im Raum">
+                  <div className="review-cockpit-head" role="row">
+                    <span>#</span>
+                    <span>Foto</span>
+                    <span>Bezeichnung</span>
+                    <span>Funktion</span>
+                  </div>
+                  {visibleItems.map((item) => (
+                    <ReviewCockpitRow
+                      item={item}
+                      key={item.id}
+                      isSelected={selectedItem?.id === item.id}
+                      now={now}
+                      onSelect={() => setSelectedItemId(item.id)}
+                      onOpenPhoto={openPhoto}
+                    />
+                  ))}
+                </div>
+              </section>
+              <aside className="review-inspector-pane" aria-label="Artikel-Inspektor">
+                {selectedItem ? (
+                  <ItemReviewRow
+                    item={selectedItem}
+                    key={selectedItem.id}
+                    objectClasses={objectClasses}
+                    onChanged={onChanged}
+                    onOpenPhoto={openPhoto}
+                    readOnly={readOnly}
+                    now={now}
+                    inspector
+                  />
+                ) : null}
+              </aside>
             </div>
           ) : (
             <div className="filter-empty-state">
@@ -563,6 +633,76 @@ export function ItemReviewList({
         </>
       )}
     </PhotoPreviewProvider>
+  );
+}
+
+function ReviewCockpitRow({
+  item,
+  isSelected,
+  now,
+  onSelect,
+  onOpenPhoto,
+}: {
+  item: ReviewItem;
+  isSelected: boolean;
+  now: number;
+  onSelect: () => void;
+  onOpenPhoto: (url: string, label: string) => void;
+}) {
+  const itemPhotos = item.photos ?? [];
+  const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
+  const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
+  const itemName = item.object_type || "Bezeichnung offen";
+  const itemMeta = [item.inventory_id || item.temporary_id, item.brand, item.model].filter(Boolean).join(" · ");
+  const aiWork = aiWorkState(item, now);
+  const deepDive = item.ai_summary?.deep_dive;
+  const aiLabel = aiWork
+    ? aiWork.shortLabel
+    : deepDive?.valuation_state === "no_reference"
+      ? "Keine Wertquelle"
+      : item.ai_summary?.bga_detection || item.ai_summary?.suggested_fields
+        ? "Objekt erkannt"
+        : item.status?.startsWith("ki_")
+          ? "KI offen"
+          : "Bereit";
+  const statusLabel = reviewStatusLabels[item.review_status ?? ""] ?? item.review_status ?? "erfasst";
+  const functionLabel = functionLabels[item.function_ok ?? ""] ?? item.function_ok ?? "offen";
+  const rowTags = [
+    { label: statusLabel, kind: isFinalized(item) ? "ok" : needsRework(item) ? "warn" : "info" },
+    { label: aiLabel, kind: aiWork ? "ai" : deepDive?.valuation_state === "no_reference" ? "muted" : "info" },
+    ...(item.blockers ?? []).slice(0, 2).map((label) => ({ label: displayTaskField(label), kind: "warn" })),
+    ...(!hasObjectPhoto(item) ? [{ label: "Foto fehlt", kind: "warn" }] : []),
+  ].slice(0, 3);
+
+  return (
+    <div
+      className={`review-cockpit-row ${isSelected ? "is-selected" : ""} ${needsRework(item) ? "needs-work" : ""}`.trim()}
+      role="row"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      aria-selected={isSelected}
+    >
+      <span className="review-row-number">{item.sequence_number ?? "-"}</span>
+      <AuthPhotoButton path={photoPath} label={itemName} className="review-table-photo" onOpenPhoto={onOpenPhoto} />
+      <span className="review-row-name">
+        <b>{itemName}</b>
+        <small>{itemMeta || item.object_class_name || "Details offen"}</small>
+        {rowTags.length ? (
+          <span className="review-row-tags">
+            {rowTags.map((tag) => <i className={`is-${tag.kind}`} key={`${tag.kind}-${tag.label}`}>{tag.label}</i>)}
+          </span>
+        ) : null}
+      </span>
+      <span className={`review-row-pill ${item.function_ok === "ja" ? "is-ok" : item.function_ok === "nein" ? "is-danger" : "is-muted"}`}>
+        {functionLabel}
+      </span>
+    </div>
   );
 }
 
@@ -671,6 +811,7 @@ function ItemReviewRow({
   onOpenPhoto,
   readOnly,
   now,
+  inspector = false,
 }: {
   item: ReviewItem;
   objectClasses: Bootstrap["object_classes"];
@@ -678,6 +819,7 @@ function ItemReviewRow({
   onOpenPhoto: (url: string, label: string) => void;
   readOnly: boolean;
   now: number;
+  inspector?: boolean;
 }) {
   const editPanelRef = useRef<HTMLDivElement | null>(null);
   const inventoryType = item.inventory_type || "bga";
@@ -699,7 +841,7 @@ function ItemReviewRow({
   const [templateQuery, setTemplateQuery] = useState("");
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(inspector);
 
   useEffect(() => {
     if (editOpen && draftDirty) return;
@@ -719,6 +861,10 @@ function ItemReviewRow({
       editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
   }, [editOpen]);
+
+  useEffect(() => {
+    if (inspector) setEditOpen(true);
+  }, [inspector, item.id]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1070,7 +1216,7 @@ function ItemReviewRow({
   const finalizableLabel = finalizeBlocked ? "Noch offen" : "Finalisieren";
 
   return (
-    <div className={`item-row ${aiWork ? "is-ai-working" : ""} ${aiWork?.isVeryLong ? "is-ai-slow" : ""}`.trim()}>
+    <div className={`item-row ${inspector ? "is-inspector" : ""} ${aiWork ? "is-ai-working" : ""} ${aiWork?.isVeryLong ? "is-ai-slow" : ""}`.trim()}>
       <AuthPhotoButton path={photoPath} label={photoLabel} className="photo-thumb" onOpenPhoto={onOpenPhoto} />
 
       <div className="item-main">
@@ -1133,8 +1279,12 @@ function ItemReviewRow({
         ) : null}
 
         <div className="compact-row-actions">
-          <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen((current) => !current)}>
-            {editOpen ? "Schließen" : "Bearbeiten"}
+          <button
+            className="btn secondary compact-btn"
+            type="button"
+            onClick={() => inspector ? editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }) : setEditOpen((current) => !current)}
+          >
+            {inspector ? "Details" : editOpen ? "Schließen" : "Bearbeiten"}
           </button>
           <button className="btn" onClick={finalize} disabled={readOnly || finalizeBlocked} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
             {finalizableLabel}
