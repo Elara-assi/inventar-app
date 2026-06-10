@@ -72,4 +72,3 @@ export function loadMobileSessionCapsule(token: string): MobileSessionCapsule | 
     return null;
   }
 }
-
