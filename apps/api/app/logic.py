@@ -47,6 +47,20 @@ def json_dumps(value: Any) -> str:
 
 def classify_it_peripheral(text: str, object_type: str | None = None) -> tuple[str, dict[str, Any]] | None:
     haystack = f"{text} {object_type or ''}".lower()
+    if any(term in haystack for term in ["nespresso", "kaffeemaschine", "kapselmaschine", "espresso"]):
+        return (
+            "kuechengeraet",
+            {
+                "object_type": "Kaffeemaschine",
+                "object_class": "Kaffeemaschine",
+                "commercial_category": "betriebsmittel",
+                "requires_accounting_review": False,
+                "missing_fields": [],
+                "recommended_tasks": [],
+                "recommended_status": "pruefen",
+                "confidence": 0.78,
+            },
+        )
     if any(term in haystack for term in ["computermaus", "maus", "mouse", "hyperx", "logitech", "razer"]):
         return (
             "eingabegeraet",
@@ -160,6 +174,7 @@ BGA_OBJECT_CLASSES = [
     "Spezialgerät",
     "Diagnosegerät",
     "Ladegerät",
+    "Kaffeemaschine",
     "Maschine",
     "Hebebühne",
     "Kompressor",
@@ -196,6 +211,7 @@ BGA_OBJECT_CANDIDATES: list[dict[str, Any]] = [
     {"object_name": "Drucker", "object_class": "Drucker", "visual_features": ["Papierfach", "Ausgabeschacht", "Bedienpanel"], "category": "it_ausstattung"},
     {"object_name": "Scanner", "object_class": "Scanner", "visual_features": ["Flachbett", "Einzug", "Scanfläche"], "category": "it_ausstattung"},
     {"object_name": "Telefon", "object_class": "Telefon", "visual_features": ["Hörer", "Tastenfeld", "Display", "Telefonkabel oder DECT-Basis"], "category": "it_ausstattung"},
+    {"object_name": "Kaffeemaschine", "object_class": "Kaffeemaschine", "visual_features": ["Kapselmaschine", "Wassertank", "Tassenablage", "Nespresso- oder Espresso-Geraet"], "category": "betriebsmittel"},
     {"object_name": "Werkzeugwagen", "object_class": "Werkzeugwagen", "visual_features": ["rollbarer Schubladenschrank", "Werkzeugschubladen"], "category": "werkstattausstattung"},
     {"object_name": "Schreibtisch", "object_class": "Schreibtisch", "visual_features": ["Arbeitsplatte", "Tischbeine", "Büroarbeitsplatz"], "category": "bueroausstattung"},
     {"object_name": "Bürostuhl", "object_class": "Bürostuhl", "visual_features": ["Sitzfläche", "Rückenlehne", "Rollen", "Armlehnen"], "category": "bueroausstattung"},
@@ -216,6 +232,7 @@ BGA_OBJECT_CANDIDATES: list[dict[str, Any]] = [
 
 BGA_PROMPT_TEST_CASES: list[dict[str, Any]] = [
     {"case": "Computermaus", "expected_class": "Computermaus", "expected_object_name": "Computermaus", "guard": "nicht Monitor/Tastatur/Laptop"},
+    {"case": "Nespresso Kapselmaschine", "expected_class": "Kaffeemaschine", "expected_object_name": "Kaffeemaschine", "guard": "nicht Sonstiges und kein automatischer Wert"},
     {"case": "Tastatur", "expected_class": "Tastatur", "expected_object_name": "Tastatur", "guard": "nicht Monitor"},
     {"case": "Monitor", "expected_class": "Monitor", "expected_object_name": "Monitor", "guard": "nur einzelner Bildschirm ohne Tastatur-Unterteil"},
     {"case": "Bürostuhl", "expected_class": "Bürostuhl", "expected_object_name": "Bürostuhl", "guard": "Rollen/Rückenlehne/Sitzfläche"},
@@ -239,6 +256,8 @@ def normalize_bga_object_class(value: Any, object_name: Any = None) -> str:
         return "Computermaus"
     if any(term in text for term in ["tastatur", "keyboard"]):
         return "Tastatur"
+    if any(term in text for term in ["nespresso", "kaffeemaschine", "kapselmaschine", "espresso"]):
+        return "Kaffeemaschine"
     if raw in BGA_OBJECT_CLASSES:
         return raw
     if "monitor" in text or "bildschirm" in text:
@@ -323,6 +342,7 @@ def bga_review_missing_fields(object_class: str, fallback: dict[str, Any]) -> li
         "Drucker",
         "Scanner",
         "Telefon",
+        "Kaffeemaschine",
         "Büroausstattung",
         "Schreibtisch",
         "Bürostuhl",
@@ -349,6 +369,7 @@ def plausible_value_limit(object_class: str) -> int | None:
         "Scanner": 600,
         "Telefon": 300,
         "Ladegerät": 250,
+        "Kaffeemaschine": 80,
         "Bürostuhl": 800,
         "Schreibtisch": 800,
         "Regal": 800,
@@ -367,7 +388,7 @@ def normalize_estimates(result: dict[str, Any], object_class: str, confidence: f
     value_confidence = clamp_confidence(result.get("estimated_value_confidence"), 0.0)
     value_reason = first_text(result.get("estimated_value_reason"), result.get("value_reason"))
     value_source = str(result.get("value_source") or "").lower().strip()
-    credible_value_source = value_source in {"webrecherche", "sichtbare_preisangabe", "beleg", "referenzpreis", "modellpreis"}
+    credible_value_source = value_source in {"webrecherche", "gebrauchtmarkt", "beleg", "referenzpreis", "gepruefte_referenz"}
     value_limit = plausible_value_limit(object_class)
     value_rejected_reason = None
     if estimated_value_number is not None and value_limit is not None and estimated_value_number > value_limit:
@@ -574,10 +595,10 @@ def select_learning_examples(
     ]
 
 
-def build_ai_suggestion(item_id: str) -> dict[str, Any]:
+def build_ai_suggestion(item_id: str, mode: str = "fast") -> dict[str, Any]:
     fallback = build_stub_suggestion(item_id)
     try:
-        return build_ollama_suggestion(item_id, fallback)
+        return build_ollama_suggestion(item_id, fallback, mode)
     except Exception as exc:
         fallback["notes"] = f"{fallback.get('notes')} Ollama-Auswertung fehlgeschlagen, Stub genutzt: {type(exc).__name__}: {str(exc)[:180]}"
         fallback["_model_used"] = "phase1-stub"
@@ -779,7 +800,274 @@ def build_stub_suggestion(item_id: str) -> dict[str, Any]:
     return result
 
 
-def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str, Any]:
+def ollama_model_candidates(primary_model: str | None, secondary_models: list[str] | None = None) -> list[str]:
+    candidates = [
+        primary_model,
+        *(secondary_models or []),
+        settings.ollama_fallback_model,
+        settings.ollama_model,
+    ]
+    unique: list[str] = []
+    for candidate in candidates:
+        model = str(candidate or "").strip()
+        if model and model not in unique:
+            unique.append(model)
+    return unique
+
+
+def ollama_url_for_model(model: str | None) -> str:
+    model_name = str(model or "").lower()
+    if model_name.startswith("glm-ocr") and settings.ollama_local_url and not settings.ollama_api_key:
+        return settings.ollama_local_url
+    return settings.ollama_url
+
+
+def ollama_chat_url(model: str | None = None) -> str:
+    base = ollama_url_for_model(model).rstrip("/")
+    api_base = base if base.endswith("/api") else f"{base}/api"
+    return f"{api_base}/chat"
+
+
+def ollama_headers(model: str | None = None) -> dict[str, str]:
+    if not settings.ollama_api_key:
+        return {}
+    if "ollama.com" not in ollama_url_for_model(model):
+        return {}
+    return {"Authorization": f"Bearer {settings.ollama_api_key}"}
+
+
+def call_ollama_json(prompt: dict[str, Any], images: list[str], primary_model: str | None, secondary_models: list[str] | None = None) -> tuple[dict[str, Any], str]:
+    errors: list[str] = []
+    for model in ollama_model_candidates(primary_model, secondary_models):
+        payload = {
+            "model": model,
+            "stream": False,
+            "format": "json",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, ensure_ascii=False),
+                    **({"images": images} if images else {}),
+                }
+            ],
+        }
+        try:
+            with httpx.Client(timeout=settings.ollama_timeout_seconds) as client:
+                response = client.post(ollama_chat_url(model), json=payload, headers=ollama_headers(model))
+                response.raise_for_status()
+            content = response.json().get("message", {}).get("content", "{}")
+            return parse_ollama_json(content), model
+        except Exception as exc:  # Ollama Cloud/local fallback path
+            errors.append(f"{model}: {type(exc).__name__}: {str(exc)[:180]}")
+    raise RuntimeError("Ollama JSON call failed: " + " | ".join(errors))
+
+
+def photo_to_base64(path: Any) -> str | None:
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as handle:
+            return base64.b64encode(handle.read()).decode("ascii")
+    except OSError:
+        return None
+
+
+def normalize_text_list(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [f"{key}: {text}" for key, raw in value.items() if (text := first_text(raw))]
+    if isinstance(value, list):
+        return [text for raw in value if (text := first_text(raw))]
+    text = first_text(value)
+    if not text:
+        return []
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def clean_extracted_text(value: Any) -> str | None:
+    text = first_text(value)
+    if not text:
+        return None
+    lowered = text.lower().strip(" .:-")
+    if lowered in {"unknown", "unbekannt", "n/a", "na", "none", "null", "nicht lesbar", "nicht sichtbar", "-"}:
+        return None
+    return text
+
+
+def extract_labelled_year(candidate: Any, raw_text: str | None) -> str | None:
+    candidate_match = re.search(r"\b(19[8-9][0-9]|20[0-3][0-9])\b", str(candidate or ""))
+    raw = raw_text or ""
+    label = r"(?:baujahr|bj\.?|herstelljahr|hergestellt|mfg\.?|manufactured|year of manufacture|year)"
+    if candidate_match:
+        year = candidate_match.group(1)
+        if raw and not re.search(rf"{label}.{{0,40}}{re.escape(year)}|{re.escape(year)}.{{0,40}}{label}", raw, flags=re.IGNORECASE | re.DOTALL):
+            return None
+        return year
+    raw_match = re.search(rf"{label}.{{0,40}}\b(19[8-9][0-9]|20[0-3][0-9])\b", raw, flags=re.IGNORECASE | re.DOTALL)
+    return raw_match.group(1) if raw_match else None
+
+
+def build_nameplate_remark(extraction: dict[str, Any]) -> str | None:
+    lines = ["Typenschild ausgelesen:"]
+    for label, key in [
+        ("Hersteller", "manufacturer"),
+        ("Modell", "model"),
+        ("Typ", "type_designation"),
+        ("Seriennummer", "serial_number"),
+        ("Baujahr", "construction_year"),
+    ]:
+        value = first_text(extraction.get(key))
+        if value:
+            lines.append(f"{label}: {value}")
+    specs = normalize_text_list(extraction.get("technical_specs"))
+    if specs:
+        lines.append("Technische Angaben: " + "; ".join(specs))
+    raw_text = first_text(extraction.get("raw_text"))
+    if raw_text:
+        lines.append("Rohtext:")
+        lines.append(raw_text)
+    return "\n".join(lines) if len(lines) > 1 else None
+
+
+def normalize_nameplate_extraction(parsed: dict[str, Any], fallback_object_type: str | None = None) -> dict[str, Any]:
+    raw_text = first_text(parsed.get("raw_text"), "\n".join(normalize_text_list(parsed.get("text_lines"))))
+    uncertain_fields = normalize_text_list(parsed.get("uncertain_fields"))
+    uncertain_keys = " ".join(uncertain_fields).lower()
+    serial_number = clean_extracted_text(first_text(parsed.get("serial_number"), parsed.get("serial"), parsed.get("sn")))
+    if serial_number and ("serial" in uncertain_keys or "serien" in uncertain_keys):
+        serial_number = None
+    construction_year = extract_labelled_year(parsed.get("construction_year"), raw_text)
+    if construction_year and ("construction_year" in uncertain_keys or "baujahr" in uncertain_keys):
+        construction_year = None
+
+    technical_specs = normalize_text_list(parsed.get("technical_specs"))
+    manufacturer = clean_extracted_text(first_text(parsed.get("manufacturer"), parsed.get("brand")))
+    model = clean_extracted_text(parsed.get("model"))
+    type_designation = clean_extracted_text(first_text(parsed.get("type_designation"), parsed.get("type"), parsed.get("typ")))
+    suggested_object_type = clean_extracted_text(parsed.get("suggested_object_type"))
+
+    spec_lines = []
+    for label, value in [
+        ("Hersteller", manufacturer),
+        ("Modell", model),
+        ("Typ", type_designation),
+        ("Seriennummer", serial_number),
+        ("Baujahr", construction_year),
+    ]:
+        if value:
+            spec_lines.append(f"{label}: {value}")
+    spec_lines.extend(technical_specs)
+    extraction = {
+        "raw_text": raw_text,
+        "manufacturer": manufacturer,
+        "model": model,
+        "type_designation": type_designation,
+        "serial_number": serial_number,
+        "construction_year": construction_year,
+        "technical_specs": technical_specs,
+        "suggested_object_type": suggested_object_type or clean_extracted_text(fallback_object_type),
+        "suggested_specification": clean_extracted_text(parsed.get("suggested_specification")) or ("; ".join(spec_lines) if spec_lines else None),
+        "suggested_remark": clean_extracted_text(parsed.get("suggested_remark")),
+        "confidence": clamp_confidence(parsed.get("confidence"), 0.68),
+        "uncertain_fields": uncertain_fields,
+    }
+    extraction["suggested_remark"] = extraction["suggested_remark"] or build_nameplate_remark(extraction)
+    return extraction
+
+
+def merge_suggestion_text(existing: Any, addition: Any, separator: str = "\n") -> str | None:
+    left = first_text(existing)
+    right = first_text(addition)
+    if not left:
+        return right
+    if not right:
+        return left
+    if right.lower() in left.lower():
+        return left
+    return f"{left}{separator}{right}"
+
+
+def merge_nameplate_extraction(result: dict[str, Any], extraction: dict[str, Any]) -> dict[str, Any]:
+    result["nameplate_extraction"] = extraction
+    for target, source in [
+        ("serial_number", "serial_number"),
+        ("construction_year", "construction_year"),
+        ("manufacturer", "manufacturer"),
+        ("brand", "manufacturer"),
+        ("model", "model"),
+    ]:
+        value = first_text(extraction.get(source))
+        if value and not first_text(result.get(target)):
+            result[target] = value
+
+    suggested_fields = dict(result.get("suggested_fields") or {})
+    current_name = first_text(suggested_fields.get("object_type"), result.get("object_type"), result.get("object_name"))
+    nameplate_name = first_text(extraction.get("suggested_object_type"))
+    if nameplate_name and (not current_name or current_name.lower().startswith(("unbekannt", "vermutlich unbekannt"))):
+        suggested_fields["object_type"] = nameplate_name
+        result["object_type"] = nameplate_name
+        result["object_name"] = nameplate_name
+    if extraction.get("serial_number"):
+        suggested_fields["serial_number"] = extraction["serial_number"]
+    if extraction.get("construction_year"):
+        suggested_fields["construction_year"] = first_text(suggested_fields.get("construction_year"), extraction["construction_year"])
+    if extraction.get("suggested_specification"):
+        suggested_fields["specification"] = merge_suggestion_text(suggested_fields.get("specification"), extraction["suggested_specification"], "; ")
+        result["specification"] = merge_suggestion_text(result.get("specification"), extraction["suggested_specification"], "; ")
+    if extraction.get("suggested_remark"):
+        suggested_fields["remark"] = merge_suggestion_text(suggested_fields.get("remark"), extraction["suggested_remark"])
+        result["suggested_remark"] = merge_suggestion_text(result.get("suggested_remark"), extraction["suggested_remark"])
+    result["suggested_fields"] = suggested_fields
+
+    detection = dict(result.get("bga_detection") or {})
+    detection.update(
+        {
+            "manufacturer": result.get("manufacturer") or result.get("brand"),
+            "model": result.get("model"),
+            "serial_number": result.get("serial_number"),
+            "specification": result.get("specification"),
+            "suggested_remark": result.get("suggested_remark"),
+            "nameplate_extraction": extraction,
+            "suggested_fields": suggested_fields,
+        }
+    )
+    result["bga_detection"] = detection
+    return result
+
+
+def build_nameplate_extraction(nameplate_images: list[str], item: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    prompt = {
+        "task": "Lies ein Typenschild/Serienschild aus. Antworte ausschließlich als JSON.",
+        "goal": "Extrahiere nur Daten, die auf dem Schild klar lesbar sind. Erfinde nichts.",
+        "object_hint": item.get("object_type") or item.get("object_class_name"),
+        "rules": [
+            "raw_text enthält den vollständigen lesbaren Schildtext mit Zeilenumbrüchen.",
+            "serial_number nur setzen, wenn Seriennummer, S/N, SN, Serial No, Fabrik-Nr. oder vergleichbar eindeutig erkennbar ist.",
+            "construction_year nur setzen, wenn Baujahr, Herstelljahr, MFG year oder Year of manufacture eindeutig neben einer Jahreszahl steht.",
+            "suggested_object_type ist eine kurze deutsche Objektbezeichnung, nur wenn aus Schild oder Kontext ableitbar.",
+            "technical_specs enthält wichtige technische Werte wie Spannung, Leistung, Traglast, Drehzahl, Druck, Maße oder CE/Norm-Hinweise.",
+            "uncertain_fields listet Felder, die unsicher oder teilweise verdeckt sind.",
+        ],
+        "required_schema": {
+            "raw_text": "string|null",
+            "manufacturer": "string|null",
+            "model": "string|null",
+            "type_designation": "string|null",
+            "serial_number": "string|null",
+            "construction_year": "string|null",
+            "technical_specs": ["string"],
+            "suggested_object_type": "string|null",
+            "suggested_specification": "string|null",
+            "suggested_remark": "string|null",
+            "confidence": "number",
+            "uncertain_fields": ["string"],
+        },
+    }
+    parsed, model_used = call_ollama_json(prompt, nameplate_images[:2], settings.ollama_ocr_model, [settings.ollama_vision_model])
+    return normalize_nameplate_extraction(parsed, item.get("object_type") or item.get("object_class_name")), model_used
+
+
+def build_ollama_suggestion(item_id: str, fallback: dict[str, Any], mode: str = "fast") -> dict[str, Any]:
+    normalized_mode = "review" if mode == "review" else "fast"
     item = fetch_one(
         """
         SELECT i.*, oc.slug AS object_class_slug, oc.name AS object_class_name
@@ -810,24 +1098,35 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
     transcripts = [str(note.get("transcript") or "") for note in notes if note.get("transcript")]
     photo_types = [str(photo.get("photo_type")) for photo in photos if photo.get("photo_type")]
     has_object_photo = any(photo_type in {"object", "object_front"} for photo_type in photo_types)
-    if not has_object_photo:
-        fallback["notes"] = "KI-Vorschlag übersprungen: kein Objektfoto vorhanden."
+    has_nameplate_photo = any(photo_type in {"nameplate", "type_plate"} for photo_type in photo_types)
+    if not has_object_photo and not has_nameplate_photo:
+        fallback["notes"] = "KI-Vorschlag übersprungen: kein Objekt- oder Typenschildfoto vorhanden."
         fallback["_model_used"] = "not-started-no-object-photo"
         return fallback
     fallback["_photo_types"] = photo_types
-    special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
-    inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
-    learning_examples = select_learning_examples(transcripts, item.get("object_class_name"), item.get("object_type"), limit=8)
-    images = []
+    if normalized_mode == "fast":
+        special_tool_matches: list[dict[str, Any]] = []
+        inventory_history_matches: list[dict[str, Any]] = []
+        learning_examples: list[dict[str, Any]] = []
+    else:
+        special_tool_matches = select_special_tool_references(transcripts, item.get("object_class_name"), limit=25)
+        inventory_history_matches = select_inventory_history_references(transcripts, item.get("object_class_name"), limit=15)
+        learning_examples = select_learning_examples(transcripts, item.get("object_class_name"), item.get("object_type"), limit=8)
+    vision_images: list[str] = []
+    nameplate_images: list[str] = []
+    detail_images: list[str] = []
     for photo in photos:
-        path = photo.get("original_path")
-        if not path:
+        encoded = photo_to_base64(photo.get("original_path"))
+        if not encoded:
             continue
-        try:
-            with open(path, "rb") as handle:
-                images.append(base64.b64encode(handle.read()).decode("ascii"))
-        except OSError:
-            continue
+        photo_type = str(photo.get("photo_type") or "")
+        if photo_type in {"object", "object_front"}:
+            vision_images.append(encoded)
+        elif photo_type in {"nameplate", "type_plate"}:
+            nameplate_images.append(encoded)
+        else:
+            detail_images.append(encoded)
+    images = vision_images[:3]
 
     prompt = {
         "task": "Analysiere ein einzelnes Inventarobjekt der Betriebs- und Geschäftsausstattung. Antworte ausschließlich als JSON.",
@@ -839,7 +1138,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         "photo_types": photo_types,
         "photo_priority": [
             "Bild 1 ist das wichtigste Objektfoto und bestimmt object_name/object_class.",
-            "Typenschild-/type_plate-Fotos dienen nur zur Absicherung von Hersteller, Modell, Seriennummer und Baujahr.",
+            "Typenschild-/type_plate-Fotos werden zusätzlich mit einem OCR-Modell ausgelesen; erfinde daraus im Objektmodell nichts.",
             "UVV-, Zustands- und Detailfotos stützen Zustand und Bemerkung, dürfen die Objektart aber nicht gegen das Objektfoto überschreiben.",
         ],
         "transcripts": transcripts,
@@ -858,9 +1157,10 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "Für eindeutige Objekte setze eine konkrete Bezeichnung, z. B. object_name='Computermaus' und object_class='Computermaus'.",
             "Computermaus: handgroßes Zeigegerät mit linker/rechter Taste, Scrollrad, Gehäuse zum Greifen, oft Kabel/USB/Funk. Eine Computermaus darf nicht als Monitor, Tastatur oder Notebook klassifiziert werden, nur weil solche Dinge im Hintergrund sichtbar sind.",
             "Wenn eine Computermaus eindeutig sichtbar ist, lautet object_name exakt 'Computermaus', object_class exakt 'Computermaus', commercial_category='it_ausstattung'.",
+            "Nespresso, Kapselmaschine, Espressomaschine oder kleine Kaffeemaschine erhalten object_name exakt 'Kaffeemaschine' und object_class exakt 'Kaffeemaschine'.",
             "Tastatur: viele Tasten in einem Raster. Monitor: einzelner Bildschirm mit Displayfläche. Notebook/Laptop: Bildschirm und Tastatur fest zusammen in einem aufklappbaren Gerät.",
             "Wenn mehrere Gegenstände im Bild sind, bewerte das zentrale, am nächsten fotografierte oder per Sprache beschriebene Objekt als Hauptobjekt.",
-            "Nutze object_front/object-Fotos für die Objektart, type_plate/nameplate-Fotos nur für Hersteller, Modell, Seriennummer und Baujahr. Detailfotos dürfen die Objektart stützen, aber nicht gegen das Hauptfoto übersteuern.",
+            "Nutze ausschliesslich object_front/object-Fotos für object_name und object_class. type_plate/nameplate-Fotos sind nur für Hersteller, Modell, Seriennummer, Baujahr und Spezifikation.",
             "Nutze die Objektklasse aus der Auswahl als starken Hinweis, korrigiere sie aber, wenn Foto und Sprache eindeutig etwas anderes zeigen.",
             "Nutze learning_examples als kuratierte Beispiele aus früheren menschlichen Korrekturen; sie sind wichtiger als eine allgemeine Vermutung.",
             "Wenn learning_examples eine typische Verwechslung zeigen, korrigiere konservativ und setze requires_review=true.",
@@ -872,7 +1172,9 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "Wenn special_tool_matches Treffer enthält, bevorzuge deren deutsche Bezeichnung, VAG-Nummer und Quelle als Kandidat, aber kennzeichne das Ergebnis weiterhin als prüfpflichtig.",
             "Erfinde niemals Hersteller, Modell, Baujahr, Seriennummer oder Preis. Wenn nicht sichtbar oder nicht aus Typenschild/Sprache/Beispiel belegbar: null oder unbekannt.",
             "Alter und Wert nur setzen, wenn eine belastbare Quelle sichtbar oder aus Typenschild/Modell eindeutig begründbar ist. Keine pauschalen Standardwerte wie 7 Jahre oder 11 Euro erfinden.",
-            "Für Computermaus, Tastatur, Standardtelefon, Standardladegerät und sonstige Kleinteile gilt: bei Unsicherheit estimated_value_eur=null. Eine Computermaus über 100 EUR ist ohne klaren Premium-/Spezialbeleg unplausibel.",
+            "Werte sind Gebrauchtmarktwerte, keine Neupreise und keine Ersatzwerte. Ohne Webrecherche, Beleg oder geprüfte Referenz bleibt estimated_value_eur=null.",
+            "Für Computermaus, Tastatur, Kaffeemaschine/Nespresso, Standardtelefon, Standardladegerät und sonstige Kleinteile gilt: estimated_value_eur=null, ausser eine belastbare Gebrauchtmarktquelle ist vorhanden.",
+            "Eine Computermaus über 100 EUR und eine Kaffeemaschine/Nespresso über 80 EUR sind ohne klaren Gebrauchtmarktbeleg unplausibel.",
             "Wenn Alter oder Wert nur geraten wären: estimated_age_years=null, estimated_value_eur=null, age_source=unbekannt, age_verification_status=offen.",
             "Wenn unsicher: object_name als beste Vermutung mit 'vermutlich', confidence unter 0.75, uncertainty_reason füllen und requires_manual_review=true.",
             "Wuchtmaschine: Radaufnahme/Spindel, Schutzhaube und Bedienpanel sprechen klar für Wuchtmaschine.",
@@ -890,6 +1192,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
                 "object_type": "string|null",
                 "specification": "string|null",
                 "condition": "string|null",
+                "serial_number": "string|null",
                 "construction_year": "string|null",
                 "remark": "string|null",
             },
@@ -906,7 +1209,7 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "estimated_value_eur": "number|null",
             "estimated_value_confidence": "number|null",
             "estimated_value_reason": "string|null",
-            "value_source": "webrecherche|sichtbare_preisangabe|beleg|referenzpreis|modellpreis|null",
+            "value_source": "webrecherche|gebrauchtmarkt|beleg|referenzpreis|gepruefte_referenz|null",
             "value_requires_review": "boolean",
             "age_confidence": "number|null",
             "age_reason": "string|null",
@@ -925,24 +1228,73 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
             "notes": "string",
         },
     }
-    payload = {
-        "model": settings.ollama_model,
-        "stream": False,
-        "format": "json",
-        "messages": [
+    if normalized_mode == "fast":
+        prompt.update(
             {
-                "role": "user",
-                "content": json.dumps(prompt, ensure_ascii=False),
-                **({"images": images} if images else {}),
+                "task": "Schnelle Handy-Erfassung eines Inventarobjekts. Antworte ausschliesslich als kompaktes JSON.",
+                "primary_goal": "Erkenne aus dem Objektfoto nur Bezeichnung, grobe Klasse und optional Zustand. Lies Typenschildfotos nur fuer Hersteller, Modell, Seriennummer, Baujahr und Spezifikation.",
+                "reference_catalog": [],
+                "special_tool_matches": [],
+                "inventory_history_matches": [],
+                "learning_examples": [],
+                "prompt_tests": [],
+                "classification_rules": [
+                    "Arbeite schnell und konservativ: richtige Bezeichnung ist wichtiger als Details.",
+                    "Nutze ausschliesslich object_front/object-Fotos fuer object_name und object_class.",
+                    "type_plate/nameplate-Fotos dienen nur OCR-Feldern: Hersteller, Modell, Seriennummer, Baujahr, Spezifikation, Bemerkung.",
+                    "Typenschild darf die Objektklasse nicht gegen das Objektfoto ueberschreiben.",
+                    "Computermaus muss exakt object_name='Computermaus' und object_class='Computermaus' sein, wenn eine Maus sichtbar ist.",
+                    "Eine Computermaus darf nicht Monitor, Tastatur, Laptop oder Notebook werden, nur weil diese im Hintergrund sichtbar sind.",
+                    "Nespresso, Kapselmaschine, Espressomaschine oder Kaffeemaschine erhalten object_name='Kaffeemaschine' und object_class='Kaffeemaschine'.",
+                    "Wenn unsicher: object_name als beste kurze Vermutung, confidence unter 0.75 und requires_manual_review=true.",
+                    "Erfinde niemals Hersteller, Modell, Baujahr, Seriennummer, Alter oder Wert.",
+                    "Gib keine Alters- oder Wertschätzung aus. estimated_age_years und estimated_value_eur muessen null bleiben.",
+                ],
+                "required_schema": {
+                    "object_name": "string",
+                    "object_class": "string exakt aus allowed_bga_object_classes",
+                    "confidence": "number",
+                    "uncertainty_reason": "string|null",
+                    "suggested_fields": {
+                        "object_type": "string|null",
+                        "specification": "string|null",
+                        "condition": "string|null",
+                        "serial_number": "string|null",
+                        "construction_year": "string|null",
+                        "remark": "string|null",
+                    },
+                    "requires_manual_review": "boolean",
+                    "manufacturer": "string|null",
+                    "manufacturer_source": "type_plate|object_photo|audio|null",
+                    "model": "string|null",
+                    "model_source": "type_plate|object_photo|audio|null",
+                    "specification": "string|null",
+                    "visible_features": ["string"],
+                    "condition_guess": "neu|sehr_gut|gut|gebraucht|reparaturbeduerftig|defekt|aussondern|null",
+                    "suggested_remark": "string|null",
+                    "estimated_age_years": "null",
+                    "estimated_value_eur": "null",
+                    "object_type": "string",
+                    "brand": "string|null",
+                    "serial_number": "string|null",
+                    "condition": "neu|sehr_gut|gut|gebraucht|reparaturbeduerftig|defekt|aussondern|null",
+                    "commercial_category": "string",
+                    "requires_accounting_review": "boolean",
+                    "missing_fields": ["string"],
+                    "required_evidence_missing": ["string"],
+                    "recommended_tasks": [{"role": "string", "task": "string"}],
+                    "recommended_status": "string",
+                    "notes": "string",
+                },
             }
-        ],
-    }
-    with httpx.Client(timeout=settings.ollama_timeout_seconds) as client:
-        response = client.post(f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload)
-        response.raise_for_status()
-    content = response.json().get("message", {}).get("content", "{}")
-    parsed = normalize_ollama_result(parse_ollama_json(content), fallback)
-    result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
+        )
+    if images:
+        raw_result, vision_model_used = call_ollama_json(prompt, images, settings.ollama_vision_model)
+        parsed = normalize_ollama_result(raw_result, fallback)
+        result = {**fallback, **{key: value for key, value in parsed.items() if value is not None}}
+    else:
+        vision_model_used = "not-started-no-object-photo"
+        result = dict(fallback)
     quick_it = classify_it_peripheral(" ".join(transcripts), str(result.get("object_type") or ""))
     if quick_it:
         _, update = quick_it
@@ -954,8 +1306,17 @@ def build_ollama_suggestion(item_id: str, fallback: dict[str, Any]) -> dict[str,
         result["inventory_history_matches"] = inventory_history_matches[:5]
     if learning_examples:
         result["learning_examples"] = learning_examples[:5]
-    result["_model_used"] = settings.ollama_model
-    result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {settings.ollama_model}"
+    used_models = [vision_model_used]
+    if nameplate_images:
+        try:
+            extraction, ocr_model_used = build_nameplate_extraction(nameplate_images, item)
+            result = merge_nameplate_extraction(result, extraction)
+            used_models.append(f"nameplate:{ocr_model_used}")
+        except Exception as exc:
+            result["nameplate_extraction_error"] = f"{type(exc).__name__}: {str(exc)[:180]}"
+            used_models.append("nameplate:failed")
+    result["_model_used"] = "+".join(used_models)
+    result["notes"] = result.get("notes") or f"Ollama-Auswertung mit {' + '.join(used_models)}"
     apply_suggestion_to_item(item_id, result, item.get("object_class_slug") or "monitor")
     return result
 
@@ -1021,6 +1382,9 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
     model = first_text(result.get("model"))
     if model:
         result["model"] = model
+    serial_number = first_text(result.get("serial_number"))
+    if serial_number:
+        result["serial_number"] = serial_number
     specification = first_text(result.get("specification"))
     condition_guess = first_text(result.get("condition_guess"), result.get("condition"), fallback.get("condition"))
     if condition_guess:
@@ -1036,6 +1400,12 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
     elif normalized_object_class in {"Tastatur", "Monitor", "Drucker", "Scanner", "Laptop/PC", "Telefon"}:
         result["commercial_category"] = "it_ausstattung"
         result["requires_accounting_review"] = normalized_object_class in {"Laptop/PC"}
+    elif normalized_object_class == "Kaffeemaschine":
+        result["object_name"] = "Kaffeemaschine"
+        result["object_type"] = "Kaffeemaschine"
+        result["commercial_category"] = "betriebsmittel"
+        result["requires_accounting_review"] = False
+        result["recommended_status"] = "pruefen"
 
     normalize_estimates(result, normalized_object_class, result["confidence"])
 
@@ -1047,6 +1417,7 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         "Tastatur": "Tastatur, Anschluss/Layout falls erkennbar",
         "Monitor": "Monitor, Größe/Anschluss falls erkennbar",
         "Laptop/PC": "Laptop/PC, Hersteller/Modell nur falls sichtbar",
+        "Kaffeemaschine": "Kaffeemaschine/Kapselmaschine, Hersteller und Modell nur falls sichtbar",
         "Bürostuhl": "Bürostuhl, Zustand und Ausstattung prüfen",
         "Werkzeugwagen": "Werkzeugwagen, Ausführung und Zustand prüfen",
     }
@@ -1061,6 +1432,7 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         "object_type": first_text(suggested_fields.get("object_type"), result.get("object_name"), result.get("object_type")),
         "specification": spec_value,
         "condition": first_text(suggested_fields.get("condition"), result.get("condition_guess"), result.get("condition")),
+        "serial_number": first_text(suggested_fields.get("serial_number"), result.get("serial_number")),
         "construction_year": first_text(suggested_fields.get("construction_year"), result.get("construction_year")),
         "remark": remark_value,
     }
@@ -1073,6 +1445,7 @@ def normalize_ollama_result(parsed: dict[str, Any], fallback: dict[str, Any]) ->
         "object_class": result.get("object_class"),
         "manufacturer": result.get("manufacturer") or result.get("brand"),
         "model": result.get("model"),
+        "serial_number": result.get("serial_number"),
         "specification": result.get("specification"),
         "visible_features": result.get("visible_features") or [],
         "condition_guess": result.get("condition_guess") or result.get("condition"),
@@ -1190,7 +1563,7 @@ def create_rework_tasks(item_id: str, suggestion: dict[str, Any]) -> None:
     photos = fetch_all("SELECT photo_type FROM item_photos WHERE item_id = %s", (item_id,))
     photo_types = {photo["photo_type"] for photo in photos}
     for field in suggestion.get("missing_fields", []):
-        if field == "Typenschildfoto" and "nameplate" in photo_types:
+        if field == "Typenschildfoto" and {"nameplate", "type_plate"} & photo_types:
             continue
         if field == "DOT-Foto" and "dot" in photo_types:
             continue
@@ -1243,6 +1616,14 @@ def finalization_blockers(item_id: str) -> list[str]:
         (item_id,),
     )
     ai_result = ai_row.get("result_json") if ai_row else {}
+
+    def is_optional_bga_blocker(*values: object) -> bool:
+        if current.get("inventory_type") != "bga":
+            return False
+        text = " ".join(str(value or "").lower() for value in values)
+        optional_tokens = ("uvv", "typenschild", "type_plate", "nameplate", "function_ok")
+        return any(token in text for token in optional_tokens) or "funktion nicht geprüft" in text
+
     open_tasks = fetch_all(
         """
         SELECT missing_field
@@ -1254,6 +1635,8 @@ def finalization_blockers(item_id: str) -> list[str]:
     open_task_fields = {task["missing_field"] for task in open_tasks}
     for row in rows:
         field = row["field_name"]
+        if is_optional_bga_blocker(field, row["field_label"], row["evidence_photo_type"]):
+            continue
         if field == "object_photo":
             if not ({"object", "object_front"} & photo_types):
                 blockers.append(row["field_label"])
@@ -1293,6 +1676,8 @@ def finalization_blockers(item_id: str) -> list[str]:
         elif field not in current and not ai_result.get(field):
             blockers.append(row["field_label"])
     for missing_field in sorted(open_task_fields):
+        if is_optional_bga_blocker(missing_field):
+            continue
         if missing_field:
             blockers.append(f"Offene Nacharbeit: {missing_field}")
     return blockers

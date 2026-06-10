@@ -11,7 +11,8 @@
     "lint": "npm --workspace apps/web run lint",
     "smoke": "node scripts/smoke-check.mjs",
     "db:reset": "python scripts/db-reset.py",
-    "api": "python -m uvicorn app.main:app --app-dir apps/api --reload --port 8000"
+    "api": "python -m uvicorn app.main:app --app-dir apps/api --reload --port 8000",
+    "qa:live": "powershell -ExecutionPolicy Bypass -File scripts/live-qa-preflight.ps1"
   },
   "overrides": {
     "postcss": "8.5.12"

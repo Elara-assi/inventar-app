@@ -21,6 +21,7 @@ import {
   queueSchemaVersion,
 } from "@/lib/offlineQueue";
 import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
+import { loadMobileSessionCapsule, saveMobileSessionCapsule } from "@/lib/sessionCapsule";
 
 type Joined = {
   session: {
@@ -43,13 +44,34 @@ type LocalItem = {
 };
 
 type PhotoType = "object_front" | "object_back" | "type_plate" | "uvv_label" | "condition_detail" | "other";
+type CapturedPhoto = { type: PhotoType; id?: string; name: string; size: number; previewUrl?: string };
 type FunctionOk = "ja" | "nein" | "nicht_geprueft";
 type UvvStatus = "vorhanden" | "nicht_vorhanden" | "nicht_uvv_pflichtig" | "unklar";
 type InspectionBook = "ja" | "nein" | "nicht_erforderlich" | "unklar";
+type SpeechField = Extract<keyof BgaForm, "object_type" | "specification" | "serial_number" | "construction_year" | "condition_note" | "uvv_valid_until" | "remark">;
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  maxAlternatives: number;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort?: () => void;
+};
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  }
+}
 
 const steps = [
   "Fotos & Nachweise",
-  "KI-Vorschlag",
   "Stammdaten",
   "Zustand & Prüfung",
   "Zusammenfassung",
@@ -73,9 +95,22 @@ const photoMaxSide: Record<PhotoType, number> = {
   uvv_label: 2400,
 };
 
+function photoInputId(type: PhotoType) {
+  return `mobile-photo-input-${type}`;
+}
+
+function revokePhotoPreviews(photos: CapturedPhoto[]) {
+  photos.forEach((photo) => {
+    if (photo.previewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(photo.previewUrl);
+    }
+  });
+}
+
 type BgaForm = {
   object_type: string;
   specification: string;
+  serial_number: string;
   construction_year: string;
   condition: string;
   condition_note: string;
@@ -85,6 +120,21 @@ type BgaForm = {
   inspection_book_available: InspectionBook;
   remark: string;
   type_plate_status: "vorhanden" | "nicht_vorhanden" | "unklar" | "uebersprungen" | "nicht_geprueft";
+};
+
+type NameplateExtraction = {
+  raw_text?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  type_designation?: string | null;
+  serial_number?: string | null;
+  construction_year?: string | null;
+  technical_specs?: string[] | null;
+  suggested_object_type?: string | null;
+  suggested_specification?: string | null;
+  suggested_remark?: string | null;
+  confidence?: number | string | null;
+  uncertain_fields?: string[] | null;
 };
 
 type ServerItemSuggestion = {
@@ -104,9 +154,11 @@ type ServerItemSuggestion = {
     object_type?: string | null;
     specification?: string | null;
     condition?: string | null;
+    serial_number?: string | null;
     construction_year?: string | null;
     remark?: string | null;
   } | null;
+  nameplate_extraction?: NameplateExtraction | null;
   visible_features?: string[] | null;
   uncertainty_reason?: string | null;
   value_estimate?: number | string | null;
@@ -127,19 +179,23 @@ type ServerItemSuggestion = {
   bga_detection?: ServerItemSuggestion | null;
 };
 
-type AiResultRow = {
-  ai_type?: string | null;
-  status?: string | null;
-  result_json?: ServerItemSuggestion | null;
-};
-
-type ServerItemWithAi = ServerItemSuggestion & {
-  ai_results?: AiResultRow[];
+type AiStatusResponse = {
+  item_id: string;
+  scope: "fast" | "review" | "deep_dive";
+  state: "idle" | "queued" | "running" | "completed" | "failed" | "cancelled";
+  message?: string;
+  result_preview?: ServerItemSuggestion | null;
+  updated_fields?: string[];
+  can_cancel?: boolean;
+  started_at?: string | null;
+  completed_at?: string | null;
+  item_status?: string | null;
 };
 
 const emptyForm: BgaForm = {
   object_type: "",
   specification: "",
+  serial_number: "",
   construction_year: "",
   condition: "gebraucht",
   condition_note: "",
@@ -151,13 +207,19 @@ const emptyForm: BgaForm = {
   type_plate_status: "nicht_geprueft",
 };
 
+const appendSpeechFields = new Set<SpeechField>(["specification", "condition_note", "remark"]);
+
 const emptySummary: QueueSummary = {
   total: 0,
   pending: 0,
   uploading: 0,
+  unknownAck: 0,
   synced: 0,
   failed: 0,
   conflict: 0,
+  repairing: 0,
+  discardPending: 0,
+  discarded: 0,
   open: 0,
   pendingPhotos: 0,
   failedPhotos: 0,
@@ -171,12 +233,59 @@ const queueTypeLabels = {
 const queueStatusLabels = {
   pending: "wartet",
   uploading: "Übertragung läuft",
+  unknown_ack: "Quittung wird geprüft",
+  repairing: "wird repariert",
   synced: "synchronisiert",
   failed: "Upload fehlgeschlagen",
   conflict: "Zuordnung prüfen",
+  discard_pending: "wird bereinigt",
+  discarded: "entfernt",
 };
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "unbekannt";
+
+function registerMobileServiceWorker() {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  if (process.env.NODE_ENV !== "production") {
+    navigator.serviceWorker.getRegistrations?.()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .catch(() => undefined);
+    return;
+  }
+  if (!window.isSecureContext && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") return;
+  navigator.serviceWorker.register("/sw.js")
+    .then((registration) => {
+      void registration.update();
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
+    })
+    .catch(() => undefined);
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+}
+
+async function readStorageHealth() {
+  if (typeof navigator === "undefined" || !navigator.storage?.estimate) {
+    return { available: false, freeMb: null as number | null, low: false, critical: false };
+  }
+  const estimate = await navigator.storage.estimate();
+  const quota = estimate.quota ?? 0;
+  const usage = estimate.usage ?? 0;
+  if (!quota) return { available: false, freeMb: null as number | null, low: false, critical: false };
+  const freeMb = Math.max(0, Math.round((quota - usage) / 1024 / 1024));
+  const usedPercent = usage / quota;
+  return {
+    available: true,
+    freeMb,
+    low: freeMb < 250 || usedPercent > 0.85,
+    critical: freeMb < 100,
+  };
+}
 
 function queueValue(item: QueueItem, key: string) {
   return (item as unknown as Record<string, unknown>)[key];
@@ -257,7 +366,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [step, setStep] = useState(0);
   const [activeItem, setActiveItem] = useState<LocalItem | null>(null);
   const [form, setForm] = useState<BgaForm>(emptyForm);
-  const [photos, setPhotos] = useState<Array<{ type: PhotoType; id?: string; name: string; size: number; previewUrl?: string }>>([]);
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [savedItem, setSavedItem] = useState<{ label: string } | null>(null);
   const [editedFields, setEditedFields] = useState<Partial<Record<keyof BgaForm, boolean>>>({});
   const [message, setMessage] = useState("Bereit");
@@ -272,9 +381,17 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [discardConfirm, setDiscardConfirm] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
+  const [, setDismissedAiKey] = useState("");
+  const [dismissedValueKey, setDismissedValueKey] = useState("");
+  const [abortConfirm, setAbortConfirm] = useState(false);
   const [diagnosisMessage, setDiagnosisMessage] = useState("");
   const [diagnosisText, setDiagnosisText] = useState("");
   const [storageWarning, setStorageWarning] = useState("");
+  const [storageCritical, setStorageCritical] = useState(false);
+  const [compactPhotoMode, setCompactPhotoMode] = useState(false);
+  const [designationPromptOpen, setDesignationPromptOpen] = useState(false);
+  const [listeningField, setListeningField] = useState<SpeechField | "">("");
+  const [speechMessage, setSpeechMessage] = useState("");
 
   const fileInputRefs: Record<PhotoType, RefObject<HTMLInputElement | null>> = {
     object_front: useRef<HTMLInputElement>(null),
@@ -284,16 +401,40 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     condition_detail: useRef<HTMLInputElement>(null),
     other: useRef<HTMLInputElement>(null),
   };
+  const captureStartRef = useRef<HTMLDivElement>(null);
   const activeStepRef = useRef<HTMLDivElement>(null);
+  const uvvStatusRef = useRef<HTMLLabelElement>(null);
+  const uvvDateRef = useRef<HTMLLabelElement>(null);
+  const remarkFieldRef = useRef<HTMLLabelElement>(null);
+  const summaryStepRef = useRef<HTMLElement>(null);
   const lastStepRef = useRef(step);
   const aiAutoRequestKeyRef = useRef("");
+  const dismissedAiKeyRef = useRef("");
   const lastAutoSyncRef = useRef(0);
+  const savedResetTimerRef = useRef<number | null>(null);
   const joinedRef = useRef<Joined | null>(null);
   const lastJoinRefreshRef = useRef(0);
+  const designationInputRef = useRef<HTMLInputElement | null>(null);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechBaseValueRef = useRef("");
+  const speechTranscriptRef = useRef("");
+  const speechAutoAdvanceRef = useRef(false);
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
   }, [params]);
+
+  useEffect(() => {
+    registerMobileServiceWorker();
+  }, []);
+
+  useEffect(() => () => {
+    if (savedResetTimerRef.current) {
+      window.clearTimeout(savedResetTimerRef.current);
+    }
+    speechRecognitionRef.current?.abort?.();
+    speechRecognitionRef.current = null;
+  }, []);
 
   useEffect(() => {
     joinedRef.current = joined;
@@ -301,15 +442,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   useEffect(() => {
     async function checkStorage() {
-      if (!navigator.storage?.estimate) return;
-      const estimate = await navigator.storage.estimate();
-      const quota = estimate.quota ?? 0;
-      const usage = estimate.usage ?? 0;
-      if (!quota) return;
-      const freeMb = Math.round((quota - usage) / 1024 / 1024);
-      const usedPercent = usage / quota;
-      if (freeMb < 250 || usedPercent > 0.85) {
-        setStorageWarning(`Wenig lokaler Speicher frei: ca. ${freeMb} MB. Bitte bald synchronisieren.`);
+      const health = await readStorageHealth();
+      setStorageCritical(health.critical);
+      setCompactPhotoMode(health.low);
+      if (health.critical) {
+        setStorageWarning(`Lokaler Speicher fast voll: ca. ${health.freeMb} MB frei. Bitte synchronisieren, bevor du weitere Fotos aufnimmst.`);
+      } else if (health.low) {
+        setStorageWarning(`Wenig lokaler Speicher frei: ca. ${health.freeMb} MB. Neue Fotos werden kleiner gespeichert.`);
       } else {
         setStorageWarning("");
       }
@@ -317,10 +456,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     checkStorage().catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (!joined || !navigator.storage?.persist) return;
+    navigator.storage.persist().catch(() => undefined);
+  }, [joined]);
+
   const refreshQueueSummary = useCallback(async () => {
     try {
       const [summary, details] = await Promise.all([
-        getQueueSummary(),
+        getQueueSummary(joined?.session.id),
         getQueueDetails(joined?.session.id),
       ]);
       setQueueSummary(summary);
@@ -331,20 +475,36 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }, [joined?.session.id]);
 
   useEffect(() => {
-    initQueue()
-      .then(() => getOrCreateDeviceId())
+    getOrCreateDeviceId()
       .then(setDeviceId)
+      .catch(() => setDeviceId(`device-${Date.now()}-${Math.random().toString(16).slice(2)}`));
+    initQueue()
       .then(refreshQueueSummary)
-      .catch(() => setSyncMessage("Lokale Speicherung ist auf diesem Gerät nicht verfügbar."));
+      .catch((error) => {
+        setSyncMessage(error instanceof Error ? error.message : "Lokale Speicherung ist auf diesem Gerät nicht verfügbar.");
+      });
   }, [refreshQueueSummary]);
 
   useEffect(() => {
     if (!joined) return;
     api<Bootstrap>("/meta/bootstrap").then((boot) => {
+      const nextObjectClassId = boot.object_classes.find((entry) => entry.slug === "bga")?.id ?? boot.object_classes[0]?.id ?? "";
       setBootstrap(boot);
-      setObjectClassId(boot.object_classes.find((entry) => entry.slug === "bga")?.id ?? boot.object_classes[0]?.id ?? "");
-    }).catch((err) => setMessage(err instanceof Error ? err.message : "Stammdaten nicht erreichbar"));
-  }, [joined]);
+      setObjectClassId(nextObjectClassId);
+      if (token) {
+        saveMobileSessionCapsule({ token, joined, bootstrap: boot, objectClassId: nextObjectClassId, accessToken: joined.access_token });
+      }
+    }).catch((err) => {
+      const capsule = loadMobileSessionCapsule(token);
+      if (capsule?.bootstrap) {
+        setBootstrap(capsule.bootstrap);
+        setObjectClassId(capsule.objectClassId ?? capsule.bootstrap.object_classes.find((entry) => entry.slug === "bga")?.id ?? capsule.bootstrap.object_classes[0]?.id ?? "");
+        setMessage("Offline-Modus: Stammdaten aus lokaler Session geladen.");
+        return;
+      }
+      setMessage(err instanceof Error ? err.message : "Stammdaten nicht erreichbar");
+    });
+  }, [joined, token]);
 
   useEffect(() => {
     if (!token || !deviceId) return;
@@ -355,7 +515,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }).then((result) => {
       if (result.access_token) setAuthToken(result.access_token);
       setJoined(result);
+      saveMobileSessionCapsule({ token, joined: result, bootstrap, objectClassId, accessToken: result.access_token });
     }).catch((err) => {
+      const capsule = loadMobileSessionCapsule(token);
+      if (capsule) {
+        if (capsule.accessToken) setAuthToken(capsule.accessToken);
+        setJoined(capsule.joined);
+        if (capsule.bootstrap) setBootstrap(capsule.bootstrap);
+        if (capsule.objectClassId) setObjectClassId(capsule.objectClassId);
+        setIsOnline(false);
+        setJoinError("");
+        setMessage("Offline-Modus: Session lokal geladen. Erfassung bleibt möglich.");
+        return;
+      }
       setJoinError(err instanceof Error ? err.message : "Join fehlgeschlagen");
       setMessage("Session nicht verfügbar");
     });
@@ -375,8 +547,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     joinedRef.current = result;
     lastJoinRefreshRef.current = now;
     setJoined(result);
+    saveMobileSessionCapsule({ token, joined: result, bootstrap, objectClassId, accessToken: result.access_token });
     return result;
-  }, [deviceId, token]);
+  }, [bootstrap, deviceId, objectClassId, token]);
 
   const roomName = useMemo(() => {
     const room = bootstrap?.rooms.find((entry) => entry.id === joined?.session.room_id);
@@ -385,26 +558,31 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const inventoryType = joined?.session.inventory_type || "bga";
   const isBgaSession = inventoryType === "bga";
 
-  const runSync = useCallback(async (label = "Synchronisierung läuft") => {
+  const runSync = useCallback(async (label = "Synchronisierung läuft", options: { wake?: boolean } = {}) => {
     setSyncMessage(label);
     try {
-      await refreshMobileSession();
-      await syncNow();
-      setSyncMessage("Synchronisierung abgeschlossen.");
+      const activeSession = await refreshMobileSession();
+      const activeSessionId = activeSession?.session.id ?? joinedRef.current?.session.id;
+      await syncNow({ sessionId: activeSessionId, manual: options.wake });
+      const summary = await getQueueSummary(activeSessionId);
+      setSyncMessage(summary.open ? "Lokal gesichert. Synchronisierung wird weiter versucht." : "Alles übertragen.");
       setIsOnline(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       setIsOnline(getOnlineStatus());
-      setSyncMessage(message.includes("API nicht erreichbar")
-        ? "Keine Verbindung. Daten bleiben lokal gesichert."
-        : "Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
+      setSyncMessage(message.includes("QR neu koppeln")
+        ? "QR neu koppeln."
+        : message.includes("API nicht erreichbar")
+          ? "Keine Verbindung. Daten bleiben lokal gesichert."
+          : "Übertragung wird repariert.");
     } finally {
       await refreshQueueSummary();
     }
   }, [refreshMobileSession, refreshQueueSummary]);
 
   const buildSyncDiagnosis = useCallback(async () => {
-    const [summary, details, items, currentDeviceId] = await Promise.all([
+    const [summary, allSummary, details, items, currentDeviceId] = await Promise.all([
+      getQueueSummary(joined?.session.id),
       getQueueSummary(),
       getQueueDetails(joined?.session.id),
       listQueueItems(),
@@ -434,14 +612,33 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       },
       queue_summary: {
         open: summary.open,
+        pendingItems: itemDrafts.filter((item) => item.session_id === joined?.session.id && (item.status === "pending" || item.status === "uploading")).length,
+        pendingPhotos: photoUploads.filter((item) => item.session_id === joined?.session.id && (item.status === "pending" || item.status === "uploading")).length,
+        failedItems: itemDrafts.filter((item) => item.session_id === joined?.session.id && item.status === "failed").length,
+        failedPhotos: photoUploads.filter((item) => item.session_id === joined?.session.id && item.status === "failed").length,
+        conflict: summary.conflict,
+        unknown_ack: summary.unknownAck,
+        repairing: summary.repairing,
+        discard_pending: summary.discardPending,
+        discarded: summary.discarded,
+        synced: summary.synced,
+        total: summary.total,
+        lastError: summary.lastError ?? null,
+      },
+      all_queue_summary: {
+        open: allSummary.open,
         pendingItems,
         pendingPhotos,
         failedItems,
         failedPhotos,
-        conflict: summary.conflict,
-        synced: summary.synced,
-        total: summary.total,
-        lastError: summary.lastError ?? null,
+        conflict: allSummary.conflict,
+        unknown_ack: allSummary.unknownAck,
+        repairing: allSummary.repairing,
+        discard_pending: allSummary.discardPending,
+        discarded: allSummary.discarded,
+        synced: allSummary.synced,
+        total: allSummary.total,
+        lastError: allSummary.lastError ?? null,
       },
       session_bezug: {
         aktuelle_session_eintraege: details.currentSessionItems.length,
@@ -530,15 +727,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   const runBundleDiagnosticSync = useCallback(async () => {
     setDiagnosisMessage("Foto-Sync wird erneut getestet.");
-    await runSync("Foto-Sync wird erneut getestet.");
+    await runSync("Foto-Sync wird erneut getestet.", { wake: true });
     setDiagnosisMessage("Foto-Sync-Test abgeschlossen. Details wurden aktualisiert.");
   }, [runSync]);
 
   useEffect(() => {
     setIsOnline(getOnlineStatus());
     const handleOnline = () => {
+      if (document.visibilityState === "hidden" || !getOnlineStatus()) return;
       setIsOnline(true);
-      void runSync("Verbindung wieder da. Synchronisierung läuft.");
+      void runSync("Verbindung wieder da. Synchronisierung läuft.", { wake: true });
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -547,11 +745,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     window.addEventListener("focus", handleOnline);
+    window.addEventListener("pageshow", handleOnline);
     document.addEventListener("visibilitychange", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("focus", handleOnline);
+      window.removeEventListener("pageshow", handleOnline);
       document.removeEventListener("visibilitychange", handleOnline);
     };
   }, [runSync]);
@@ -559,7 +759,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   useEffect(() => {
     if (!joined || !isBgaSession) return;
     const interval = window.setInterval(async () => {
-      const summary = await getQueueSummary();
+      const summary = await getQueueSummary(joined.session.id);
       await refreshQueueSummary();
       if (!summary.open) return;
       const now = Date.now();
@@ -580,6 +780,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const hasManualInput = Boolean(
     form.object_type.trim() ||
     form.specification.trim() ||
+    form.serial_number.trim() ||
     form.construction_year.trim() ||
     form.condition_note.trim() ||
     form.uvv_valid_until ||
@@ -598,6 +799,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       object_class_id: objectClassId || null,
       object_type: form.object_type || null,
       specification: form.specification || null,
+      serial_number: form.serial_number || null,
       construction_year: form.construction_year || null,
       condition: form.condition,
       condition_note: form.condition_note || null,
@@ -639,16 +841,38 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   function openCamera(type: PhotoType) {
     if (busy) return;
+    setAbortConfirm(false);
     const input = fileInputRefs[type].current;
     if (!input) return;
     input.value = "";
     input.click();
   }
 
-  async function compressPhoto(file: File, photoType: PhotoType) {
+  function focusFlowTarget(target: HTMLElement | null | undefined, behavior: ScrollBehavior = "smooth") {
+    window.requestAnimationFrame(() => {
+      if (!target) {
+        window.scrollTo({ top: 0, behavior });
+        return;
+      }
+      target.scrollIntoView({ behavior, block: "start" });
+      target.focus?.({ preventScroll: true });
+    });
+  }
+
+  function focusCaptureStart(behavior: ScrollBehavior = "smooth") {
+    focusFlowTarget(captureStartRef.current ?? activeStepRef.current, behavior);
+  }
+
+  function focusAfterRender(getTarget: () => HTMLElement | null | undefined, behavior: ScrollBehavior = "smooth") {
+    window.setTimeout(() => focusFlowTarget(getTarget(), behavior), 80);
+  }
+
+  async function compressPhoto(file: File, photoType: PhotoType, forceCompact = false) {
     if (!file.type.startsWith("image/")) return file;
-    const maxSide = photoMaxSide[photoType];
-    const quality = photoType === "type_plate" || photoType === "uvv_label" || photoType === "condition_detail" ? 0.9 : 0.86;
+    const maxSide = forceCompact ? Math.min(photoMaxSide[photoType], 1600) : photoMaxSide[photoType];
+    const quality = forceCompact
+      ? (photoType === "type_plate" || photoType === "uvv_label" || photoType === "condition_detail" ? 0.78 : 0.72)
+      : (photoType === "type_plate" || photoType === "uvv_label" || photoType === "condition_detail" ? 0.9 : 0.86);
     let bitmap: ImageBitmap;
     try {
       bitmap = await createImageBitmap(file);
@@ -656,7 +880,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       return file;
     }
     const scale = Math.min(maxSide / Math.max(bitmap.width, bitmap.height), 1);
-    if (scale >= 1 && file.size <= 1_200_000) {
+    if (!forceCompact && scale >= 1 && file.size <= 1_200_000) {
       bitmap.close?.();
       return file;
     }
@@ -684,9 +908,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setBusy(true);
     setUploadProgress(0);
     try {
+      const storage = await readStorageHealth();
+      setStorageCritical(storage.critical);
+      setCompactPhotoMode(storage.low);
+      if (storage.critical) {
+        setStorageWarning(`Lokaler Speicher fast voll: ca. ${storage.freeMb} MB frei. Bitte zuerst synchronisieren.`);
+        throw new Error(`Lokaler Speicher fast voll: ca. ${storage.freeMb} MB frei. Bitte zuerst synchronisieren.`);
+      }
+      if (storage.low) {
+        setStorageWarning(`Wenig lokaler Speicher frei: ca. ${storage.freeMb} MB. Dieses Foto wird kleiner gespeichert.`);
+      }
       setUploadState("Foto wird verkleinert");
       const item = await ensureItem();
-      const prepared = await compressPhoto(file, type);
+      const prepared = await compressPhoto(file, type, storage.low || compactPhotoMode);
       setUploadState("Foto wird lokal gespeichert");
       setUploadProgress(100);
       const queuedPhoto = await enqueuePhotoUpload({
@@ -701,13 +935,27 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         file_type: prepared.type,
         file_size: prepared.size,
       });
-      setPhotos((current) => [...current, { type, id: queuedPhoto.client_photo_id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) }]);
-      if (type === "type_plate" && step === 0) {
-        setStep(1);
-      }
+      const nextPhoto = { type, id: queuedPhoto.client_photo_id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) };
+      const nextPhotos = [...photos, nextPhoto];
+      setPhotos((current) => [...current, nextPhoto]);
       setMessage(`${photoLabels[type]} lokal gespeichert. ${getOnlineStatus() ? "Synchronisierung läuft." : "Foto wird später übertragen."}`);
       await refreshQueueSummary();
       void runSync("Foto wird synchronisiert.");
+      const shouldStartAi = type === "object_front" || type === "type_plate" || nextPhotos.length >= 2;
+      if (shouldStartAi) {
+        const requestKey = aiRequestKey(item, nextPhotos);
+        setDismissedAiKey("");
+        dismissedAiKeyRef.current = "";
+        setDismissedValueKey("");
+        aiAutoRequestKeyRef.current = requestKey;
+        void loadAiSuggestion({ silent: true, itemOverride: item, photosOverride: nextPhotos, requestKey });
+      }
+      if (nextPhotos.length >= 2 || type === "type_plate") {
+        setStep(1);
+        focusAfterRender(() => designationInputRef.current ?? activeStepRef.current);
+      } else {
+        focusAfterRender(() => captureStartRef.current ?? activeStepRef.current);
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Foto ist lokal nicht gespeichert worden.");
     } finally {
@@ -722,6 +970,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setMessage("Noch keine Eingabe vorhanden. Bitte Foto aufnehmen oder eine Angabe erfassen.");
       return;
     }
+    if (!form.object_type.trim()) {
+      setDesignationPromptOpen(true);
+      setStep(1);
+      setMessage("Bezeichnung fehlt. Bitte kurz eingeben oder einsprechen, dann speichern.");
+      window.setTimeout(() => designationInputRef.current?.focus(), 80);
+      return;
+    }
     setBusy(true);
     try {
       const item = activeItem ?? (await ensureItem());
@@ -734,13 +989,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         draft: buildDraft(item.id),
       });
       const savedLabel = form.object_type || item.inventory_id || item.temporary_id || "Entwurf";
+      const savedPhotos = photos;
       setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
       setEditedFields({});
-      setPhotos([]);
       setAiSuggestion(null);
       setAiSuggestionMessage("");
+      setDismissedAiKey("");
+      dismissedAiKeyRef.current = "";
+      setDismissedValueKey("");
+      setAbortConfirm(false);
+      setDesignationPromptOpen(false);
+      stopSpeechInput();
       aiAutoRequestKeyRef.current = "";
       setStep(0);
       setMessage(
@@ -748,7 +1009,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           ? `${savedLabel} lokal gespeichert. Bereit für nächstes Objekt.`
           : "Offline oder Pflichtangaben fehlen. Das Objekt wurde lokal als Entwurf gesichert. Bitte später ergänzen und synchronisieren.",
       );
-      await runSync("Objekt wird synchronisiert.");
+      focusAfterRender(() => captureStartRef.current ?? activeStepRef.current);
+      scheduleFreshCaptureAfterSaved(savedPhotos);
+      void runSync("Objekt wird synchronisiert.", { wake: true });
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Objekt konnte lokal nicht gespeichert werden");
     } finally {
@@ -759,9 +1022,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   async function retrySync() {
     setSyncMessage("Fehler werden erneut synchronisiert.");
     try {
-      await refreshMobileSession(true);
-      await retryFailed();
-      const summary = await getQueueSummary();
+      const activeSession = await refreshMobileSession(true);
+      const activeSessionId = activeSession?.session.id ?? joinedRef.current?.session.id;
+      await retryFailed({ sessionId: activeSessionId });
+      const summary = await getQueueSummary(activeSessionId);
       setSyncMessage(summary.open ? `${summary.pendingPhotos} Fotos warten noch auf Synchronisierung.` : "Synchronisierung abgeschlossen.");
     } catch {
       setSyncMessage("Upload fehlgeschlagen. Bitte Verbindung prüfen und erneut synchronisieren.");
@@ -771,8 +1035,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   async function discardOpenQueue() {
-    if (discardConfirm !== "VERWERFEN" || !queueDetails?.openItems.length) return;
-    await discardQueueItems(queueDetails.openItems.map((item) => item.id));
+    const discardTargets = queueDetails?.currentSessionItems.length
+      ? queueDetails.currentSessionItems
+      : queueDetails?.otherSessionItems ?? [];
+    if (discardConfirm !== "VERWERFEN" || !discardTargets.length) return;
+    await discardQueueItems(discardTargets.map((item) => item.id));
     setDiscardConfirm("");
     setShowQueueDetails(false);
     setSyncMessage("Lokale Daten wurden bewusst verworfen.");
@@ -781,16 +1048,122 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   function update<K extends keyof BgaForm>(key: K, value: BgaForm[K]) {
     setSavedItem(null);
+    setAbortConfirm(false);
     setEditedFields((current) => ({ ...current, [key]: true }));
     setForm((current) => ({ ...current, [key]: value }));
+    if (key === "object_type" && String(value).trim()) {
+      setDesignationPromptOpen(false);
+    }
+  }
+
+  function composeSpeechValue(field: SpeechField, baseValue: string, transcript: string) {
+    const cleanTranscript = transcript.replace(/\s+/g, " ").trim();
+    if (!cleanTranscript) return baseValue;
+    if (appendSpeechFields.has(field) && baseValue.trim()) {
+      return `${baseValue.trimEnd()}\n${cleanTranscript}`;
+    }
+    return cleanTranscript;
+  }
+
+  function writeSpeechTranscript(field: SpeechField, transcript: string) {
+    setSavedItem(null);
+    setAbortConfirm(false);
+    setEditedFields((current) => ({ ...current, [field]: true }));
+    setForm((current) => ({
+      ...current,
+      [field]: composeSpeechValue(field, speechBaseValueRef.current, transcript),
+    }));
+  }
+
+  function stopSpeechInput() {
+    speechRecognitionRef.current?.stop();
+    speechRecognitionRef.current = null;
+    setListeningField("");
+  }
+
+  function startSpeechInput(field: SpeechField, label: string) {
+    if (listeningField === field) {
+      stopSpeechInput();
+      return;
+    }
+    speechRecognitionRef.current?.abort?.();
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setSpeechMessage("Spracheingabe ist in diesem Browser nicht verfuegbar.");
+      return;
+    }
+    const recognition = new Recognition();
+    const baseValue = String(form[field] ?? "");
+    speechBaseValueRef.current = baseValue;
+    speechTranscriptRef.current = "";
+    speechAutoAdvanceRef.current = false;
+    recognition.lang = "de-DE";
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      let transcript = "";
+      let finalResultSeen = false;
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += `${event.results[index]?.[0]?.transcript ?? ""} `;
+        finalResultSeen = finalResultSeen || Boolean(event.results[index]?.isFinal);
+      }
+      speechTranscriptRef.current = transcript;
+      writeSpeechTranscript(field, transcript);
+      setSpeechMessage(finalResultSeen ? `${label}: Text uebernommen.` : `${label}: Ich schreibe mit.`);
+      if (finalResultSeen && field === "object_type" && transcript.trim() && !speechAutoAdvanceRef.current) {
+        speechAutoAdvanceRef.current = true;
+        setDesignationPromptOpen(false);
+        setStep(2);
+        setMessage("Bezeichnung per Sprache erfasst. Weiter mit Zustand und Funktion.");
+        focusAfterRender(() => activeStepRef.current);
+      }
+    };
+    recognition.onerror = (event) => {
+      setSpeechMessage(event.error === "not-allowed" ? "Mikrofon wurde nicht freigegeben." : "Spracheingabe wurde gestoppt.");
+      setListeningField("");
+      speechRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setListeningField("");
+      speechRecognitionRef.current = null;
+      if (field === "object_type" && speechTranscriptRef.current.trim() && !speechAutoAdvanceRef.current) {
+        speechAutoAdvanceRef.current = true;
+        setDesignationPromptOpen(false);
+        setStep(2);
+        setMessage("Bezeichnung per Sprache erfasst. Weiter mit Zustand und Funktion.");
+        focusAfterRender(() => activeStepRef.current);
+      }
+    };
+    try {
+      speechRecognitionRef.current = recognition;
+      setListeningField(field);
+      setSpeechMessage(`${label}: Spracheingabe laeuft.`);
+      recognition.start();
+    } catch {
+      setListeningField("");
+      speechRecognitionRef.current = null;
+      setSpeechMessage("Spracheingabe konnte nicht gestartet werden.");
+    }
+  }
+
+  function speechButton(field: SpeechField, label: string) {
+    const active = listeningField === field;
+    return (
+      <button
+        className={`speech-field-button ${active ? "is-listening" : ""}`}
+        type="button"
+        onClick={() => startSpeechInput(field, label)}
+        aria-pressed={active}
+      >
+        {active ? "Stop" : "Sprechen"}
+      </button>
+    );
   }
 
   function decideTypePlate(status: BgaForm["type_plate_status"]) {
     update("type_plate_status", status);
-    if (status === "vorhanden") {
-      openCamera("type_plate");
-      return;
-    }
+    if (status === "vorhanden") return;
     setStep(1);
     setMessage(status === "nicht_vorhanden" ? "Kein Typenschild vorhanden. Weiter mit KI-Vorschlag." : "Typenschild nicht erkennbar. Weiter mit KI-Vorschlag.");
   }
@@ -801,7 +1174,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setMessage("Funktion nicht in Ordnung. Nacharbeit wird vorgemerkt, du kannst weiter erfassen.");
     } else if (value === "nicht_geprueft") {
       setMessage("Funktion nicht geprüft. Nacharbeit wird vorgemerkt, du kannst weiter erfassen.");
+    } else {
+      setMessage("Funktion erfasst. Weiter mit UVV oder Bemerkung.");
     }
+    focusAfterRender(() => uvvStatusRef.current ?? remarkFieldRef.current);
   }
 
   function decideUvvStatus(value: UvvStatus) {
@@ -814,16 +1190,25 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }));
     if (value === "vorhanden") {
       setMessage("UVV vorhanden. Datum eintragen und Siegel optional fotografieren.");
+      focusAfterRender(() => uvvDateRef.current ?? remarkFieldRef.current);
     } else if (value === "nicht_vorhanden") {
-      setMessage("UVV nicht vorhanden. Kein UVV-Foto nötig, Nacharbeit wird vorgemerkt.");
+      setMessage("UVV nicht vorhanden. Weiter mit Bemerkung.");
+      focusAfterRender(() => remarkFieldRef.current);
     } else if (value === "nicht_uvv_pflichtig") {
-      setMessage("Nicht UVV-pflichtig. Kein UVV-Foto nötig.");
+      setMessage("Nicht UVV-pflichtig. Weiter mit Bemerkung.");
+      focusAfterRender(() => remarkFieldRef.current);
     } else {
-      setMessage("UVV unklar. Nacharbeit wird vorgemerkt, du kannst weiter erfassen.");
+      setMessage("UVV offen gelassen. Weiter mit Bemerkung.");
+      focusAfterRender(() => remarkFieldRef.current);
     }
   }
 
   function startNextObject() {
+    if (savedResetTimerRef.current) {
+      window.clearTimeout(savedResetTimerRef.current);
+      savedResetTimerRef.current = null;
+    }
+    revokePhotoPreviews(photos);
     setSavedItem(null);
     setActiveItem(null);
     setForm(emptyForm);
@@ -831,67 +1216,91 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setPhotos([]);
     setAiSuggestion(null);
     setAiSuggestionMessage("");
+    setDismissedAiKey("");
+    dismissedAiKeyRef.current = "";
+    setDismissedValueKey("");
+    setAbortConfirm(false);
+    setDesignationPromptOpen(false);
+    stopSpeechInput();
     aiAutoRequestKeyRef.current = "";
     setStep(0);
     setMessage("Bereit für nächstes Objekt");
+    focusAfterRender(() => captureStartRef.current ?? activeStepRef.current, "auto");
   }
 
   const hasObjectPhoto = photos.some((photo) => photo.type === "object_front");
-  const hasTypePlatePhoto = photos.some((photo) => photo.type === "type_plate");
   const summaryBlockers = [
     !hasObjectPhoto ? "Objektfoto fehlt" : "",
     !form.object_type.trim() ? "Bezeichnung fehlt" : "",
   ].filter(Boolean);
-  const summaryRework = [
-    form.condition === "unklar" ? "Zustand unklar" : "",
-    form.function_ok === "nein" ? "Funktion nicht in Ordnung" : "",
-    form.function_ok === "nicht_geprueft" ? "Funktion nicht geprüft" : "",
-    form.uvv_status === "nicht_vorhanden" ? "UVV nicht vorhanden" : "",
-    form.uvv_status === "unklar" ? "UVV klären" : "",
-    form.uvv_status === "vorhanden" && !form.uvv_valid_until ? "UVV-Datum offen" : "",
-    form.type_plate_status === "vorhanden" && !photos.some((photo) => photo.type === "type_plate") ? "Typenschildfoto fehlt" : "",
-    form.type_plate_status === "unklar" ? "Typenschild nicht erkennbar" : "",
-  ].filter(Boolean);
-  const openQueueItems = queueDetails?.openItems ?? [];
+  const summaryRework: string[] = [];
+  const currentQueueItems = queueDetails?.currentSessionItems ?? [];
+  const foreignQueueItems = queueDetails?.otherSessionItems ?? [];
+  const openQueueItems = currentQueueItems;
   const openQueueObjects = openQueueItems.filter((item) => item.type === "item_draft").length;
   const openQueuePhotos = openQueueItems.filter((item) => item.type === "photo_upload").length;
   const hasOpenLocalQueue = Boolean(joined) && isBgaSession && openQueueItems.length > 0;
   const openQueueIntro = openQueuePhotos
     ? `Es sind noch ${openQueuePhotos} Fotos auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`
     : `Es sind noch ${openQueueObjects} Objekte auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`;
-  const otherSessionOpen = queueDetails?.otherSessionItems.length ?? 0;
-  const currentSessionOpen = queueDetails?.currentSessionItems.length ?? 0;
+  const otherSessionOpen = foreignQueueItems.length;
+  const currentSessionOpen = currentQueueItems.length;
   const hasQueueFailure = queueSummary.failed > 0;
   const hasQueueConflict = queueSummary.conflict > 0;
+  const isRepairingSync = queueSummary.unknownAck > 0 || queueSummary.repairing > 0 || syncMessage.includes("repariert");
+  const hasRecentlyDiscarded = queueSummary.discardPending > 0 || queueSummary.discarded > 0;
   const hasForeignQueue = otherSessionOpen > 0;
-  const shouldPauseForQueue = Boolean(joined) && isBgaSession && (hasForeignQueue || hasQueueConflict);
-  const isCurrentSessionPendingOnly = hasOpenLocalQueue && currentSessionOpen > 0 && !hasForeignQueue && !hasQueueFailure && !hasQueueConflict;
+  const shouldPauseForQueue = Boolean(joined) && isBgaSession && hasQueueConflict;
+  const isCurrentSessionPendingOnly = hasOpenLocalQueue && currentSessionOpen > 0 && !hasQueueFailure && !hasQueueConflict;
+  const shouldShowForeignQueueNotice = Boolean(joined) && isBgaSession && hasForeignQueue && !shouldPauseForQueue;
   const syncText = isCurrentSessionPendingOnly && !isOnline
     ? "Offline-Erfassung aktiv"
     : !isOnline
     ? "Offline – Daten werden lokal gespeichert"
     : hasQueueConflict
-      ? `Übertragung prüfen – ${queueSummary.conflict} lokale Einträge`
+      ? "QR neu koppeln"
+    : isRepairingSync
+      ? "Übertragung wird repariert"
     : hasQueueFailure
-      ? `Fehler – ${queueSummary.failed} Uploads erneut versuchen`
+      ? "Übertragung wird repariert"
+    : hasRecentlyDiscarded
+      ? "Alte Daten entfernt"
       : queueSummary.open
-        ? `Upload läuft – ${queueSummary.open} Einträge offen`
-      : "Alles synchronisiert";
+        ? `Lokal gesichert – ${queueSummary.open} Einträge offen`
+      : "Alles übertragen";
   const syncDetail = isCurrentSessionPendingOnly
     ? `${openQueueObjects} Objekte und ${openQueuePhotos} Fotos sind lokal auf diesem iPhone gesichert und werden später synchronisiert.`
     : hasQueueConflict
     ? "Diese Daten gehören vermutlich zu einer alten oder gelöschten Session. Bitte Details prüfen. Testdaten kannst du bewusst verwerfen."
     : hasQueueFailure
-    ? "Die Fotos konnten noch nicht übertragen werden. Bitte WLAN/Mobilfunk prüfen und erneut synchronisieren."
+    ? "Der Sync versucht automatisch den roten Faden wiederzufinden. Du kannst manuell sofort erneut synchronisieren."
+    : isRepairingSync
+    ? "Server-Quittung wird geprüft, bevor erneut hochgeladen wird."
+    : hasRecentlyDiscarded
+    ? "Alte oder defekte lokale Reste wurden isoliert und blockieren diese Session nicht."
     : queueSummary.pendingPhotos
       ? `${queueSummary.pendingPhotos} Fotos offen. Lokal gesichert, bis der Server den Upload bestätigt.`
       : syncMessage || "Lokale Queue ist leer.";
-  const canCaptureInThisSession = Boolean(joined) && isBgaSession && !shouldPauseForQueue;
+  const canCaptureInThisSession = Boolean(joined) && isBgaSession && !shouldPauseForQueue && !storageCritical;
+  const mobilePrimaryLabel = !hasObjectPhoto
+    ? "Foto aufnehmen"
+    : step === 0
+      ? "Bezeichnung pruefen"
+      : step === 1
+        ? form.object_type.trim()
+          ? "Weiter"
+          : "Bezeichnung pruefen"
+        : step === 2
+          ? "Weiter"
+          : summaryBlockers.length
+            ? "Entwurf speichern"
+            : "Speichern";
+  const mobilePrimaryDisabled = busy || (step === 3 && !canSaveDraft);
   const shouldShowSyncActions = !isOnline
     || queueSummary.open > 0
     || hasQueueFailure
     || hasQueueConflict
-    || (Boolean(syncMessage) && syncMessage !== "Synchronisierung abgeschlossen.");
+    || (Boolean(syncMessage) && !["Synchronisierung abgeschlossen.", "Alles übertragen.", "Alles übertragen"].includes(syncMessage));
 
   useEffect(() => {
     if (!canCaptureInThisSession || savedItem) return;
@@ -901,6 +1310,36 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       activeStepRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, [canCaptureInThisSession, savedItem, step]);
+
+  function runMobilePrimaryAction() {
+    if (mobilePrimaryDisabled) return;
+    if (!hasObjectPhoto) {
+      fileInputRefs.object_front.current?.click();
+      return;
+    }
+    if (step === 0) {
+      setStep(1);
+      focusAfterRender(() => designationInputRef.current ?? activeStepRef.current);
+      return;
+    }
+    if (step === 1) {
+      if (!form.object_type.trim()) {
+        setDesignationPromptOpen(true);
+        setMessage("Bezeichnung fehlt. Kurz eintippen oder einsprechen.");
+        focusAfterRender(() => designationInputRef.current ?? activeStepRef.current);
+        return;
+      }
+      setStep(2);
+      focusAfterRender(() => activeStepRef.current);
+      return;
+    }
+    if (step === 2) {
+      setStep(3);
+      focusAfterRender(() => summaryStepRef.current ?? activeStepRef.current);
+      return;
+    }
+    void saveObject();
+  }
 
   async function findServerItemId(clientItemId: string) {
     const entries = await listQueueItems();
@@ -919,33 +1358,156 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return resolved?.id;
   }
 
+  function aiRequestKey(item: LocalItem | null = activeItem, photoList: CapturedPhoto[] = photos) {
+    const relevantPhotoIds = photoList
+      .filter((photo) => photo.type !== "uvv_label")
+      .map((photo) => photo.id || photo.name)
+      .join("|");
+    return item ? `${item.id}:${relevantPhotoIds}` : "";
+  }
+
+  function resetCurrentCapture(nextMessage: string) {
+    if (savedResetTimerRef.current) {
+      window.clearTimeout(savedResetTimerRef.current);
+      savedResetTimerRef.current = null;
+    }
+    revokePhotoPreviews(photos);
+    setSavedItem(null);
+    setActiveItem(null);
+    setForm(emptyForm);
+    setEditedFields({});
+    setPhotos([]);
+    setAiSuggestion(null);
+    setAiSuggestionMessage("");
+    setDismissedAiKey("");
+    dismissedAiKeyRef.current = "";
+    setDismissedValueKey("");
+    setAbortConfirm(false);
+    setDesignationPromptOpen(false);
+    stopSpeechInput();
+    aiAutoRequestKeyRef.current = "";
+    setStep(0);
+    setMessage(nextMessage);
+    focusAfterRender(() => captureStartRef.current ?? activeStepRef.current, "auto");
+  }
+
+  function scheduleFreshCaptureAfterSaved(savedPhotos: CapturedPhoto[]) {
+    if (savedResetTimerRef.current) {
+      window.clearTimeout(savedResetTimerRef.current);
+    }
+    savedResetTimerRef.current = window.setTimeout(() => {
+      revokePhotoPreviews(savedPhotos);
+      setSavedItem(null);
+      setActiveItem(null);
+      setForm(emptyForm);
+      setEditedFields({});
+      setPhotos([]);
+      setAiSuggestion(null);
+      setAiSuggestionMessage("");
+      setDismissedAiKey("");
+      dismissedAiKeyRef.current = "";
+      setDismissedValueKey("");
+      setAbortConfirm(false);
+      setDesignationPromptOpen(false);
+      stopSpeechInput();
+      aiAutoRequestKeyRef.current = "";
+      setStep(0);
+      setMessage("Bereit fuer naechstes Objekt");
+      savedResetTimerRef.current = null;
+      focusAfterRender(() => captureStartRef.current ?? activeStepRef.current, "auto");
+    }, 700);
+  }
+
+  function discardAiSuggestion() {
+    const key = aiRequestKey();
+    if (key) {
+      setDismissedAiKey(key);
+      dismissedAiKeyRef.current = key;
+    }
+    setAiSuggestion(null);
+    setAiSuggestionMessage("KI-Vorschlag verworfen. Fotos und manuelle Eingaben bleiben erhalten.");
+  }
+
+  function discardValueSuggestion() {
+    const key = aiRequestKey();
+    if (key) setDismissedValueKey(key);
+    setAiSuggestionMessage("Wertvorschlag verworfen. Der Gebrauchtwert bleibt fuer dieses Objekt offen.");
+  }
+
+  async function abortCurrentObject() {
+    if (busy) return;
+    if (!activeItem && !photos.length && !hasManualInput) {
+      resetCurrentCapture("Erfassung abgebrochen. Bereit fuer naechstes Objekt.");
+      return;
+    }
+    if (!abortConfirm) {
+      setAbortConfirm(true);
+      setMessage("Zum Verwerfen des aktuellen Objekts bitte Abbrechen erneut druecken.");
+      return;
+    }
+    const targetItem = activeItem;
+    setBusy(true);
+    try {
+      if (targetItem) {
+        const serverItemId = targetItem.server_item_id || await findServerItemId(targetItem.id);
+        if (serverItemId) {
+          if (!getOnlineStatus()) {
+            setMessage("Dieses Objekt ist schon am Server. Zum Verwerfen bitte kurz online gehen.");
+            return;
+          }
+          await api(`/items/${serverItemId}`, { method: "DELETE" });
+        }
+        const entries = await listQueueItems();
+        const discardTargets = entries.filter((entry) => entry.client_item_id === targetItem.id).map((entry) => entry.id);
+        if (discardTargets.length) {
+          await discardQueueItems(discardTargets);
+        }
+      }
+      resetCurrentCapture("Aktuelles Objekt verworfen. Bereit fuer naechstes Objekt.");
+      await refreshQueueSummary();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Objekt konnte nicht verworfen werden.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function normalizeAiPayload(payload?: ServerItemSuggestion | null): ServerItemSuggestion | null {
     if (!payload) return null;
     const detection = payload.bga_detection ?? null;
-    const source = detection ? { ...payload, ...detection, suggested_fields: detection.suggested_fields ?? payload.suggested_fields } : payload;
+    const source = detection
+      ? {
+          ...payload,
+          ...detection,
+          suggested_fields: detection.suggested_fields ?? payload.suggested_fields,
+          nameplate_extraction: detection.nameplate_extraction ?? payload.nameplate_extraction,
+        }
+      : payload;
     const suggested = source.suggested_fields ?? {};
-    const objectType = suggested.object_type || source.object_name || source.object_type;
-    if (!objectType && !source.specification && !source.condition_guess && !source.suggested_remark) return null;
+    const nameplate = source.nameplate_extraction ?? null;
+    const objectType = suggested.object_type || source.object_name || source.object_type || nameplate?.suggested_object_type;
+    const serialNumber = suggested.serial_number || source.serial_number || nameplate?.serial_number || "";
+    const specification = suggested.specification || source.specification || nameplate?.suggested_specification || "";
+    const constructionYear = suggested.construction_year || source.construction_year || nameplate?.construction_year || "";
+    const suggestedRemark = suggested.remark || source.suggested_remark || nameplate?.suggested_remark || source.uncertainty_reason || "";
+    if (!objectType && !specification && !serialNumber && !constructionYear && !source.condition_guess && !suggestedRemark) return null;
     return {
       ...source,
       object_type: objectType,
-      specification: suggested.specification || source.specification || "",
+      specification,
+      serial_number: serialNumber,
       condition: suggested.condition || source.condition_guess || source.condition || "",
-      construction_year: suggested.construction_year || source.construction_year || "",
-      suggested_remark: suggested.remark || source.suggested_remark || source.uncertainty_reason || "",
+      construction_year: constructionYear,
+      suggested_remark: suggestedRemark,
+      nameplate_extraction: nameplate,
       confidence_score: source.confidence ?? source.confidence_score,
     };
-  }
-
-  function latestAiSuggestion(item?: ServerItemWithAi | null) {
-    if (!item) return null;
-    const latest = item.ai_results?.find((entry) => entry.ai_type !== "deep_dive" && entry.result_json);
-    return normalizeAiPayload(latest?.result_json) ?? normalizeAiPayload(item);
   }
 
   function aiSpecSuggestion(item: ServerItemSuggestion) {
     const specParts = [
       item.suggested_fields?.specification,
+      item.nameplate_extraction?.suggested_specification,
       item.specification,
       item.manufacturer || item.brand,
       item.model,
@@ -957,12 +1519,36 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   function aiRemarkSuggestion(item: ServerItemSuggestion) {
-    return item.suggested_fields?.remark || item.suggested_remark || item.uncertainty_reason || (item.status?.startsWith("ki_") ? "KI-Vorschlag vorhanden, bitte prüfen." : "");
+    return item.suggested_fields?.remark || item.suggested_remark || item.nameplate_extraction?.suggested_remark || item.uncertainty_reason || (item.status?.startsWith("ki_") ? "KI-Vorschlag vorhanden, bitte prüfen." : "");
+  }
+
+  function hasNameplateExtraction(item?: ServerItemSuggestion | null) {
+    const nameplate = item?.nameplate_extraction;
+    return Boolean(nameplate?.raw_text || nameplate?.serial_number || nameplate?.suggested_remark);
+  }
+
+  function aiConfidenceValue(item?: ServerItemSuggestion | null) {
+    const raw = Number(item?.confidence ?? item?.confidence_score ?? 0);
+    return raw > 1 ? raw / 100 : raw;
+  }
+
+  function isSafeAiSuggestion(item?: ServerItemSuggestion | null) {
+    if (!item) return false;
+    const confidence = aiConfidenceValue(item);
+    const objectClass = String(item.object_class || "").toLowerCase();
+    if (objectClass === "unklar") return false;
+    if (hasNameplateExtraction(item)) return confidence >= 0.68;
+    if (confidence >= 0.86) return true;
+    if (item.requires_manual_review) return false;
+    return confidence >= 0.78;
   }
 
   function aiConfidenceLabel(item: ServerItemSuggestion) {
-    const raw = Number(item.confidence ?? item.confidence_score ?? 0);
-    const normalized = raw > 1 ? raw / 100 : raw;
+    const normalized = aiConfidenceValue(item);
+    if (!normalized) return "unklar";
+    if (isSafeAiSuggestion(item)) return "sicher";
+    if (item.requires_manual_review || normalized < 0.78) return "prüfen";
+    return "sicher";
     if (!normalized) return "bitte prüfen";
     if (item.requires_manual_review || normalized < 0.85) return "unsicher · bitte prüfen";
     return "KI-Vorschlag · bitte prüfen";
@@ -976,6 +1562,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     return [
       { key: "object_type", label: "Bezeichnung", value: item.suggested_fields?.object_type || item.object_name || item.object_type || "", field: "object_type" as const },
       { key: "specification", label: "Typ/Spezifikation", value: aiSpecSuggestion(item), field: "specification" as const },
+      { key: "serial_number", label: "Seriennummer", value: item.suggested_fields?.serial_number || item.serial_number || item.nameplate_extraction?.serial_number || "", field: "serial_number" as const, note: "vom Typenschild" },
       { key: "condition", label: "Zustand", value: item.suggested_fields?.condition || item.condition_guess || item.condition || "", field: "condition" as const },
       { key: "construction_year", label: "Baujahr", value: item.suggested_fields?.construction_year || item.construction_year || "", field: "construction_year" as const, note: "bitte prüfen" },
       { key: "remark", label: "Bemerkung", value: aiRemarkSuggestion(item), field: "remark" as const },
@@ -986,40 +1573,66 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   function applyAiSuggestionField(key: keyof BgaForm, value: string) {
     setEditedFields((current) => ({ ...current, [key]: true }));
     setForm((current) => ({ ...current, [key]: value }));
+    if (key === "object_type" && value.trim()) setDesignationPromptOpen(false);
     setAiSuggestionMessage("KI-Vorschlag übernommen. Bitte prüfen und bei Bedarf korrigieren.");
   }
 
   function applyAiSuggestionsToEmptyFields(item: ServerItemSuggestion) {
+    if (!isSafeAiSuggestion(item)) {
+      setAiSuggestionMessage("KI hat Vorschläge. Bitte mit den Chips prüfen.");
+      return;
+    }
     const specSuggestion = aiSpecSuggestion(item);
     const remarkSuggestion = aiRemarkSuggestion(item);
-    const conditionSuggestion = item.suggested_fields?.condition || item.condition_guess || item.condition || "";
+    const objectSuggestion = item.suggested_fields?.object_type || item.object_name || item.object_type || "";
     setForm((current) => ({
       ...current,
-      object_type: current.object_type || item.suggested_fields?.object_type || item.object_name || item.object_type || "",
+      object_type: current.object_type || objectSuggestion,
       specification: current.specification || specSuggestion,
+      serial_number: current.serial_number || item.suggested_fields?.serial_number || item.serial_number || item.nameplate_extraction?.serial_number || "",
       construction_year: current.construction_year || item.suggested_fields?.construction_year || item.construction_year || "",
-      condition: editedFields.condition ? current.condition : conditionSuggestion || current.condition,
+      condition: current.condition,
       remark: current.remark || remarkSuggestion,
     }));
-    setAiSuggestionMessage("Leere Felder wurden automatisch mit KI-Vorschlägen gefüllt. Bitte prüfen.");
+    if (objectSuggestion) {
+      setDesignationPromptOpen(false);
+      setStep(2);
+      focusAfterRender(() => activeStepRef.current);
+    }
+    setAiSuggestionMessage(hasNameplateExtraction(item) ? "Typenschild erkannt. Leere Felder wurden automatisch gefüllt." : "Leere Felder wurden automatisch mit KI-Vorschlägen gefüllt. Bitte prüfen.");
   }
 
-  async function loadAiSuggestion() {
-    if (!activeItem || busy) return;
+  async function loadAiSuggestion({
+    silent = false,
+    itemOverride,
+    photosOverride,
+    requestKey,
+  }: {
+    silent?: boolean;
+    itemOverride?: LocalItem;
+    photosOverride?: CapturedPhoto[];
+    requestKey?: string;
+  } = {}) {
+    const itemForAi = itemOverride ?? activeItem;
+    const photosForAi = photosOverride ?? photos;
+    if (!itemForAi || (!silent && busy)) return;
+    const effectiveRequestKey = requestKey || aiRequestKey(itemForAi, photosForAi);
+    if (effectiveRequestKey && dismissedAiKeyRef.current === effectiveRequestKey) return;
     if (!getOnlineStatus()) {
       setIsOnline(false);
       setAiSuggestionMessage("Offline - KI-Prüfung wird übersprungen. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
       return;
     }
-    setBusy(true);
-    setAiSuggestionMessage("KI-Vorschlag wird vorbereitet.");
+    if (!silent) setBusy(true);
+    const hasTypePlatePhoto = photosForAi.some((photo) => photo.type === "type_plate");
+    setAiSuggestionMessage(silent ? "KI liest im Hintergrund." : hasTypePlatePhoto ? "Typenschild wird gelesen." : "KI-Vorschlag wird vorbereitet.");
     try {
       await enqueueItemDraft({
         session_id: joined?.session.id ?? "",
         device_id: deviceId,
-        client_item_id: activeItem.id,
-        sequence_number: activeItem.sequence_number,
-        draft: buildDraft(activeItem.id),
+        client_item_id: itemForAi.id,
+        sequence_number: itemForAi.sequence_number,
+        draft: buildDraft(itemForAi.id),
       });
       await runSync("Fotos und Objekt werden für KI synchronisiert.");
       if (!getOnlineStatus()) {
@@ -1027,51 +1640,66 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         setAiSuggestionMessage("Offline - KI-Prüfung wurde gestoppt. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
         return;
       }
-      let serverItemId = await findServerItemId(activeItem.id);
-      for (let attempt = 0; !serverItemId && attempt < 4; attempt += 1) {
+      let serverItemId = await findServerItemId(itemForAi.id);
+      for (let attempt = 0; !serverItemId && attempt < 6; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 550));
-        serverItemId = await findServerItemId(activeItem.id);
+        serverItemId = await findServerItemId(itemForAi.id);
       }
       if (!serverItemId) {
         setAiSuggestionMessage("Objekt ist lokal gesichert. KI-Vorschlag kommt nach der Synchronisierung.");
         return;
       }
-      const aiStart = await api<{ status?: string; message?: string }>(`/items/${serverItemId}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => null);
+      const aiStart = await api<{ status?: string; message?: string }>(`/items/${serverItemId}/ai/run?mode=fast`, { method: "POST", body: "{}" }).catch(() => null);
       if (aiStart?.status === "skipped") {
         setAiSuggestionMessage(aiStart.message || "KI-Vorschlag erst nach Objektfoto möglich.");
         return;
       }
       let serverSuggestion: ServerItemSuggestion | null = null;
+      let lastStatus: AiStatusResponse | null = null;
       for (let attempt = 0; attempt < 10; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 900));
-        const serverItem = await api<ServerItemWithAi>(`/items/${serverItemId}`);
-        serverSuggestion = latestAiSuggestion(serverItem);
-        if (serverSuggestion || serverItem.status === "ki_pruefung_fertig" || serverItem.status === "ki_schnell_fertig") break;
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        if (effectiveRequestKey && dismissedAiKeyRef.current === effectiveRequestKey) return;
+        lastStatus = await api<AiStatusResponse>(`/items/${serverItemId}/ai/status?scope=fast`);
+        serverSuggestion = normalizeAiPayload(lastStatus.result_preview);
+        if (serverSuggestion || lastStatus.state === "completed" || lastStatus.state === "failed" || lastStatus.state === "cancelled") break;
       }
       if (serverSuggestion) {
+        if (effectiveRequestKey && dismissedAiKeyRef.current === effectiveRequestKey) return;
         setAiSuggestion(serverSuggestion);
         applyAiSuggestionsToEmptyFields(serverSuggestion);
+      } else if (lastStatus?.state === "running" || lastStatus?.state === "queued") {
+        setAiSuggestionMessage("KI laeuft im Hintergrund. Du kannst weiter erfassen.");
+      } else if (lastStatus?.state === "cancelled") {
+        setAiSuggestionMessage("KI wurde abgebrochen. Du kannst normal weiterarbeiten.");
+      } else if (lastStatus?.message) {
+        setAiSuggestionMessage(lastStatus.message);
       } else {
         setAiSuggestionMessage("Noch kein KI-Vorschlag verfügbar. Du kannst normal weiterarbeiten.");
       }
     } catch {
       setAiSuggestionMessage("KI-Vorschlag ist gerade nicht verfügbar. Du kannst normal weiterarbeiten.");
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   }
 
   useEffect(() => {
-    if (step !== 1 || !hasObjectPhoto || !activeItem || aiSuggestion || busy) return;
+    const hasAiPhoto = photos.some((photo) => photo.type === "object_front" || photo.type === "type_plate");
+    if (!hasAiPhoto || !activeItem || busy) return;
     if (!isOnline || !getOnlineStatus()) {
       setAiSuggestionMessage("Offline - KI-Prüfung wird nicht gestartet. Du kannst normal weiter erfassen.");
       return;
     }
-    const requestKey = `${activeItem.id}:${photos.filter((photo) => photo.type === "object_front" || photo.type === "type_plate").length}`;
+    const requestKey = aiRequestKey(activeItem, photos);
     if (aiAutoRequestKeyRef.current === requestKey) return;
     aiAutoRequestKeyRef.current = requestKey;
-    void loadAiSuggestion();
-  }, [activeItem, aiSuggestion, busy, hasObjectPhoto, isOnline, photos, step]);
+    void loadAiSuggestion({ silent: true, requestKey });
+  }, [activeItem, busy, isOnline, photos]);
+
+  const currentAiKey = aiRequestKey(activeItem, photos);
+  const visibleSuggestionRows = aiSuggestion
+    ? aiSuggestionRows(aiSuggestion).filter((row) => row.key !== "estimate" || !dismissedValueKey || dismissedValueKey !== currentAiKey)
+    : [];
 
   return (
     <main className="page grid mobile-capture-page bga-wizard-page">
@@ -1118,13 +1746,23 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </div>
         ) : null}
 
+        {shouldShowForeignQueueNotice ? (
+          <div className="mobile-sync-bar is-compact is-pending">
+            <div>
+              <strong>Alte lokale Daten gefunden</strong>
+              <span>{otherSessionOpen} alte EintrÃ¤ge liegen noch auf diesem iPhone. Sie blockieren diese Session nicht.</span>
+            </div>
+            <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
+          </div>
+        ) : null}
+
         {storageWarning ? (
           <div className="mobile-storage-warning" role="status">
             {storageWarning}
           </div>
         ) : null}
 
-        {hasOpenLocalQueue && !shouldPauseForQueue && queueDetails && showQueueDetails ? (
+        {(hasOpenLocalQueue || hasForeignQueue) && !shouldPauseForQueue && queueDetails && showQueueDetails ? (
           <section className="wizard-card queue-detail-list">
             <QueueDetailsPanel
               queueDetails={queueDetails}
@@ -1204,11 +1842,87 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </div>
         ) : null}
 
+        {canCaptureInThisSession && designationPromptOpen && !savedItem ? (
+          <section className="mobile-designation-prompt" role="dialog" aria-live="polite" aria-label="Bezeichnung fehlt">
+            <div>
+              <strong>Bezeichnung fehlt</strong>
+              <span>Kurz eintippen oder direkt sprechen, dann kann der Artikel sauber gespeichert werden.</span>
+            </div>
+            <div className="speech-input-row">
+              <input
+                ref={designationInputRef}
+                value={form.object_type}
+                onChange={(event) => update("object_type", event.target.value)}
+                placeholder="z. B. Computermaus, Kaffeemaschine"
+              />
+              {speechButton("object_type", "Bezeichnung")}
+            </div>
+            {speechMessage ? <small>{speechMessage}</small> : null}
+            <div className="designation-prompt-actions">
+              <button className="btn accent" type="button" disabled={!form.object_type.trim() || busy} onClick={() => void saveObject()}>
+                Speichern
+              </button>
+              <button className="btn secondary" type="button" disabled={busy} onClick={() => setDesignationPromptOpen(false)}>
+                Weiter bearbeiten
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {canCaptureInThisSession && !savedItem ? (
+          <>
+            <div className="scanner-action-dock" ref={captureStartRef} tabIndex={-1} aria-label="Profi-Scanner Aktionen">
+              <label
+                className={busy ? "is-disabled" : ""}
+                htmlFor={photoInputId("object_front")}
+                onClick={(event) => busy && event.preventDefault()}
+              >
+                <strong>Foto</strong>
+                <span>{hasObjectPhoto ? "gesichert" : "Pflicht"}</span>
+              </label>
+              <button type="button" disabled={busy} onClick={() => setStep(1)}>
+                <strong>Code</strong>
+                <span>ID / Typ</span>
+              </button>
+              <button type="button" disabled={busy} onClick={() => setStep(2)}>
+                <strong>Sprache</strong>
+                <span>Notiz</span>
+              </button>
+            </div>
+            <CapturePhotoStrip
+              photos={photos}
+              labels={photoLabels}
+              busy={busy}
+              onTypePlateRequested={() => decideTypePlate("vorhanden")}
+            />
+            <MobileCopilotCard
+              form={form}
+              photos={photos}
+              aiSuggestion={aiSuggestion}
+              aiSuggestionMessage={aiSuggestionMessage}
+              suggestionRows={visibleSuggestionRows}
+              confidenceLabel={aiSuggestion ? aiConfidenceLabel(aiSuggestion) : "unklar"}
+              isOnline={isOnline}
+              busy={busy}
+              canFinish={canSaveDraft}
+              abortConfirm={abortConfirm}
+              onApplyField={applyAiSuggestionField}
+              onDiscardAi={discardAiSuggestion}
+              onDiscardValue={discardValueSuggestion}
+              onAccept={() => setStep(summaryBlockers.length ? 1 : 3)}
+              onEdit={() => { setAbortConfirm(false); setStep(1); }}
+              onFinish={() => void saveObject()}
+              onAbort={() => void abortCurrentObject()}
+            />
+          </>
+        ) : null}
+
         {canCaptureInThisSession && savedItem ? (
           <section className="wizard-card saved-card">
             <div className="saved-mark">✓</div>
             <h1>Objekt gespeichert</h1>
-            <p>{savedItem.label} ist lokal gesichert und wird synchronisiert.</p>
+            <p>{savedItem.label} ist lokal gesichert. Naechstes Objekt wird vorbereitet.</p>
+            {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
             <button className="btn accent" type="button" onClick={startNextObject}>Nächstes Objekt erfassen</button>
             {joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Zur Prüfliste</a> : null}
           </section>
@@ -1233,23 +1947,32 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           <div className="wizard-step-anchor" ref={activeStepRef}>
             {step === 0 ? (
               <WizardCard title="Fotos & Nachweise" hint="Objekt vollständig fotografieren. Typenschild und weitere Nachweise direkt hier ergänzen.">
-                <button className="mobile-photo-stage" type="button" disabled={busy} onClick={() => openCamera("object_front")}>
+                <label
+                  className={`mobile-photo-stage ${busy ? "is-disabled" : ""}`}
+                  htmlFor={photoInputId("object_front")}
+                  onClick={(event) => busy && event.preventDefault()}
+                >
                   <span>Objekt fotografieren</span>
                   <small>{photos.filter((photo) => photo.type === "object_front").length ? "Objektfoto gespeichert" : "Pflichtfoto"}</small>
-                </button>
+                </label>
                 <div className="summary-box info">
                   <strong>Typenschild</strong>
                   <span>Wenn vorhanden, gut lesbar fotografieren. Daraus können Hersteller, Modell und Baujahr besser erkannt werden.</span>
                 </div>
                 <div className="choice-grid">
-                  <button
-                    className={form.type_plate_status === "vorhanden" ? "is-active" : ""}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => decideTypePlate("vorhanden")}
+                  <label
+                    className={`${form.type_plate_status === "vorhanden" ? "is-active" : ""} ${busy ? "is-disabled" : ""}`.trim()}
+                    htmlFor={photoInputId("type_plate")}
+                    onClick={(event) => {
+                      if (busy) {
+                        event.preventDefault();
+                        return;
+                      }
+                      decideTypePlate("vorhanden");
+                    }}
                   >
                     Typenschild fotografieren
-                  </button>
+                  </label>
                   <button
                     className={form.type_plate_status === "nicht_vorhanden" ? "is-active" : ""}
                     type="button"
@@ -1272,14 +1995,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Optional, falls es für Prüfung oder Nacharbeit hilft.</span>
                 </div>
                 <div className="choice-grid">
-                  <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("condition_detail")}>Zustand/Schaden fotografieren</button>
-                  <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("other")}>Weiteres Foto</button>
+                  <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId("condition_detail")} onClick={(event) => busy && event.preventDefault()}>Zustand/Schaden fotografieren</label>
+                  <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId("other")} onClick={(event) => busy && event.preventDefault()}>Weiteres Foto</label>
                 </div>
-                {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
               </WizardCard>
             ) : null}
 
-            {step === 1 ? (
+            {false ? (
               <WizardCard title="KI-Vorschlag" hint="KI füllt leere Felder automatisch. Bitte alles prüfen.">
                 <div className="summary-box info">
                   <strong>KI-Vorschlag – bitte prüfen</strong>
@@ -1288,11 +2010,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 </div>
                 {aiSuggestion ? (
                   <div className="summary-list ai-suggestion-list">
-                    {aiSuggestionRows(aiSuggestion).map((row) => (
+                    {aiSuggestionRows(aiSuggestion!).map((row) => (
                       <span key={row.key}>
                         <b>{row.label}</b>
                         <span>{row.value}</span>
-                        <small>{row.note || aiConfidenceLabel(aiSuggestion)}</small>
+                        <small>{row.note || aiConfidenceLabel(aiSuggestion!)}</small>
                         {row.field ? (
                           <button
                             className="btn secondary"
@@ -1313,25 +2035,42 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               </WizardCard>
             ) : null}
 
-            {step === 2 ? (
+            {step === 1 ? (
               <WizardCard title="Stammdaten" hint="Bezeichnung, Typ und Baujahr eintragen oder KI-Vorschlag prüfen.">
                 <label className="field">
                   <span>Bezeichnung</span>
-                  <input value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Ölschlucker" />
+                  <div className="speech-input-row">
+                    <input ref={designationInputRef} value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Computermaus" />
+                    {speechButton("object_type", "Bezeichnung")}
+                  </div>
                 </label>
                 <label className="field">
                   <span>Typ / Spezifikation</span>
-                  <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
+                  <div className="speech-input-row is-textarea">
+                    <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
+                    {speechButton("specification", "Typ / Spezifikation")}
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Seriennummer</span>
+                  <div className="speech-input-row">
+                    <input value={form.serial_number} onChange={(event) => update("serial_number", event.target.value)} placeholder="nur wenn eindeutig lesbar" />
+                    {speechButton("serial_number", "Seriennummer")}
+                  </div>
                 </label>
                 <label className="field">
                   <span>Baujahr</span>
-                  <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
+                  <div className="speech-input-row">
+                    <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
+                    {speechButton("construction_year", "Baujahr")}
+                  </div>
                 </label>
                 {aiSuggestion?.estimated_age_years ? <p className="muted">KI-Schätzung: ca. {aiSuggestion.estimated_age_years} Jahre. Bitte nicht als gesichertes Baujahr übernehmen, wenn keine Quelle erkennbar ist.</p> : null}
+                {speechMessage ? <p className="speech-live-status" aria-live="polite">{speechMessage}</p> : null}
               </WizardCard>
             ) : null}
 
-            {step === 3 ? (
+            {step === 2 ? (
               <WizardCard title="Zustand & Prüfung" hint="Zustand, Funktion, UVV und Bemerkung kompakt erfassen.">
                 <label className="field">
                   <span>Zustand</span>
@@ -1346,7 +2085,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 </label>
                 <label className="field">
                   <span>Zustandsbemerkung</span>
-                  <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
+                  <div className="speech-input-row is-textarea">
+                    <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
+                    {speechButton("condition_note", "Zustandsbemerkung")}
+                  </div>
                 </label>
                 <div className="summary-box">
                   <strong>Funktion i. O.</strong>
@@ -1361,7 +2103,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     <button key={value} className={form.function_ok === value ? "is-active" : ""} type="button" onClick={() => decideFunctionOk(value as FunctionOk)}>{label}</button>
                   ))}
                 </div>
-                <label className="field">
+                <label className="field" ref={uvvStatusRef} tabIndex={-1}>
                   <span>UVV Status</span>
                   <select value={form.uvv_status} onChange={(event) => decideUvvStatus(event.target.value as UvvStatus)}>
                     <option value="vorhanden">UVV vorhanden</option>
@@ -1372,11 +2114,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 </label>
                 {form.uvv_status === "vorhanden" ? (
                   <>
-                    <label className="field">
+                    <label className="field" ref={uvvDateRef} tabIndex={-1}>
                       <span>UVV gültig bis</span>
-                      <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
+                      <div className="speech-input-row">
+                        <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
+                        {speechButton("uvv_valid_until", "UVV gueltig bis")}
+                      </div>
                     </label>
-                    <button className="btn secondary" type="button" disabled={busy} onClick={() => openCamera("uvv_label")}>UVV-Siegel fotografieren</button>
+                    <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId("uvv_label")} onClick={(event) => busy && event.preventDefault()}>UVV-Siegel fotografieren</label>
                   </>
                 ) : (
                   <div className="summary-box info">
@@ -1384,29 +2129,31 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     <span>{form.uvv_status === "unklar" ? "UVV wird als Nacharbeit gekennzeichnet." : "Diese Entscheidung überspringt das UVV-Siegel-Foto."}</span>
                   </div>
                 )}
-                <label className="field">
+                <label className="field" ref={remarkFieldRef} tabIndex={-1}>
                   <span>Bemerkung</span>
-                  <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
+                  <div className="speech-input-row is-textarea">
+                    <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
+                    {speechButton("remark", "Bemerkung")}
+                  </div>
                 </label>
+                {speechMessage ? <p className="speech-live-status" aria-live="polite">{speechMessage}</p> : null}
               </WizardCard>
             ) : null}
 
-            {step === 4 ? (
+            {step === 3 ? (
+              <section ref={summaryStepRef} className="wizard-step-section" tabIndex={-1}>
               <WizardCard title="Zusammenfassung" hint="Prüfen, dann speichern.">
                 <div className="summary-list">
                   <span><b>Bezeichnung</b>{form.object_type || "fehlt"}</span>
                   <span><b>Typ/Spezifikation</b>{form.specification || "offen"}</span>
+                  <span><b>Seriennummer</b>{form.serial_number || "offen"}</span>
                   <span><b>Baujahr</b>{form.construction_year || "offen"}</span>
                   <span><b>Zustand</b>{form.condition}</span>
                   <span><b>Funktion</b>{form.function_ok}</span>
                   <span><b>UVV</b>{form.uvv_status}{form.uvv_valid_until ? ` bis ${form.uvv_valid_until}` : ""}</span>
                   <span><b>Fotos</b>{photos.length}/5</span>
                 </div>
-                {photos.length ? (
-                  <div className="photo-summary">
-                    {photos.map((photo, index) => <span key={`${photo.type}-${index}`}>{photoLabels[photo.type]}</span>)}
-                  </div>
-                ) : null}
+                {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
                 <div className="summary-checks">
                   {summaryBlockers.length ? (
                     <div className="summary-box danger">
@@ -1427,18 +2174,20 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 </button>
                 <button className="btn secondary" type="button" onClick={() => setStep(0)}>Zurück bearbeiten</button>
               </WizardCard>
+              </section>
             ) : null}
           </div>
         ) : null}
 
         {canCaptureInThisSession && !savedItem ? <div className="wizard-nav">
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
-          <button className="btn" type="button" disabled={step === steps.length - 1 || busy} onClick={() => setStep((value) => Math.min(steps.length - 1, value + 1))}>Weiter</button>
+          <button className="btn accent" type="button" disabled={mobilePrimaryDisabled} onClick={runMobilePrimaryAction}>{mobilePrimaryLabel}</button>
         </div> : null}
 
         {canCaptureInThisSession ? (["object_front", "object_back", "type_plate", "uvv_label", "condition_detail", "other"] as PhotoType[]).map((type) => (
           <input
             key={type}
+            id={photoInputId(type)}
             ref={fileInputRefs[type]}
             className="visually-hidden-file"
             type="file"
@@ -1553,14 +2302,206 @@ function WizardCard({ title, hint, children }: { title: string; hint: string; ch
   );
 }
 
-function PhotoPreviewList({ photos, labels }: { photos: Array<{ type: PhotoType; previewUrl?: string; name: string }>; labels: Record<PhotoType, string> }) {
+function MobileCopilotCard({
+  form,
+  photos,
+  aiSuggestion,
+  aiSuggestionMessage,
+  suggestionRows,
+  confidenceLabel,
+  isOnline,
+  busy,
+  canFinish,
+  abortConfirm,
+  onApplyField,
+  onDiscardAi,
+  onDiscardValue,
+  onAccept,
+  onEdit,
+  onFinish,
+  onAbort,
+}: {
+  form: BgaForm;
+  photos: CapturedPhoto[];
+  aiSuggestion: ServerItemSuggestion | null;
+  aiSuggestionMessage: string;
+  suggestionRows: Array<{ key: string; label: string; value: string; field?: keyof BgaForm; note?: string }>;
+  confidenceLabel: string;
+  isOnline: boolean;
+  busy: boolean;
+  canFinish: boolean;
+  abortConfirm: boolean;
+  onApplyField: (field: keyof BgaForm, value: string) => void;
+  onDiscardAi: () => void;
+  onDiscardValue: () => void;
+  onAccept: () => void;
+  onEdit: () => void;
+  onFinish: () => void;
+  onAbort: () => void;
+}) {
+  const hasObjectPhoto = photos.some((photo) => photo.type === "object_front");
+  const nameplate = aiSuggestion?.nameplate_extraction;
+  const seenLabel = form.object_type
+    || aiSuggestion?.suggested_fields?.object_type
+    || aiSuggestion?.object_name
+    || aiSuggestion?.object_type
+    || nameplate?.suggested_object_type
+    || "";
+  const statusText = !hasObjectPhoto
+    ? "Objektfoto fehlt"
+    : !isOnline
+      ? "KI nach Verbindung"
+      : nameplate?.raw_text || nameplate?.serial_number
+        ? "Typenschild gelesen"
+        : aiSuggestion
+          ? "Objekt erkannt"
+          : aiSuggestionMessage || "KI liest mit";
+  const accepted = [
+    form.object_type ? "Bezeichnung" : "",
+    form.specification ? "Typ/Spezifikation" : "",
+    form.serial_number ? "Seriennummer" : "",
+    form.construction_year ? "Baujahr" : "",
+    form.remark ? "Bemerkung" : "",
+  ].filter(Boolean);
+  const open = [
+    !hasObjectPhoto ? "Objektfoto" : "",
+    !form.object_type.trim() ? "Bezeichnung prüfen" : "",
+  ].filter(Boolean);
+  const chips = suggestionRows.flatMap((row) => {
+    if (row.key === "estimate" || !row.field || !row.value) return [];
+    return String(form[row.field] ?? "").trim() === row.value.trim() ? [] : [{ ...row, field: row.field }];
+  }).slice(0, 4);
+  const valueRow = suggestionRows.find((row) => row.key === "estimate");
+  const confidenceTone = confidenceLabel === "sicher" ? "safe" : confidenceLabel === "prüfen" ? "review" : "unknown";
+
+  return (
+    <section className={`mobile-copilot-card ${aiSuggestion ? "has-ai" : ""}`} aria-label="KI-Copilot">
+      <div className="mobile-copilot-head">
+        <div>
+          <strong>{statusText}</strong>
+          <span>{seenLabel ? `Ich sehe: ${seenLabel}` : hasObjectPhoto ? "Ich prüfe die Aufnahme im Hintergrund." : "Erstes Foto aufnehmen, dann helfe ich mit."}</span>
+        </div>
+        <span className={`copilot-confidence is-${confidenceTone}`}>{confidenceLabel}</span>
+      </div>
+
+      <div className="mobile-copilot-summary">
+        <span><b>Übernommen</b>{accepted.length ? accepted.join(", ") : "noch nichts"}</span>
+        <span><b>Noch offen</b>{open.length ? open.slice(0, 4).join(", ") : "bereit zum Abschluss"}</span>
+      </div>
+
+      {chips.length ? (
+        <div className="copilot-chip-row" aria-label="KI-Vorschläge übernehmen">
+          {chips.map((row) => (
+            <button key={row.key} type="button" disabled={busy || !row.field} onClick={() => row.field && onApplyField(row.field, row.value)}>
+              <b>{row.label}</b>
+              <span>{row.value}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {valueRow ? (
+        <div className="copilot-value-row" aria-label="Gebrauchtwert pruefen">
+          <div>
+            <b>Gebrauchtwert pruefen</b>
+            <span>{valueRow.value}</span>
+            {valueRow.note ? <small>{valueRow.note}</small> : null}
+          </div>
+          <button className="btn secondary" type="button" disabled={busy} onClick={onDiscardValue}>Wert verwerfen</button>
+        </div>
+      ) : null}
+
+      <div className="mobile-copilot-actions">
+        <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto} onClick={onAccept}>Passt</button>
+        <button className="btn secondary" type="button" disabled={busy} onClick={onEdit}>Ändern</button>
+        <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId("other")} onClick={(event) => busy && event.preventDefault()}>Noch ein Foto</label>
+        <button className="btn" type="button" disabled={busy || !canFinish} onClick={onFinish}>Fertig</button>
+        <button className="btn danger" type="button" disabled={busy} onClick={onAbort}>{abortConfirm ? "Verwerfen bestaetigen" : "Abbrechen"}</button>
+      </div>
+
+      {aiSuggestion ? <button className="copilot-discard" type="button" disabled={busy} onClick={onDiscardAi}>KI verwerfen</button> : null}
+    </section>
+  );
+}
+
+function CapturePhotoStrip({
+  photos,
+  labels,
+  busy,
+  onTypePlateRequested,
+}: {
+  photos: CapturedPhoto[];
+  labels: Record<PhotoType, string>;
+  busy: boolean;
+  onTypePlateRequested: () => void;
+}) {
+  const slotPlan: Array<{ type: PhotoType; title: string; state: string; optional?: boolean }> = [
+    { type: "object_front", title: "Objektfoto", state: "Pflicht" },
+    { type: "type_plate", title: "Typenschild", state: "optional", optional: true },
+    { type: "condition_detail", title: "Detail", state: "optional", optional: true },
+    { type: "object_back", title: "Rückseite", state: "optional", optional: true },
+    { type: "other", title: "Zusatz", state: "optional", optional: true },
+  ];
+
+  return (
+    <section className={`mobile-photo-proof ${photos.length ? "has-photos" : "is-empty"}`} aria-label="Aufgenommene Fotos">
+      <div className="mobile-photo-proof-head">
+        <strong>{photos.length ? `${photos.length}/5 Fotos` : "Noch kein Foto"}</strong>
+        <span>{photos.length ? "lokal sichtbar gesichert" : "1 Pflichtfoto, 4 optional"}</span>
+      </div>
+      <div className="mobile-photo-proof-row">
+        {slotPlan.map((slot, index) => {
+          const photo = photos[index];
+          if (photo) {
+            return (
+              <label
+                key={`${photo.type}-${photo.id ?? photo.name}-${index}`}
+                className={`photo-proof-card has-image ${busy ? "is-disabled" : ""}`}
+                htmlFor={photoInputId(photo.type)}
+                onClick={(event) => busy && event.preventDefault()}
+              >
+                {photo.previewUrl ? <img src={photo.previewUrl} alt={labels[photo.type]} /> : <span className="photo-proof-fallback">Foto</span>}
+                <span className="photo-proof-index">{index + 1}</span>
+                <span className="photo-proof-label">{labels[photo.type]}</span>
+                <span className="photo-proof-state">lokal</span>
+              </label>
+            );
+          }
+          return (
+            <label
+              key={`${slot.type}-${index}`}
+              className={`photo-proof-card is-empty ${slot.optional ? "is-optional" : ""} ${busy ? "is-disabled" : ""}`}
+              htmlFor={photoInputId(slot.type)}
+              onClick={(event) => {
+                if (busy) {
+                  event.preventDefault();
+                  return;
+                }
+                if (slot.type === "type_plate") onTypePlateRequested();
+              }}
+            >
+              <span className="photo-proof-empty-icon">+</span>
+              <span className="photo-proof-label">{slot.title}</span>
+              <span className="photo-proof-state">{slot.state}</span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PhotoPreviewList({ photos, labels }: { photos: CapturedPhoto[]; labels: Record<PhotoType, string> }) {
   return (
     <div className="mobile-photo-previews">
       {photos.map((photo, index) => (
-        <div key={`${photo.type}-${photo.name}-${index}`}>
+        <figure key={`${photo.type}-${photo.name}-${index}`}>
           {photo.previewUrl ? <img src={photo.previewUrl} alt={labels[photo.type]} /> : null}
-          <span>{labels[photo.type]}</span>
-        </div>
+          <figcaption>
+            <span>{labels[photo.type]}</span>
+            <small>Foto {index + 1}</small>
+          </figcaption>
+        </figure>
       ))}
     </div>
   );

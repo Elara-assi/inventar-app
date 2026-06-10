@@ -99,6 +99,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function cancelSessionAi() {
+    if (!aiRunningCount) return;
+    try {
+      const result = await api<{ cancelled: number; message?: string }>(`/sessions/${sessionId}/ai/cancel`, { method: "POST", body: "{}" });
+      setMessage(result.message || `${result.cancelled} KI-Prozess(e) gestoppt`);
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "KI-Prozesse konnten nicht gestoppt werden");
+    }
+  }
+
   const blockerCount = items.reduce((sum, item) => sum + (item.blockers?.length ?? 0), 0);
   const hintCount = items.reduce((sum, item) => sum + (item.process_hints?.length ?? 0), 0);
   const technicalCount = items.filter((item) =>
@@ -151,8 +162,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             </p>
             <div className="ai-process-strip" aria-label="KI-Ablauf">
               <span>Upload: Schnellcheck</span>
-              <span>danach: automatischer KI-Check</span>
-              <span>Prüf-KI: Webrecherche & Schätzung</span>
+              <span>danach: Foto & Typenschild</span>
+              <span>Preisrecherche: nur manuell</span>
             </div>
           </div>
         </div>
@@ -160,8 +171,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <span className={isClosed ? "status finalisiert" : "live-indicator"}>{roomStatus}</span>
           <span className="action-help">
             <button className="btn secondary" onClick={runReviewAi} disabled={isClosed}>Prüf-KI starten</button>
-            <small>Startet die intensive Prüfung: Webrecherche, Alterslogik und konservative Schätzung. Normale KI-Prüfung läuft nach Upload automatisch.</small>
+            <small>Startet die Nachprüfung für Foto, Typenschild und offene Felder. Preisrecherche läuft nur manuell pro Artikel.</small>
           </span>
+          {aiRunningCount ? (
+            <span className="action-help">
+              <button className="btn danger" onClick={cancelSessionAi} disabled={isClosed}>Alle KI stoppen</button>
+              <small>Stoppt alle aktuell laufenden KI-Prozesse in diesem Raum und verhindert spätes Zurückschreiben.</small>
+            </span>
+          ) : null}
           <span className="action-help">
             <button className="btn secondary" onClick={exportExcel}>Excel-Export</button>
             <small>Erzeugt die Raumaufnahme mit Fotos, Zeitpunkten, Aufnehmer, Prüfer, KI-Herkunft und Nacharbeiten.</small>

@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: inventar
       POSTGRES_USER: inventar
@@ -24,11 +25,23 @@ services:
 
   redis:
     image: redis:8-alpine
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.18.2
+    restart: unless-stopped
+    environment:
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
@@ -37,8 +50,13 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-change-me-local}
       MIGRATIONS_PATH: /app/db/migrations
       MAX_UPLOAD_BYTES: 36700160
-      OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
-      OLLAMA_MODEL: gemma4:31b-cloud
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_LOCAL_URL: ${OLLAMA_LOCAL_URL:-http://ollama:11434}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-vl:235b-cloud}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-qwen3-vl:235b-cloud}
+      OLLAMA_OCR_MODEL: ${OLLAMA_OCR_MODEL:-glm-ocr:latest}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma4:31b-cloud}
       OLLAMA_TIMEOUT_SECONDS: 120
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng-fe55-searxng-1:8080}
@@ -53,6 +71,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      ollama:
+        condition: service_started
     networks:
       - default
       - elara
@@ -64,6 +84,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
         NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-unbekannt}
+    restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
       NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-unbekannt}
@@ -76,6 +97,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     environment:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
@@ -84,8 +106,13 @@ services:
       MIGRATIONS_PATH: /app/db/migrations
       REDIS_URL: redis://inventar-app-redis-1:6379/0
       LITELLM_URL: http://litellm:4000
-      OLLAMA_URL: http://ollama-k0rw-ollama-1:11434
-      OLLAMA_MODEL: gemma4:31b-cloud
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_LOCAL_URL: ${OLLAMA_LOCAL_URL:-http://ollama:11434}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-vl:235b-cloud}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-qwen3-vl:235b-cloud}
+      OLLAMA_OCR_MODEL: ${OLLAMA_OCR_MODEL:-glm-ocr:latest}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-gemma4:31b-cloud}
       OLLAMA_TIMEOUT_SECONDS: 120
       SEARCH_PROVIDER: ${SEARCH_PROVIDER:-searxng}
       SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng-fe55-searxng-1:8080}
@@ -97,6 +124,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      ollama:
         condition: service_started
     networks:
       - default
@@ -120,6 +149,7 @@ services:
 
 volumes:
   postgres-data:
+  ollama-data:
   uptime-kuma-data:
 
 networks:

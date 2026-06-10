@@ -12,6 +12,7 @@ import requests
 API = os.environ.get("INVENTAR_API", "http://127.0.0.1:8000")
 EMAIL = os.environ.get("INVENTAR_TEST_EMAIL", "pruefer@example.local")
 PASSWORD = os.environ.get("INVENTAR_TEST_PASSWORD", "demo")
+UPLOAD_HOST_ROOT = os.environ.get("INVENTAR_UPLOAD_HOST_ROOT", "/opt/stacks/inventar-app/storage/uploads")
 
 
 def post(path: str, token: str | None = None, **kwargs):
@@ -28,6 +29,10 @@ def get(path: str, token: str | None = None):
     response = requests.get(f"{API}{path}", headers=headers, timeout=30)
     response.raise_for_status()
     return response
+
+
+def host_upload_path(container_path: str) -> str:
+    return container_path.replace("/opt/inventar/uploads", UPLOAD_HOST_ROOT)
 
 
 def main() -> int:
@@ -95,6 +100,29 @@ def main() -> int:
     server_item = next(entry for entry in items if entry["id"] == item["id"])
     print("SESSION_ITEM_PHOTOS", len(server_item.get("photos", [])))
 
+    status = get(
+        f"/offline-sync/status?session_id={session_id}&source_device_id={source_device_id}&client_item_id={client_item_id}&client_photo_ids={','.join(photo_ids)}",
+        token=mobile_token,
+    ).json()
+    print("SYNC_STATUS", status)
+    if status.get("server_item_id") != item["id"]:
+        raise SystemExit(f"status did not resolve server item: {status}")
+    if sorted(status.get("known_client_photo_ids", [])) != sorted(photo_ids):
+        raise SystemExit(f"status did not confirm all photos: {status}")
+    if status.get("missing_client_photo_ids"):
+        raise SystemExit(f"status reported missing photos: {status}")
+
+    missing_probe_id = f"client-photo-receipt-{run}-missing"
+    missing_status = get(
+        f"/offline-sync/status?session_id={session_id}&source_device_id={source_device_id}&client_item_id={client_item_id}&client_photo_ids={photo_ids[0]},{missing_probe_id}",
+        token=mobile_token,
+    ).json()
+    print("SYNC_STATUS_MISSING_PROBE", missing_status)
+    if missing_status.get("known_client_photo_ids") != [photo_ids[0]]:
+        raise SystemExit(f"status missing probe did not keep known photo only: {missing_status}")
+    if missing_status.get("missing_client_photo_ids") != [missing_probe_id]:
+        raise SystemExit(f"status missing probe did not report missing photo: {missing_status}")
+
     for idx, client_photo_id in enumerate(photo_ids):
         response = post(
             "/offline-sync/photos",
@@ -126,14 +154,14 @@ def main() -> int:
     if len(paths) != 2:
         raise SystemExit(f"expected 2 DB photo rows, got {len(paths)}")
     for path in paths:
-        host_path = path.replace("/opt/inventar/uploads", "/opt/stacks/inventar-app/storage/uploads")
+        host_path = host_upload_path(path)
         print("FILE_EXISTS", host_path, os.path.exists(host_path), os.path.getsize(host_path) if os.path.exists(host_path) else None)
         if not os.path.exists(host_path):
             raise SystemExit(f"missing file {host_path}")
 
     requests.delete(f"{API}/sessions/{session_id}", headers={"Authorization": f"Bearer {user_token}"}, timeout=30)
     for path in paths:
-        host_path = path.replace("/opt/inventar/uploads", "/opt/stacks/inventar-app/storage/uploads")
+        host_path = host_upload_path(path)
         stamped_path = host_path.replace("/originals/", "/stamped/")
         for cleanup_path in [host_path, stamped_path]:
             if os.path.exists(cleanup_path):

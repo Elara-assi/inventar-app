@@ -1,11 +1,13 @@
-import { API_BASE, api, getAuthToken } from "@/lib/api";
+import { API_BASE, ApiError, api, getAuthToken } from "@/lib/api";
 import {
   QueueItem,
   clearOnlySyncedItems,
+  finalizeDiscardPendingQueueItems,
   getQueueSummary,
   listQueueItems,
   markFailedAsPending,
   recoverInterruptedUploads,
+  repairQueueForSession,
   updateQueueStatus,
 } from "@/lib/offlineQueue";
 
@@ -13,6 +15,11 @@ type SyncResult = {
   synced: number;
   failed: number;
   open: number;
+};
+
+type SyncScope = {
+  sessionId?: string | null;
+  manual?: boolean;
 };
 
 type BundlePhotoResult = {
@@ -46,14 +53,55 @@ type FormUploadResponse = {
   transport: "xhr" | "fetch";
 };
 
-let syncRunning = false;
-let syncRunningStartedAt = 0;
+type ReconcilePackageRequest = {
+  client_item_id: string;
+  client_photo_ids: string[];
+};
+
+type ReconcilePackageStatus = "synced" | "missing" | "missing_photos" | "session_closed" | "foreign_or_invalid" | "discardable";
+
+type ReconcilePackageResponse = {
+  client_item_id: string;
+  status: ReconcilePackageStatus;
+  server_item_id?: string | null;
+  known_client_photo_ids: string[];
+  missing_client_photo_ids: string[];
+  session_status?: string | null;
+};
+
+type OfflineReconcileResponse = {
+  session_id: string;
+  source_device_id: string;
+  session_status?: string | null;
+  packages: ReconcilePackageResponse[];
+};
+
+type SyncLockState = {
+  running: boolean;
+  startedAt: number;
+  nextAllowedAt: number;
+  backoffIndex: number;
+  rerunRequested?: boolean;
+};
+
+const syncLocks = new Map<string, SyncLockState>();
 const SYNC_LOCK_STALE_MS = 60_000;
+const SYNC_BACKOFF_MS = [5_000, 15_000, 60_000, 300_000];
 
 class SyncTimeoutError extends Error {
   constructor(message = "Keine Serverantwort nach 45 Sekunden.") {
     super(message);
     this.name = "TimeoutError";
+  }
+}
+
+class SyncHttpError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message || `Sync HTTP ${status}`);
+    this.name = "SyncHttpError";
+    this.status = status;
   }
 }
 
@@ -66,8 +114,30 @@ export function limitConcurrentUploads() {
   return 1;
 }
 
+function errorStatus(error?: unknown) {
+  if (error instanceof ApiError) return error.status;
+  if (error instanceof SyncHttpError) return error.status;
+  return undefined;
+}
+
 function cleanError(error?: unknown) {
+  const status = errorStatus(error);
   const message = error instanceof Error ? error.message : "";
+  if (status === 401) {
+    return "Mobile Anmeldung abgelaufen. Die Session wird neu gekoppelt und der Sync erneut versucht.";
+  }
+  if (status === 403 || status === 404) {
+    return "QR neu koppeln. Diese lokale Zuordnung passt nicht mehr zur aktiven mobilen Session.";
+  }
+  if (status === 409 || message.includes("Raum ist abgeschlossen")) {
+    return "Der Raum ist abgeschlossen. Lokale Erfassung fuer diese Session wurde gestoppt.";
+  }
+  if (status === 413) {
+    return "Foto war zu gross. Es wird kleiner gerechnet und einmal erneut versucht.";
+  }
+  if (status === 422) {
+    return "Lokale Daten sind unvollstaendig oder defekt. Diagnose wurde vorbereitet.";
+  }
   if (message.includes("Session not found") || message.includes("Item not found") || message.includes("Raum ist abgeschlossen")) {
     return "Die ursprüngliche Session oder das Objekt ist nicht mehr verfügbar. Bitte Details prüfen oder lokale Daten bewusst verwerfen.";
   }
@@ -81,11 +151,35 @@ function cleanError(error?: unknown) {
 }
 
 function isPermanentQueueError(error?: unknown) {
+  const status = errorStatus(error);
   const message = error instanceof Error ? error.message : "";
-  return message.includes("Session not found")
+  return status === 403
+    || status === 404
+    || status === 409
+    || status === 422
+    || message.includes("Session not found")
     || message.includes("Item not found")
     || message.includes("Raum ist abgeschlossen")
     || message.includes("Join token invalid");
+}
+
+function isAckUnknownError(error?: unknown) {
+  if (!(error instanceof Error)) return false;
+  const status = errorStatus(error);
+  if (status && status >= 500) return true;
+  return error.name === "AbortError"
+    || error.name === "TimeoutError"
+    || error.message.includes("Load failed")
+    || error.message.includes("NetworkError")
+    || error.message.includes("Failed to fetch");
+}
+
+function shouldDiscardDefective(error?: unknown) {
+  return errorStatus(error) === 422;
+}
+
+function shouldRetryAfterSmallerPhoto(error?: unknown) {
+  return errorStatus(error) === 413;
 }
 
 function describePhotoForLog(item: QueueItem, serverItemId?: string) {
@@ -125,9 +219,14 @@ function createSyncRunId() {
   return `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function scopedItems(items: QueueItem[], scope?: SyncScope) {
+  const sessionId = scope?.sessionId;
+  return sessionId ? items.filter((item) => item.session_id === sessionId) : items;
+}
+
 function photoCandidates(items: QueueItem[]) {
   return items.filter(
-    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading"),
+    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading" || item.status === "unknown_ack"),
   );
 }
 
@@ -139,7 +238,7 @@ function photoSkipReason(photo: QueueItem, serverItemId?: string) {
   if ((photo.photo_blob.size ?? photo.file_size ?? 0) <= 0) return "Foto-Upload übersprungen: Blob-Größe ist 0 Byte.";
   if (!photo.client_photo_id) return "Foto-Upload übersprungen: lokale Foto-ID fehlt.";
   if (!photo.photo_type) return "Foto-Upload übersprungen: Fotoart fehlt.";
-  if (photo.status !== "pending" && photo.status !== "failed" && photo.status !== "uploading") {
+  if (photo.status !== "pending" && photo.status !== "failed" && photo.status !== "uploading" && photo.status !== "unknown_ack") {
     return `Foto-Upload übersprungen: Status ${photo.status} ist nicht uploadfähig.`;
   }
   return "";
@@ -271,7 +370,7 @@ async function uploadPhoto(item: QueueItem, serverItemId: string) {
     ...describePhotoForLog(item, serverItemId),
   });
   if (!response.ok) {
-    throw new Error(response.text);
+    throw new SyncHttpError(response.status, response.text);
   }
   return JSON.parse(response.text) as { id: string };
 }
@@ -309,7 +408,7 @@ async function uploadPhotoWithReceipt(item: QueueItem, syncRunId: string) {
   const response = await postFormDataWithTimeout(url, form, 45_000);
   const responseText = response.text;
   if (!response.ok) {
-    throw new Error(responseText || `Foto-Sync HTTP ${response.status}`);
+    throw new SyncHttpError(response.status, responseText || `Foto-Sync HTTP ${response.status}`);
   }
   try {
     return JSON.parse(responseText) as PhotoReceiptResponse;
@@ -346,7 +445,7 @@ async function findServerItemId(item: QueueItem, allItems: QueueItem[]) {
 
 function openPhotoCandidates(items: QueueItem[]) {
   return items.filter(
-    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading"),
+    (item) => item.type === "photo_upload" && (item.status === "pending" || item.status === "failed" || item.status === "uploading" || item.status === "unknown_ack"),
   );
 }
 
@@ -359,9 +458,78 @@ function bundleCandidates(items: QueueItem[]) {
         item.status === "pending"
         || item.status === "failed"
         || item.status === "uploading"
+        || item.status === "unknown_ack"
         || byClientItemId.has(item.client_item_id)
       ),
   );
+}
+
+async function postOfflineSyncReconcile(sessionId: string, sourceDeviceId: string, packages: ReconcilePackageRequest[]) {
+  return api<OfflineReconcileResponse>("/offline-sync/reconcile", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      source_device_id: sourceDeviceId,
+      packages,
+    }),
+  });
+}
+
+async function reconcileQueuePackage(item: QueueItem, photos: QueueItem[] = []) {
+  const photoIds = photos
+    .map((photo) => photo.client_photo_id)
+    .filter((value): value is string => Boolean(value));
+  const response = await postOfflineSyncReconcile(item.session_id, item.device_id, [{
+    client_item_id: item.client_item_id,
+    client_photo_ids: photoIds,
+  }]);
+  return response.packages[0];
+}
+
+async function reconcileBundleAck(item: QueueItem, photos: QueueItem[], syncRunId: string): Promise<{ serverItemId?: string; missingPhotos: QueueItem[]; syncedCount: number }> {
+  const status = await reconcileQueuePackage(item, photos);
+  if (!status?.server_item_id) {
+    return { missingPhotos: photos, syncedCount: 0 };
+  }
+  await updateQueueStatus(item.id, "synced", {
+    server_item_id: status.server_item_id,
+    sync_run_id: syncRunId,
+    sync_checked_at: new Date().toISOString(),
+    upload_response_status: 200,
+    upload_response_text: "Server-Quittung nach Verbindungsabbruch gefunden.",
+    upload_debug_state: "ack_reconciled",
+    upload_debug: "Objekt war bereits auf dem Server gespeichert.",
+    last_error: undefined,
+  });
+  const known = new Set(status.known_client_photo_ids);
+  let syncedCount = 1;
+  const missingPhotos: QueueItem[] = [];
+  for (const photo of photos) {
+    if (photo.client_photo_id && known.has(photo.client_photo_id)) {
+      await updateQueueStatus(photo.id, "synced", {
+        server_item_id: status.server_item_id,
+        sync_run_id: syncRunId,
+        sync_checked_at: new Date().toISOString(),
+        upload_response_status: 200,
+        upload_response_text: "Server-Quittung nach Verbindungsabbruch gefunden.",
+        upload_debug_state: "ack_reconciled",
+        upload_debug: "Foto war bereits auf dem Server gespeichert.",
+        last_error: undefined,
+      });
+      syncedCount += 1;
+    } else {
+      await updateQueueStatus(photo.id, "pending", {
+        server_item_id: status.server_item_id,
+        sync_run_id: syncRunId,
+        sync_checked_at: new Date().toISOString(),
+        upload_debug_state: "ack_missing_photo_retry",
+        upload_debug: "Objekt ist auf dem Server, dieses Foto fehlt noch und wird erneut synchronisiert.",
+        last_error: undefined,
+      });
+      missingPhotos.push({ ...photo, server_item_id: status.server_item_id, status: "pending" });
+    }
+  }
+  return { serverItemId: status.server_item_id, missingPhotos, syncedCount };
 }
 
 function buildBundlePayload(item: QueueItem, photos: QueueItem[]) {
@@ -415,7 +583,7 @@ async function postItemBundle(item: QueueItem, photos: QueueItem[], syncRunId: s
   const response = await postFormDataWithTimeout(url, form, 45_000);
   const responseText = response.text;
   if (!response.ok) {
-    throw new Error(responseText || `Bundle Sync HTTP ${response.status}`);
+    throw new SyncHttpError(response.status, responseText || `Bundle Sync HTTP ${response.status}`);
   }
   try {
     return JSON.parse(responseText) as BundleSyncResponse;
@@ -424,12 +592,12 @@ async function postItemBundle(item: QueueItem, photos: QueueItem[], syncRunId: s
   }
 }
 
-export async function syncPendingBundles(): Promise<SyncResult> {
+export async function syncPendingBundles(scope?: SyncScope): Promise<SyncResult> {
   let synced = 0;
   let failed = 0;
   const syncRunId = createSyncRunId();
-  await recoverInterruptedUploads();
-  const initialItems = await listQueueItems();
+  await recoverInterruptedUploads(scope?.sessionId);
+  const initialItems = scopedItems(await listQueueItems(), scope);
   const bundles = bundleCandidates(initialItems);
   const bundleIds = new Set(bundles.map((item) => item.client_item_id));
   const orphanPhotos = openPhotoCandidates(initialItems).filter((photo) => !bundleIds.has(photo.client_item_id));
@@ -444,7 +612,7 @@ export async function syncPendingBundles(): Promise<SyncResult> {
     upload_debug: "Bundle-Sync überspringt dieses Foto; der Foto-Receipt-Sync versucht die Server-Zuordnung.",
   })));
   if (!bundles.length) {
-    return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+    return { synced: 0, failed: 0, open: (await getQueueSummary(scope?.sessionId)).open };
   }
   let health: { ok: boolean; url: string };
   try {
@@ -452,8 +620,8 @@ export async function syncPendingBundles(): Promise<SyncResult> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const ids = new Set(bundles.map((item) => item.client_item_id));
-    const affected = (await listQueueItems()).filter((item) => ids.has(item.client_item_id) && item.status !== "synced");
-    await Promise.all(affected.map((entry) => updateQueueStatus(entry.id, "failed", {
+    const affected = scopedItems(await listQueueItems(), scope).filter((item) => ids.has(item.client_item_id) && item.status !== "synced");
+    await Promise.all(affected.map((entry) => updateQueueStatus(entry.id, entry.status === "unknown_ack" ? "unknown_ack" : "failed", {
       sync_run_id: syncRunId,
       sync_checked_at: new Date().toISOString(),
       health_checked: true,
@@ -465,11 +633,11 @@ export async function syncPendingBundles(): Promise<SyncResult> {
       upload_debug_state: "api_health_failed",
       upload_debug: "Paket-Sync wurde nicht gestartet, weil die API nicht erreichbar war.",
     })));
-    return { synced: 0, failed: affected.length, open: (await getQueueSummary()).open };
+    return { synced: 0, failed: affected.length, open: (await getQueueSummary(scope?.sessionId)).open };
   }
 
   for (const bundle of bundles) {
-    const latestItems = await listQueueItems();
+    const latestItems = scopedItems(await listQueueItems(), scope);
     const latestBundle = latestItems.find((item) => item.id === bundle.id) ?? bundle;
     const linkedPhotos = openPhotoCandidates(latestItems).filter((photo) => photo.client_item_id === latestBundle.client_item_id);
     const uploadablePhotos = linkedPhotos.filter((photo) => photo.photo_blob && photo.client_photo_id);
@@ -495,6 +663,13 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         upload_debug_state: "api_health_ok",
         upload_debug: `API erreichbar: ${health.url}`,
       });
+      if (latestBundle.status === "unknown_ack" || uploadablePhotos.some((photo) => photo.status === "unknown_ack")) {
+        const reconciled = await reconcileBundleAck(latestBundle, uploadablePhotos, syncRunId);
+        if (reconciled.serverItemId) {
+          synced += reconciled.syncedCount;
+          continue;
+        }
+      }
       const result = await postItemBundle(latestBundle, uploadablePhotos, syncRunId);
       if (!result.server_item_id || !Array.isArray(result.photo_results)) {
         throw new Error("Bundle Sync Antwort ist unvollständig: server_item_id oder photo_results fehlen.");
@@ -550,23 +725,31 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         }
       }
       synced += 1;
-      api(`/items/${result.server_item_id}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
+      api(`/items/${result.server_item_id}/ai/run?mode=fast`, { method: "POST", body: "{}" }).catch(() => undefined);
     } catch (error) {
       const message = cleanError(error);
       const rawError = error instanceof Error ? error.message : String(error);
-      await updateQueueStatus(latestBundle.id, isPermanentQueueError(error) ? "conflict" : "failed", {
+      const nextStatus = shouldDiscardDefective(error) ? "discard_pending" : isPermanentQueueError(error) ? "conflict" : isAckUnknownError(error) ? "unknown_ack" : "failed";
+      const debugState = shouldRetryAfterSmallerPhoto(error) ? "photo_too_large_retry_needed" : nextStatus === "unknown_ack" ? "unknown_ack" : nextStatus === "discard_pending" ? "discard_pending" : "fetch_error";
+      await updateQueueStatus(latestBundle.id, nextStatus, {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
         health_result: "ok",
         fetch_started: true,
         last_error: message,
-        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
-        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
+        upload_debug_state: debugState,
+        upload_response_status: nextStatus === "unknown_ack" ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
-        upload_debug: "Objektpaket wurde gestartet, aber nicht erfolgreich abgeschlossen.",
+        upload_debug: nextStatus === "unknown_ack"
+          ? "Objektpaket wurde gestartet, aber die Server-Quittung fehlt. Beim naechsten Sync wird zuerst der Serverstatus geprueft."
+          : nextStatus === "discard_pending"
+            ? "Objektpaket ist defekt und wurde isoliert, damit die aktuelle Erfassung weiterlaufen kann."
+            : shouldRetryAfterSmallerPhoto(error)
+              ? "Foto war fuer den Server zu gross. Bitte erneut synchronisieren; neue Fotos werden staerker komprimiert."
+              : "Objektpaket wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       });
-      await Promise.all(uploadablePhotos.map((photo) => updateQueueStatus(photo.id, isPermanentQueueError(error) ? "conflict" : "failed", {
+      await Promise.all(uploadablePhotos.map((photo) => updateQueueStatus(photo.id, nextStatus, {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
@@ -574,19 +757,37 @@ export async function syncPendingBundles(): Promise<SyncResult> {
         eligible_for_upload: true,
         fetch_started: true,
         last_error: message,
-        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
-        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
+        upload_debug_state: debugState,
+        upload_response_status: nextStatus === "unknown_ack" ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
-        upload_debug: "Paket-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
+        upload_debug: nextStatus === "unknown_ack"
+          ? "Paket-Sync wurde gestartet, aber die Server-Quittung fehlt. Beim naechsten Sync wird zuerst der Serverstatus geprueft."
+          : nextStatus === "discard_pending"
+            ? "Defektes lokales Foto wurde isoliert, damit die aktuelle Erfassung weiterlaufen kann."
+            : shouldRetryAfterSmallerPhoto(error)
+              ? "Foto war fuer den Server zu gross. Bitte erneut synchronisieren; neue Fotos werden staerker komprimiert."
+              : "Paket-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       })));
+      if (nextStatus === "discard_pending") {
+        if (getOnlineStatus()) {
+          await api("/mobile-diagnostics", {
+            method: "POST",
+            body: JSON.stringify({
+              allgemein: { session_id: scope?.sessionId ?? latestBundle.session_id, zeitpunkt: new Date().toISOString(), quelle: "sync_defective_bundle_discard" },
+              queue_error: { client_item_id: latestBundle.client_item_id, source_device_id: latestBundle.device_id, error: rawError.slice(0, 500) },
+            }),
+          }).catch(() => undefined);
+        }
+        await finalizeDiscardPendingQueueItems([latestBundle.id, ...uploadablePhotos.map((photo) => photo.id)]);
+      }
       failed += 1 + uploadablePhotos.length;
     }
   }
-  return { synced, failed, open: (await getQueueSummary()).open };
+  return { synced, failed, open: (await getQueueSummary(scope?.sessionId)).open };
 }
 
-async function recoverResolvablePhotoConflicts(): Promise<number> {
-  const items = await listQueueItems();
+async function recoverResolvablePhotoConflicts(scope?: SyncScope): Promise<number> {
+  const items = scopedItems(await listQueueItems(), scope);
   const conflictPhotos = items.filter(
     (item) => item.type === "photo_upload"
       && item.status === "conflict"
@@ -614,10 +815,10 @@ async function recoverResolvablePhotoConflicts(): Promise<number> {
   return recovered;
 }
 
-export async function syncPendingItems(): Promise<SyncResult> {
+export async function syncPendingItems(scope?: SyncScope): Promise<SyncResult> {
   let synced = 0;
   let failed = 0;
-  const items = (await listQueueItems()).filter(
+  const items = scopedItems(await listQueueItems(), scope).filter(
     (item) => item.type === "item_draft" && (item.status === "pending" || item.status === "failed"),
   );
   for (const item of items) {
@@ -630,7 +831,7 @@ export async function syncPendingItems(): Promise<SyncResult> {
         server_item_id: created.id,
         last_error: undefined,
       });
-      const linkedPhotos = (await listQueueItems()).filter((entry) => entry.client_item_id === item.client_item_id && entry.type === "photo_upload");
+      const linkedPhotos = scopedItems(await listQueueItems(), scope).filter((entry) => entry.client_item_id === item.client_item_id && entry.type === "photo_upload");
       await Promise.all(linkedPhotos.map((photo) => updateQueueStatus(photo.id, photo.status, { server_item_id: created.id })));
       synced += 1;
     } catch (error) {
@@ -638,17 +839,17 @@ export async function syncPendingItems(): Promise<SyncResult> {
       failed += 1;
     }
   }
-  return { synced, failed, open: (await getQueueSummary()).open };
+  return { synced, failed, open: (await getQueueSummary(scope?.sessionId)).open };
 }
 
-export async function syncPendingPhotos(): Promise<SyncResult> {
+export async function syncPendingPhotos(scope?: SyncScope): Promise<SyncResult> {
   let synced = 0;
   let failed = 0;
   const syncRunId = createSyncRunId();
-  await recoverInterruptedUploads();
-  let photos = photoCandidates(await listQueueItems());
+  await recoverInterruptedUploads(scope?.sessionId);
+  let photos = photoCandidates(scopedItems(await listQueueItems(), scope));
   if (!photos.length) {
-    return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+    return { synced: 0, failed: 0, open: (await getQueueSummary(scope?.sessionId)).open };
   }
 
   try {
@@ -666,7 +867,7 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
     })));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, "failed", {
+    await Promise.all(photos.map((photo) => updateQueueStatus(photo.id, photo.status === "unknown_ack" ? "unknown_ack" : "failed", {
       sync_run_id: syncRunId,
       sync_checked_at: new Date().toISOString(),
       health_checked: true,
@@ -678,12 +879,12 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       upload_debug_state: "api_health_failed",
       upload_debug: "Foto-Sync wurde nicht gestartet, weil die API nicht erreichbar war.",
     })));
-    return { synced: 0, failed: photos.length, open: (await getQueueSummary()).open };
+    return { synced: 0, failed: photos.length, open: (await getQueueSummary(scope?.sessionId)).open };
   }
 
-  photos = photoCandidates(await listQueueItems());
+  photos = photoCandidates(scopedItems(await listQueueItems(), scope));
   for (const queuedPhoto of photos) {
-    const currentItems = await listQueueItems();
+    const currentItems = scopedItems(await listQueueItems(), scope);
     const photo = currentItems.find((entry) => entry.id === queuedPhoto.id) ?? queuedPhoto;
     const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === photo.client_item_id);
     if (linkedDraft && linkedDraft.status !== "synced" && !linkedDraft.server_item_id) {
@@ -735,6 +936,33 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
     }
 
     try {
+      if (photo.status === "unknown_ack") {
+        const status = await reconcileQueuePackage(photo, [photo]);
+        if (status.server_item_id && photo.client_photo_id && status.known_client_photo_ids.includes(photo.client_photo_id)) {
+          await updateQueueStatus(photo.id, "synced", {
+            server_item_id: status.server_item_id,
+            sync_run_id: syncRunId,
+            sync_checked_at: new Date().toISOString(),
+            upload_response_status: 200,
+            upload_response_text: "Server-Quittung nach Verbindungsabbruch gefunden.",
+            upload_debug_state: "ack_reconciled",
+            upload_debug: "Foto war bereits auf dem Server gespeichert.",
+            last_error: undefined,
+          });
+          synced += 1;
+          continue;
+        }
+        if (status.server_item_id) {
+          await updateQueueStatus(photo.id, "pending", {
+            server_item_id: status.server_item_id,
+            sync_run_id: syncRunId,
+            sync_checked_at: new Date().toISOString(),
+            upload_debug_state: "ack_missing_photo_retry",
+            upload_debug: "Objekt ist auf dem Server, Foto fehlt noch und wird erneut gesendet.",
+            last_error: undefined,
+          });
+        }
+      }
       const result = await uploadPhotoWithReceipt(photo, syncRunId);
       if (result.status !== "synced" && result.status !== "already_exists") {
         throw new Error(`Foto-Sync nicht bestätigt: ${result.status}`);
@@ -759,12 +987,13 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
       if (linkedDraft && result.server_item_id && linkedDraft.server_item_id !== result.server_item_id) {
         await updateQueueStatus(linkedDraft.id, linkedDraft.status, { server_item_id: result.server_item_id });
       }
-      api(`/items/${result.server_item_id}/ai/run?mode=review`, { method: "POST", body: "{}" }).catch(() => undefined);
+      api(`/items/${result.server_item_id}/ai/run?mode=fast`, { method: "POST", body: "{}" }).catch(() => undefined);
       synced += 1;
     } catch (error) {
       const rawError = error instanceof Error ? error.message : String(error);
       const permanent = isPermanentQueueError(error) || rawError.includes("Objekt ist noch nicht synchronisiert") || rawError.includes("Session not found");
-      await updateQueueStatus(photo.id, permanent ? "conflict" : "failed", {
+      const nextStatus = shouldDiscardDefective(error) ? "discard_pending" : permanent ? "conflict" : isAckUnknownError(error) ? "unknown_ack" : "failed";
+      await updateQueueStatus(photo.id, nextStatus, {
         sync_run_id: syncRunId,
         sync_checked_at: new Date().toISOString(),
         health_checked: true,
@@ -773,50 +1002,131 @@ export async function syncPendingPhotos(): Promise<SyncResult> {
         skip_reason: undefined,
         fetch_started: true,
         last_error: cleanError(error),
-        upload_debug_state: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? "timeout" : "fetch_error",
-        upload_response_status: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError") ? 0 : undefined,
+        upload_debug_state: shouldRetryAfterSmallerPhoto(error) ? "photo_too_large_retry_needed" : nextStatus === "unknown_ack" ? "unknown_ack" : nextStatus === "discard_pending" ? "discard_pending" : "fetch_error",
+        upload_response_status: nextStatus === "unknown_ack" ? 0 : undefined,
         upload_response_text: rawError.slice(0, 500),
-        upload_debug: error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
-          ? "Keine Serverantwort nach 45 Sekunden."
-          : "Foto-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
+        upload_debug: nextStatus === "unknown_ack"
+          ? "Foto-Sync wurde gestartet, aber die Server-Quittung fehlt. Beim naechsten Sync wird zuerst der Serverstatus geprueft."
+          : nextStatus === "discard_pending"
+            ? "Defektes lokales Foto wurde isoliert, damit die aktuelle Erfassung weiterlaufen kann."
+            : shouldRetryAfterSmallerPhoto(error)
+              ? "Foto war fuer den Server zu gross. Bitte erneut synchronisieren; neue Fotos werden staerker komprimiert."
+              : "Foto-Sync wurde gestartet, aber nicht erfolgreich abgeschlossen.",
       });
+      if (nextStatus === "discard_pending") {
+        if (getOnlineStatus()) {
+          await api("/mobile-diagnostics", {
+            method: "POST",
+            body: JSON.stringify({
+              allgemein: { session_id: scope?.sessionId ?? photo.session_id, zeitpunkt: new Date().toISOString(), quelle: "sync_defective_photo_discard" },
+              queue_error: { client_item_id: photo.client_item_id, client_photo_id: photo.client_photo_id, source_device_id: photo.device_id, error: rawError.slice(0, 500) },
+            }),
+          }).catch(() => undefined);
+        }
+        await finalizeDiscardPendingQueueItems([photo.id]);
+      }
       failed += 1;
     }
   }
-  return { synced, failed, open: (await getQueueSummary()).open };
-}
-export async function retryFailed(): Promise<SyncResult> {
-  await markFailedAsPending();
-  return syncNow();
+  return { synced, failed, open: (await getQueueSummary(scope?.sessionId)).open };
 }
 
-export async function syncNow(): Promise<SyncResult> {
-  if (syncRunning) {
-    if (syncRunningStartedAt && Date.now() - syncRunningStartedAt > SYNC_LOCK_STALE_MS) {
-      syncRunning = false;
-      syncRunningStartedAt = 0;
-      await recoverInterruptedUploads();
+async function repairBeforeSync(scope?: SyncScope) {
+  if (!scope?.sessionId) return;
+  const repair = await repairQueueForSession(scope.sessionId);
+  if (!repair.isolatedItems.length) return;
+  if (getOnlineStatus()) {
+    await api("/mobile-diagnostics", {
+      method: "POST",
+      body: JSON.stringify({
+        allgemein: {
+          session_id: scope.sessionId,
+          zeitpunkt: new Date().toISOString(),
+          quelle: "sync_queue_repair",
+        },
+        queue_repair: repair,
+      }),
+    }).catch(() => undefined);
+  }
+  await finalizeDiscardPendingQueueItems(repair.isolatedItems.map((item) => item.id));
+}
+
+function syncScopeKey(scope?: SyncScope) {
+  return scope?.sessionId || "__global__";
+}
+
+function lockForScope(scope?: SyncScope) {
+  const key = syncScopeKey(scope);
+  const existing = syncLocks.get(key);
+  if (existing) return existing;
+  const created: SyncLockState = { running: false, startedAt: 0, nextAllowedAt: 0, backoffIndex: 0 };
+  syncLocks.set(key, created);
+  return created;
+}
+
+function updateBackoff(lock: SyncLockState, failed: boolean) {
+  if (!failed) {
+    lock.backoffIndex = 0;
+    lock.nextAllowedAt = 0;
+    return;
+  }
+  const delay = SYNC_BACKOFF_MS[Math.min(lock.backoffIndex, SYNC_BACKOFF_MS.length - 1)] ?? SYNC_BACKOFF_MS[0];
+  lock.nextAllowedAt = Date.now() + delay;
+  lock.backoffIndex = Math.min(lock.backoffIndex + 1, SYNC_BACKOFF_MS.length - 1);
+}
+
+export async function retryFailed(scope?: SyncScope): Promise<SyncResult> {
+  await markFailedAsPending(scope?.sessionId);
+  return syncNow({ ...scope, manual: true });
+}
+
+export async function syncNow(scope?: SyncScope): Promise<SyncResult> {
+  const lock = lockForScope(scope);
+  const now = Date.now();
+  if (lock.running) {
+    if (lock.startedAt && now - lock.startedAt > SYNC_LOCK_STALE_MS) {
+      lock.running = false;
+      lock.startedAt = 0;
+      await recoverInterruptedUploads(scope?.sessionId);
     } else {
-      return { synced: 0, failed: 0, open: (await getQueueSummary()).open };
+      if (scope?.manual) {
+        lock.nextAllowedAt = 0;
+        lock.rerunRequested = true;
+      }
+      return { synced: 0, failed: 0, open: (await getQueueSummary(scope?.sessionId)).open };
     }
   }
-  syncRunning = true;
-  syncRunningStartedAt = Date.now();
+  if (!scope?.manual && lock.nextAllowedAt > now) {
+    return { synced: 0, failed: 0, open: (await getQueueSummary(scope?.sessionId)).open };
+  }
+  lock.running = true;
+  lock.startedAt = now;
   try {
-    await recoverInterruptedUploads();
-    const bundles = await syncPendingBundles();
+    await repairBeforeSync(scope);
+    await recoverInterruptedUploads(scope?.sessionId);
+    const bundles = await syncPendingBundles(scope);
     if (bundles.synced > 0) {
       await clearOnlySyncedItems();
     }
-    await recoverResolvablePhotoConflicts();
-    const photos = await syncPendingPhotos();
+    await recoverResolvablePhotoConflicts(scope);
+    const photos = await syncPendingPhotos(scope);
     if (photos.synced > 0) {
       await clearOnlySyncedItems();
     }
-    const summary = await getQueueSummary();
-    return { synced: bundles.synced + photos.synced, failed: bundles.failed + photos.failed, open: summary.open };
+    const summary = await getQueueSummary(scope?.sessionId);
+    const result = { synced: bundles.synced + photos.synced, failed: bundles.failed + photos.failed, open: summary.open };
+    updateBackoff(lock, result.failed > 0);
+    return result;
   } finally {
-    syncRunning = false;
-    syncRunningStartedAt = 0;
+    lock.running = false;
+    lock.startedAt = 0;
+    if (lock.rerunRequested) {
+      lock.rerunRequested = false;
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          syncNow({ ...scope, manual: true }).catch(() => undefined);
+        }, 250);
+      }
+    }
   }
 }

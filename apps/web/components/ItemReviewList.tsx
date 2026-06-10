@@ -30,8 +30,24 @@ type AiSuggestedFields = {
   object_type?: string | null;
   specification?: string | null;
   condition?: string | null;
+  serial_number?: string | null;
   construction_year?: string | null;
   remark?: string | null;
+};
+
+type NameplateExtraction = {
+  raw_text?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  type_designation?: string | null;
+  serial_number?: string | null;
+  construction_year?: string | null;
+  technical_specs?: string[] | null;
+  suggested_object_type?: string | null;
+  suggested_specification?: string | null;
+  suggested_remark?: string | null;
+  confidence?: number | string | null;
+  uncertain_fields?: string[] | null;
 };
 
 type AiSummary = {
@@ -40,6 +56,7 @@ type AiSummary = {
   uncertainty_reason?: string | null;
   requires_manual_review?: boolean | null;
   suggested_fields?: AiSuggestedFields | null;
+  nameplate_extraction?: NameplateExtraction | null;
   bga_detection?: {
     object_name?: string | null;
     object_class?: string | null;
@@ -49,6 +66,7 @@ type AiSummary = {
     serial_number?: string | null;
     specification?: string | null;
     suggested_remark?: string | null;
+    nameplate_extraction?: NameplateExtraction | null;
     confidence?: number | string | null;
     uncertainty_reason?: string | null;
     suggested_fields?: AiSuggestedFields | null;
@@ -69,6 +87,12 @@ type AiSummary = {
     search_queries?: string[];
     research_basis?: Record<string, string | null | undefined>;
     sources?: Array<{ title?: string; url?: string; snippet?: string; source_provider?: string; query?: string; rank?: number }>;
+    source_evidence?: Array<{ title?: string; url?: string; host?: string; kind?: string; snippet?: string; query?: string; rank?: number; relevance_score?: number; matched_terms?: string[]; review_required?: boolean }>;
+    identified_product?: { designation?: string | null; manufacturer?: string | null; model?: string | null; serial_number?: string | null; construction_year?: string | null; specification?: string | null; confidence?: number | null; review_required?: boolean };
+    technical_facts?: Record<string, string | boolean | null | undefined>;
+    suggested_value?: { amount?: number | null; range?: { min?: number | null; max?: number | null }; source?: string | null; confidence?: number | null; review_required?: boolean };
+    confidence?: number | null;
+    review_required?: boolean;
     estimated_age_years?: number | null;
     estimated_value?: number | null;
     estimated_value_range?: { min?: number; max?: number };
@@ -76,7 +100,27 @@ type AiSummary = {
     estimated_value_reason?: string | null;
     age_confidence?: number | null;
     age_reason?: string | null;
-    price_candidates?: Array<{ value?: number; source?: string; title?: string }>;
+    valuation_state?: "reference_available" | "range_review" | "no_reference" | string;
+    reference_price_available?: boolean;
+    reference_price_label?: string;
+    price_candidates?: Array<{
+      value?: number;
+      source?: string;
+      title?: string;
+      market_kind?: string;
+      reference_match?: "exact" | "similar" | "weak" | string;
+      reference_status?: string;
+      match_reason?: string;
+      matched_terms?: string[];
+    }>;
+    selected_price_reference?: {
+      value?: number;
+      source?: string;
+      title?: string;
+      market_kind?: string;
+      reference_match?: string;
+      match_reason?: string;
+    } | null;
     value_reference_used?: ValueReference | null;
     matching_value_references?: ValueReference[];
     value_source?: string;
@@ -121,6 +165,8 @@ export type ReviewItem = {
   id: string;
   inventory_id?: string;
   temporary_id?: string;
+  created_at?: string;
+  updated_at?: string;
   object_type?: string;
   object_class_id?: string;
   object_class_name?: string;
@@ -291,6 +337,57 @@ function matchesReviewFilter(item: ReviewItem, filter: ReviewFilterKey) {
   return true;
 }
 
+const aiWorkStatuses = new Set(["ki_wartet", "ki_laeuft", "ki_schnell_wartet", "ki_schnell_laeuft", "ki_pruefung_wartet", "ki_pruefung_laeuft"]);
+
+type AiWorkState = {
+  title: string;
+  shortLabel: string;
+  phaseLabel: string;
+  description: string;
+  elapsedLabel: string;
+  isLong: boolean;
+  isVeryLong: boolean;
+};
+
+function isAiWorking(item: ReviewItem) {
+  return aiWorkStatuses.has(item.status ?? "");
+}
+
+function formatAiElapsed(timestamp: string | undefined, now: number) {
+  if (!timestamp) return { label: "läuft", minutes: 0 };
+  const started = new Date(timestamp).getTime();
+  if (!Number.isFinite(started)) return { label: "läuft", minutes: 0 };
+  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  if (seconds < 55) return { label: `${Math.max(1, seconds)} Sek.`, minutes: 0 };
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 10) return { label: `${minutes}:${String(rest).padStart(2, "0")} Min.`, minutes };
+  return { label: `${minutes} Min.`, minutes };
+}
+
+function aiWorkState(item: ReviewItem, now: number): AiWorkState | null {
+  const status = item.status ?? "";
+  if (!aiWorkStatuses.has(status)) return null;
+  const isQueued = status.endsWith("_wartet") || status === "ki_wartet";
+  const isFast = status.includes("schnell") || status === "ki_wartet" || status === "ki_laeuft";
+  const elapsed = formatAiElapsed(item.updated_at || item.created_at, now);
+  const title = isFast ? "Schnell-KI prüft diesen Artikel" : "Prüf-KI prüft diesen Artikel";
+  const phaseLabel = isQueued ? "wartet auf Start" : isFast ? "Objektfoto wird erkannt" : "Fotos und Typenschild werden geprüft";
+  return {
+    title,
+    shortLabel: isFast ? "Schnell-KI läuft" : "Prüf-KI läuft",
+    phaseLabel,
+    description: elapsed.minutes >= 3
+      ? "Dauert länger als üblich, arbeitet aber weiter im Hintergrund. Die Liste aktualisiert automatisch."
+      : isFast
+        ? "Bezeichnung, Klasse und erste Hinweise werden aus den Fotos vorbereitet."
+        : "Typenschild, Nacharbeitslogik und geprüfte Hinweise werden ausgewertet.",
+    elapsedLabel: isQueued ? "in Warteschlange" : `seit ${elapsed.label}`,
+    isLong: elapsed.minutes >= 2,
+    isVeryLong: elapsed.minutes >= 8,
+  };
+}
+
 const reviewFilters: Array<{ key: ReviewFilterKey; label: string; empty: string }> = [
   { key: "all", label: "Alle", empty: "Noch keine Gegenstände in dieser Ansicht." },
   { key: "rework", label: "Nacharbeit", empty: "Sehr gut: keine offene Nacharbeit." },
@@ -312,24 +409,25 @@ const evidencePhotoTypes = [
 function draftFromItem(item: ReviewItem) {
   const detection = item.ai_summary?.bga_detection;
   const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
+  const nameplate = detection?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
   const deepDive = item.ai_summary?.deep_dive;
-  const constructionYear = item.construction_year || fields.construction_year || "";
+  const constructionYear = item.construction_year || fields.construction_year || nameplate?.construction_year || "";
   const derivedAge = ageFromConstructionYear(constructionYear);
   const itemAgeIsEstimate = item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt";
   return {
-    object_type: item.object_type || fields.object_type || detection?.object_name || "",
+    object_type: item.object_type || fields.object_type || detection?.object_name || nameplate?.suggested_object_type || "",
     brand: item.brand || detection?.manufacturer || detection?.brand || "",
     model: item.model || detection?.model || "",
-    serial_number: item.serial_number || detection?.serial_number || "",
-    specification: item.specification || fields.specification || detection?.specification || "",
+    serial_number: item.serial_number || fields.serial_number || detection?.serial_number || nameplate?.serial_number || "",
+    specification: item.specification || fields.specification || nameplate?.suggested_specification || detection?.specification || "",
     construction_year: constructionYear,
     function_ok: item.function_ok ?? "nicht_geprueft",
     uvv_status: item.uvv_status ?? "unklar",
     uvv_valid_until: item.uvv_valid_until ?? "",
     inspection_book_available: item.inspection_book_available ?? "unklar",
-    remark: item.remark || fields.remark || detection?.suggested_remark || "",
+    remark: item.remark || fields.remark || nameplate?.suggested_remark || detection?.suggested_remark || "",
     type_plate_status: item.type_plate_status ?? "nicht_geprueft",
-    value_estimate: item.value_estimate?.toString() ?? (deepDive?.estimated_value != null ? String(deepDive.estimated_value) : detection?.estimated_value_eur != null ? String(detection.estimated_value_eur) : ""),
+    value_estimate: item.value_estimate?.toString() ?? "",
     estimated_age_years:
       derivedAge != null && (item.estimated_age_years == null || itemAgeIsEstimate)
         ? String(derivedAge)
@@ -390,6 +488,7 @@ export function ItemReviewList({
   readOnly?: boolean;
 }) {
   const [activeFilter, setActiveFilter] = useState<ReviewFilterKey>("all");
+  const [now, setNow] = useState(() => Date.now());
   const visibleItems = useMemo(
     () => items.filter((item) => matchesReviewFilter(item, activeFilter)).sort((left, right) => {
       const priority = reviewSortPriority(left) - reviewSortPriority(right);
@@ -413,6 +512,14 @@ export function ItemReviewList({
     }),
     [items],
   );
+  const aiWorkingItems = useMemo(() => items.filter(isAiWorking), [items]);
+
+  useEffect(() => {
+    if (!aiWorkingItems.length) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(timer);
+  }, [aiWorkingItems.length]);
 
   if (!items.length) {
     return (
@@ -440,10 +547,11 @@ export function ItemReviewList({
               </button>
             ))}
           </div>
+          {aiWorkingItems.length ? <AiWorkOverview items={aiWorkingItems} now={now} /> : null}
           {visibleItems.length ? (
             <div className="item-list">
               {visibleItems.map((item) => (
-                <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} />
+                <ItemReviewRow item={item} key={item.id} objectClasses={objectClasses} onChanged={onChanged} onOpenPhoto={openPhoto} readOnly={readOnly} now={now} />
               ))}
             </div>
           ) : (
@@ -455,6 +563,28 @@ export function ItemReviewList({
         </>
       )}
     </PhotoPreviewProvider>
+  );
+}
+
+function AiWorkOverview({ items, now }: { items: ReviewItem[]; now: number }) {
+  const first = items[0];
+  const firstState = aiWorkState(first, now);
+  const firstName = first.object_type || first.inventory_id || first.temporary_id || "Artikel";
+  const moreCount = Math.max(0, items.length - 1);
+  return (
+    <div className="ai-work-overview" role="status" aria-live="polite">
+      <div className="ai-work-overview-main">
+        <span className="ai-work-spinner" aria-hidden="true" />
+        <div>
+          <strong>KI arbeitet gerade an: {firstName}</strong>
+          <span>
+            {firstState?.phaseLabel || "Prüfung läuft"} · {firstState?.elapsedLabel || "läuft"}
+            {moreCount ? ` · ${moreCount} weitere` : ""}
+          </span>
+        </div>
+      </div>
+      <div className="ai-work-overview-meter" aria-hidden="true"><span /></div>
+    </div>
   );
 }
 
@@ -540,12 +670,14 @@ function ItemReviewRow({
   onChanged,
   onOpenPhoto,
   readOnly,
+  now,
 }: {
   item: ReviewItem;
   objectClasses: Bootstrap["object_classes"];
   onChanged: () => void;
   onOpenPhoto: (url: string, label: string) => void;
   readOnly: boolean;
+  now: number;
 }) {
   const editPanelRef = useRef<HTMLDivElement | null>(null);
   const inventoryType = item.inventory_type || "bga";
@@ -635,12 +767,14 @@ function ItemReviewRow({
   function applyAiSuggestionToDraft() {
     const detection = item.ai_summary?.bga_detection;
     const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
+    const nameplate = detection?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
     setDraft((current) => ({
       ...current,
-      object_type: current.object_type || fields.object_type || detection?.object_name || "",
-      specification: current.specification || fields.specification || "",
-      construction_year: current.construction_year || fields.construction_year || "",
-      remark: current.remark || fields.remark || current.remark,
+      object_type: current.object_type || fields.object_type || detection?.object_name || nameplate?.suggested_object_type || "",
+      specification: current.specification || fields.specification || nameplate?.suggested_specification || "",
+      serial_number: current.serial_number || fields.serial_number || detection?.serial_number || nameplate?.serial_number || "",
+      construction_year: current.construction_year || fields.construction_year || nameplate?.construction_year || "",
+      remark: current.remark || fields.remark || nameplate?.suggested_remark || current.remark,
       condition: current.condition || fields.condition || "gebraucht",
     }));
     setDraftDirty(true);
@@ -648,6 +782,15 @@ function ItemReviewRow({
   }
 
   function applyDeepDiveEstimate(kind: "age" | "value" | "both") {
+    const referenceValue = deepDive?.estimated_value;
+    const canApplyValue = Boolean(
+      referenceValue != null
+      && (deepDive?.reference_price_available || deepDive?.value_source === "gepruefte_wertreferenz" || deepDive?.value_source === "gebrauchtmarkt_referenz"),
+    );
+    if ((kind === "value" || kind === "both") && !canApplyValue) {
+      setMessage("Wert nicht übernommen: Ohne eindeutigen Referenzpreis bleibt der Wert offen.");
+      return;
+    }
     setDraft((current) => ({
       ...current,
       estimated_age_years:
@@ -655,12 +798,17 @@ function ItemReviewRow({
           ? String(deepDive.estimated_age_years)
           : current.estimated_age_years,
       value_estimate:
-        (kind === "value" || kind === "both") && deepDive?.estimated_value != null
-          ? String(deepDive.estimated_value)
+        (kind === "value" || kind === "both") && canApplyValue
+          ? String(referenceValue)
           : current.value_estimate,
     }));
     setDraftDirty(true);
-    setMessage("KI-Schätzung übernommen. Bitte fachlich prüfen und speichern.");
+    setMessage("Geprüfte KI-Angabe übernommen. Bitte fachlich prüfen und speichern.");
+  }
+
+  function discardDeepDiveValue() {
+    updateDraft({ value_estimate: "" });
+    setMessage("Wertvorschlag verworfen. Der Datensatz bleibt ohne Schätzwert, bis du einen Wert manuell setzt.");
   }
 
   function applyValueReference(reference?: ValueReference | null) {
@@ -789,10 +937,21 @@ function ItemReviewRow({
         await persistDraft();
       }
       await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
-      setMessage("KI-Websuche mit aktuellen Eingaben gestartet");
+      setMessage("Manuelle Preisrecherche mit aktuellen Eingaben gestartet");
       window.setTimeout(onChanged, 1200);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "KI-Websuche konnte nicht gestartet werden");
+      setMessage(err instanceof Error ? err.message : "Preisrecherche konnte nicht gestartet werden");
+    }
+  }
+
+  async function cancelAiWork() {
+    if (readOnly) return;
+    try {
+      await api(`/items/${item.id}/ai/cancel`, { method: "POST", body: "{}" });
+      setMessage("KI-Prozess abgebrochen");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "KI-Prozess konnte nicht abgebrochen werden");
     }
   }
 
@@ -851,6 +1010,7 @@ function ItemReviewRow({
   const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
   const aiProposal = item.ai_summary?.bga_detection;
   const aiProposalFields = aiProposal?.suggested_fields ?? item.ai_summary?.suggested_fields;
+  const nameplateProposal = aiProposal?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
   const deepDive = item.ai_summary?.deep_dive;
   const researchBasis = [
     { label: "Bezeichnung", value: draft.object_type || compactText(deepDive?.research_basis?.designation) },
@@ -864,6 +1024,7 @@ function ItemReviewRow({
   const searchQueries = deepDive?.search_queries?.length ? deepDive.search_queries : deepDive?.query ? [deepDive.query] : [];
   const priceCandidates = deepDive?.price_candidates ?? [];
   const sourceList = deepDive?.sources ?? [];
+  const sourceEvidence = deepDive?.source_evidence ?? [];
   const valueReferences = deepDive?.matching_value_references ?? [];
   const usedValueReference = deepDive?.value_reference_used ?? valueReferences[0];
   const itemPhotos = item.photos ?? [];
@@ -879,6 +1040,7 @@ function ItemReviewRow({
     [isBga, objectClasses],
   );
   const itemName = draft.object_type || "Unbekanntes Objekt";
+  const aiWork = aiWorkState(item, now);
   const selectedClassName = filteredObjectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen";
   const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || selectedClassName || "Details offen";
   const derivedAgeFromYear = ageFromConstructionYear(draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year);
@@ -886,18 +1048,29 @@ function ItemReviewRow({
   const displayedAgeLabel = displayedAge != null ? `${displayedAge} Jahre` : "Alter offen";
   const ageBasis = derivedAgeFromYear != null ? `aus Baujahr ${draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year}` : null;
   const isAiEstimate = Boolean(!ageBasis && (deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt"));
-  const compactValue = draft.value_estimate ? `${draft.value_estimate} €${isAiEstimate ? " (KI)" : ""}` : deepDive?.estimated_value ? `${deepDive.estimated_value} € (KI)` : "Wert offen";
+  const hasTrustedDeepDiveValue = Boolean(
+    deepDive?.estimated_value != null
+    && (deepDive.reference_price_available || deepDive.value_source === "gepruefte_wertreferenz" || deepDive.value_source === "gebrauchtmarkt_referenz"),
+  );
+  const valuationState = deepDive?.valuation_state || (hasTrustedDeepDiveValue ? "reference_available" : "no_reference");
+  const valuationLabel = deepDive?.reference_price_label
+    || (valuationState === "reference_available" ? "Referenzpreis verfügbar" : valuationState === "range_review" ? "Preisspanne prüfen" : "Kein Referenzpreis verfügbar");
+  const deepDiveRange = deepDive?.estimated_value_range;
+  const rangeLabel = deepDiveRange?.min != null && deepDiveRange?.max != null ? `${deepDiveRange.min} - ${deepDiveRange.max} €` : "offen";
+  const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : "Wert offen";
+  const savedValueLabel = item.value_estimate != null ? `${item.value_estimate} €` : "Wert offen";
+  const compactDeepDiveValue = hasTrustedDeepDiveValue ? `${deepDive?.estimated_value} € Referenz` : valuationLabel;
   const compactKi = deepDive
-    ? `${displayedAgeLabel}${ageBasis ? ` (${ageBasis})` : ""} · ${deepDive.estimated_value ?? "Wert offen"} €`
+    ? `${displayedAgeLabel}${ageBasis ? ` (${ageBasis})` : ""} · ${compactDeepDiveValue}`
     : isAiEstimate
-      ? `${displayedAgeLabel} · ${item.value_estimate ?? "Wert offen"} €`
-      : item.status?.startsWith("ki_") ? "KI läuft" : "";
+      ? `${displayedAgeLabel} · ${savedValueLabel}`
+      : aiWork ? `${aiWork.phaseLabel} · ${aiWork.elapsedLabel}` : item.status?.startsWith("ki_") ? "KI läuft" : "";
   const blockerSummary = blockers.slice(0, 3).map(displayTaskField).join(", ");
   const finalizeBlocked = blockers.length > 0;
   const finalizableLabel = finalizeBlocked ? "Noch offen" : "Finalisieren";
 
   return (
-    <div className="item-row">
+    <div className={`item-row ${aiWork ? "is-ai-working" : ""} ${aiWork?.isVeryLong ? "is-ai-slow" : ""}`.trim()}>
       <AuthPhotoButton path={photoPath} label={photoLabel} className="photo-thumb" onOpenPhoto={onOpenPhoto} />
 
       <div className="item-main">
@@ -908,8 +1081,29 @@ function ItemReviewRow({
           <span>{item.inventory_id || item.temporary_id} · {item.sequence_number ? `Nr. ${item.sequence_number} · ` : ""}{itemMeta}</span>
           </div>
           <StatusBadge value={item.review_status} />
+          {aiWork ? <span className={`status ai-work-badge ${aiWork.isLong ? "is-long" : ""}`}>{aiWork.shortLabel}</span> : null}
           <span className={item.has_object_photo ? "status geprueft" : "status upload_fehler"}>{itemPhotos.length || (item.has_object_photo ? 1 : 0)}/5 Fotos</span>
         </div>
+
+        {aiWork ? (
+          <div className={`ai-work-panel ${aiWork.isLong ? "is-long" : ""} ${aiWork.isVeryLong ? "is-very-long" : ""}`} role="status" aria-live="polite">
+            <div className="ai-work-panel-head">
+              <span className="ai-work-spinner" aria-hidden="true" />
+              <div>
+                <strong>{aiWork.title}</strong>
+                <span>{aiWork.phaseLabel}</span>
+              </div>
+              <small>{aiWork.elapsedLabel}</small>
+            </div>
+            <div className="ai-work-meter" aria-hidden="true"><span /></div>
+            <p>{aiWork.description}</p>
+            <div className="ai-work-actions">
+              <button className="btn secondary compact-btn" type="button" onClick={cancelAiWork} disabled={readOnly}>
+                KI abbrechen
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="item-compact-grid">
           <span><b>Klasse</b>{selectedClassName}</span>
@@ -944,9 +1138,6 @@ function ItemReviewRow({
           </button>
           <button className="btn" onClick={finalize} disabled={readOnly || finalizeBlocked} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
             {finalizableLabel}
-          </button>
-          <button className="btn secondary compact-btn" type="button" onClick={runDeepDive} disabled={readOnly}>
-            KI-Websuche neu starten
           </button>
           <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
@@ -1042,7 +1233,7 @@ function ItemReviewRow({
                 <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="falls vorhanden" />
               </label>
               <label className="field">
-                <span>{deepDive?.estimated_by_ai ? "KI-Schätzwert €" : "Schätzwert €"}</span>
+                <span>Schätzwert €</span>
                 <input
                   disabled={readOnly}
                   value={draft.value_estimate}
@@ -1158,11 +1349,13 @@ function ItemReviewRow({
                   <span>Bezeichnung: <b>{aiProposalFields?.object_type || aiProposal?.object_name || "offen"}</b></span>
                   <span>Klasse: <b>{aiProposal?.object_class || "offen"}</b></span>
                   <span>Typ/Spezifikation: <b>{aiProposalFields?.specification || "offen"}</b></span>
+                  <span>Seriennummer: <b>{aiProposalFields?.serial_number || aiProposal?.serial_number || nameplateProposal?.serial_number || "offen"}</b></span>
+                  <span>Baujahr: <b>{aiProposalFields?.construction_year || nameplateProposal?.construction_year || "offen"}</b></span>
                   <span>Zustand: <b>{aiProposalFields?.condition || "offen"}</b></span>
                 </div>
-                {aiProposal?.estimated_age_years || aiProposal?.estimated_value_eur ? (
+                {aiProposal?.estimated_age_years ? (
                   <p className="deep-dive-note">
-                    KI-Schätzung: {aiProposal.estimated_age_years ?? "Alter offen"} Jahre · {aiProposal.estimated_value_eur ?? "Wert offen"} €. Manuell prüfen.
+                    KI-Altershinweis: {aiProposal.estimated_age_years} Jahre. Manuell prüfen.
                   </p>
                 ) : null}
                 {aiProposal?.uncertainty_reason || item.ai_summary?.uncertainty_reason ? (
@@ -1181,11 +1374,11 @@ function ItemReviewRow({
                 {displayedAgeLabel}
                 {ageBasis ? ` (${ageBasis})` : ""}
                 {" · "}
-                {deepDive.estimated_value ? `${deepDive.estimated_value} €` : "Wert offen"}
+                {hasTrustedDeepDiveValue ? `${deepDive.estimated_value} € Referenz` : valuationLabel}
                 {deepDive.web_search_performed ? " · Websuche" : ""}
               </span>
             </summary>
-            <p className="deep-dive-note">Diese Recherche nutzt die aktuell gespeicherten Eingaben. Wenn du Baujahr, Marke, Modell oder Zustand änderst, starte die KI-Websuche neu.</p>
+            <p className="deep-dive-note">Diese Recherche nutzt die aktuell gespeicherten Eingaben. Werte werden nur mit eindeutigem Gebrauchtmarkt-Match übernommen; ähnliche Treffer bleiben Prüfhinweise.</p>
             {researchBasis.length ? (
               <div className="research-block">
                 <strong>Verwendete Eingaben</strong>
@@ -1208,12 +1401,38 @@ function ItemReviewRow({
             ) : null}
             <div className="deep-dive-grid">
               <span>Alter: <b>{displayedAge != null ? `${displayedAge} Jahre` : "offen"}</b>{ageBasis ? ` · ${ageBasis}` : ""}</span>
-              <span>Wert: <b>{deepDive.estimated_value ? `${deepDive.estimated_value} €` : "offen"}</b></span>
+              <span>Wertstatus: <b>{valuationLabel}</b></span>
+              <span>Wert: <b>{hasTrustedDeepDiveValue ? `${deepDive.estimated_value} €` : valuationState === "range_review" ? rangeLabel : "offen"}</b></span>
               <span>Quelle: <b>{deepDive.web_search_performed ? `Websuche (${deepDive.search_provider || "Quelle"})` : "Keine verwertbare Webquelle"}</b></span>
               <span>Wert-Sicherheit: <b>{percentLabel(deepDive.estimated_value_confidence)}</b></span>
               <span>Alter-Sicherheit: <b>{percentLabel(deepDive.age_confidence)}</b></span>
               <span>Preisfunde: <b>{priceCandidates.length || 0}</b></span>
             </div>
+            {deepDive.identified_product || sourceEvidence.length ? (
+              <div className="research-block">
+                <strong>Recherche-Dossier</strong>
+                <div className="research-chip-list">
+                  {deepDive.identified_product?.designation ? <span className="research-chip"><b>Produkt</b>{deepDive.identified_product.designation}</span> : null}
+                  {deepDive.identified_product?.manufacturer ? <span className="research-chip"><b>Hersteller</b>{deepDive.identified_product.manufacturer}</span> : null}
+                  {deepDive.identified_product?.model ? <span className="research-chip"><b>Modell</b>{deepDive.identified_product.model}</span> : null}
+                  <span className="research-chip"><b>Wertstatus</b>{valuationLabel}</span>
+                  <span className="research-chip"><b>Quellen</b>{sourceEvidence.length ? `${sourceEvidence.length} bewertet` : "Keine belastbare Quelle"}</span>
+                </div>
+              </div>
+            ) : null}
+            {sourceEvidence.length ? (
+              <div className="research-block">
+                <strong>Quellen-Evidenz</strong>
+                <div className="research-source-list">
+                  {sourceEvidence.slice(0, 4).filter((source) => source.url).map((source) => (
+                    <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
+                      <b>{source.kind || "Quelle"} · {Math.round((source.relevance_score ?? 0) * 100)}%</b>
+                      <span>{source.title || source.host || "Quelle"}{source.matched_terms?.length ? ` · Treffer: ${source.matched_terms.slice(0, 4).join(", ")}` : ""}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {valueReferences.length ? (
               <div className="research-block value-reference-block">
                 <strong>Geprüfte Wertreferenzen</strong>
@@ -1245,9 +1464,17 @@ function ItemReviewRow({
                 className="btn secondary compact-btn"
                 type="button"
                 onClick={() => applyDeepDiveEstimate("value")}
-                disabled={readOnly || deepDive.estimated_value == null}
+                disabled={readOnly || !hasTrustedDeepDiveValue}
               >
                 Wert übernehmen
+              </button>
+              <button
+                className="btn secondary compact-btn"
+                type="button"
+                onClick={discardDeepDiveValue}
+                disabled={readOnly || (!draft.value_estimate && !deepDive.estimated_value)}
+              >
+                Wert verwerfen
               </button>
               <button
                 className="btn secondary compact-btn"
@@ -1261,7 +1488,7 @@ function ItemReviewRow({
                 className="btn secondary compact-btn"
                 type="button"
                 onClick={() => applyDeepDiveEstimate("both")}
-                disabled={readOnly || (deepDive.estimated_value == null && deepDive.estimated_age_years == null)}
+                disabled={readOnly || !hasTrustedDeepDiveValue}
               >
                 Schätzung übernehmen
               </button>
@@ -1276,16 +1503,45 @@ function ItemReviewRow({
               <div className="research-block">
                 <strong>Gefundene Preis-Indizien</strong>
                 <div className="research-source-list">
-                  {priceCandidates.slice(0, 5).map((candidate, index) => (
-                    <a key={`${candidate.source || "price"}-${index}`} href={candidate.source || "#"} target="_blank" rel="noreferrer">
-                      <b>{candidate.value ? `${candidate.value} €` : "Preis offen"}</b>
-                      <span>{candidate.title || hostLabel(candidate.source)}</span>
-                    </a>
-                  ))}
+                  {priceCandidates.slice(0, 5).map((candidate, index) => {
+                    const candidateIsExact = candidate.reference_match === "exact";
+                    return (
+                      <div className="value-reference-card" key={`${candidate.source || "price"}-${index}`}>
+                        <div>
+                          <b>{candidate.value ? `${candidate.value} €` : "Preis offen"} · {candidateIsExact ? "Referenzpreis" : candidate.reference_match === "similar" ? "Preisspanne prüfen" : "keine Referenz"}</b>
+                          <span>{candidate.title || hostLabel(candidate.source)}</span>
+                          <small>{candidate.match_reason || "Produktmatch nicht eindeutig."}</small>
+                        </div>
+                        <div className="deep-dive-actions">
+                          <a className="btn secondary compact-btn" href={candidate.source || "#"} target="_blank" rel="noreferrer">
+                            Quelle ansehen
+                          </a>
+                          <button
+                            className="btn secondary compact-btn"
+                            type="button"
+                            onClick={() => {
+                              updateDraft({ value_estimate: candidate.value != null ? String(candidate.value) : "" });
+                              setMessage("Referenzpreis übernommen. Bitte speichern.");
+                            }}
+                            disabled={readOnly || !candidateIsExact || candidate.value == null}
+                          >
+                            Übernehmen
+                          </button>
+                          <button
+                            className="btn secondary compact-btn"
+                            type="button"
+                            onClick={() => setMessage("Preisfund verworfen. Der Datensatz bleibt unverändert.")}
+                          >
+                            Verwerfen
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
-              <p className="deep-dive-note">Keine konkrete Preisangabe in den Quellen erkannt. Ein angezeigter Wert ist dann nur eine konservative Orientierung und muss fachlich geprüft werden.</p>
+              <p className="deep-dive-note">Keine belastbare Gebrauchtquelle erkannt. Der Wert bleibt offen.</p>
             )}
             {deepDive.tire_valuation ? (
               <div className="deep-dive-grid">
@@ -1348,8 +1604,8 @@ function ItemReviewRow({
         ) : null}
         {moreOpen ? (
           <div className="more-actions">
-            <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly}>Prüf-KI manuell</button>
-            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly}>KI-Websuche neu starten</button>
+            <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly || Boolean(aiWork)}>{aiWork ? "KI läuft..." : "Prüf-KI manuell"}</button>
+            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly || Boolean(aiWork)}>{aiWork ? "KI läuft..." : "Preisrecherche manuell"}</button>
             <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
             <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Wertreferenz merken</button>
             <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
