@@ -49,6 +49,18 @@ from .security import (
 )
 from .settings import settings
 
+AI_ACTIVE_STATUSES = {
+    "ki_wartet",
+    "ki_laeuft",
+    "ki_schnell_wartet",
+    "ki_schnell_laeuft",
+    "ki_pruefung_wartet",
+    "ki_pruefung_laeuft",
+}
+AI_ACTIVE_STATUS_SQL = ", ".join(f"'{status}'" for status in sorted(AI_ACTIVE_STATUSES))
+AI_STALE_INTERVAL_SQL = "8 minutes"
+AI_CANCELLED_ITEM_IDS: set[str] = set()
+
 app = FastAPI(title="Inventar API", version="0.1.0-phase1")
 app.add_middleware(
     CORSMiddleware,
@@ -82,6 +94,8 @@ MOBILE_ALLOWED_PREFIXES = (
     "/items",
     "/offline-sync/photos",
     "/offline-sync/items",
+    "/offline-sync/status",
+    "/offline-sync/reconcile",
     "/mobile-diagnostics",
     "/uploads/photos",
 )
@@ -117,6 +131,14 @@ def authorize_request(request: Request):
         return json_error(exc.status_code, str(exc.detail), request)
     request.state.auth = payload
     if payload.get("kind") == "mobile_session":
+        device_id = str(payload.get("device_id") or "")
+        session_id = str(payload.get("session_id") or "")
+        device = fetch_one(
+            "SELECT id, revoked_at FROM session_devices WHERE id = %s AND session_id = %s",
+            (device_id, session_id),
+        ) if device_id and session_id else None
+        if not device or device.get("revoked_at"):
+            return json_error(403, "Mobile Session wurde widerrufen. Bitte QR-Code neu koppeln.", request)
         if any(path.startswith(prefix) for prefix in MOBILE_ALLOWED_PREFIXES):
             return None
         return json_error(403, "Mobile Session darf diese Funktion nicht ausführen", request)
@@ -207,6 +229,17 @@ class ItemIn(BaseModel):
     inspection_book_available: str = "unklar"
     remark: str | None = None
     type_plate_status: str = "nicht_geprueft"
+
+
+class OfflineReconcilePackageIn(BaseModel):
+    client_item_id: str
+    client_photo_ids: list[str] = []
+
+
+class OfflineReconcileIn(BaseModel):
+    session_id: str
+    source_device_id: str
+    packages: list[OfflineReconcilePackageIn] = []
 
 
 class ItemPatch(BaseModel):
@@ -511,17 +544,8 @@ def run_bga_rework_check(item_id: str) -> None:
         upsert_rework_task(item_id, "Erfasser", "Bezeichnung fehlt", "hoch", "Bezeichnung aus der Zählliste fehlt.")
     if item.get("condition") in {None, "", "unklar"}:
         upsert_rework_task(item_id, "Erfasser", "Zustand unklar", "normal", "Zustand muss für die Aufnahme eingeordnet werden.")
-    if item.get("function_ok") in {"nein", "nicht_geprueft"}:
-        label = "Funktion nicht in Ordnung" if item.get("function_ok") == "nein" else "Funktion nicht geprüft"
-        upsert_rework_task(item_id, "Technik", label, "hoch", "Funktionsstatus muss technisch geklärt werden.")
-    if item.get("uvv_status") in {"nicht_vorhanden", "unklar"}:
-        upsert_rework_task(item_id, "Technik", "UVV klären", "hoch", "UVV-Status ist für prüfpflichtige Gegenstände offen.")
-    if item.get("uvv_valid_until") and item.get("uvv_valid_until") < date.today():
-        upsert_rework_task(item_id, "Technik", "UVV abgelaufen", "hoch", "UVV-Datum liegt in der Vergangenheit.")
-    if item.get("uvv_status") == "vorhanden" and not has_photo_type(item_id, "uvv_label"):
-        upsert_rework_task(item_id, "Erfasser", "UVV-Siegel fotografieren", "normal", "UVV-Siegel oder Prüfplakette als Nachweis ergänzen.")
-    if item.get("type_plate_status") == "vorhanden" and not has_photo_type(item_id, "nameplate"):
-        upsert_rework_task(item_id, "Erfasser", "Typenschildfoto fehlt", "normal", "Typenschild wurde als vorhanden markiert, Foto fehlt.")
+    if item.get("function_ok") == "nein":
+        upsert_rework_task(item_id, "Technik", "Funktion nicht in Ordnung", "hoch", "Funktionsstatus muss technisch geklärt werden.")
 
     open_critical = fetch_one(
         """
@@ -721,6 +745,18 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
 def startup() -> None:
     run_migrations()
     ensure_upload_dirs()
+    try:
+        execute(
+            f"""
+            UPDATE inventory_items
+            SET status = 'ki_pruefung_offen',
+                updated_at = now()
+            WHERE status IN ({AI_ACTIVE_STATUS_SQL})
+              AND status <> 'finalisiert'
+            """,
+        )
+    except Exception as exc:
+        print(f"AI startup cleanup skipped: {type(exc).__name__}: {str(exc)[:160]}")
 
 
 @app.get("/health")
@@ -1248,15 +1284,47 @@ def join_session(body: JoinIn) -> dict[str, Any]:
     )
     if not session:
         raise HTTPException(status_code=404, detail="Join token invalid or expired")
-    device = execute(
-        """
-        INSERT INTO session_devices (tenant_id, session_id, device_name, device_fingerprint, last_seen_at)
-        VALUES (%s, %s, %s, %s, now())
-        RETURNING *
-        """,
-        (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
-    )
-    audit("device_joined", "session_device", str(device["id"]), device)
+    device = None
+    if body.device_fingerprint:
+        device = fetch_one(
+            """
+            SELECT *
+            FROM session_devices
+            WHERE session_id = %s AND device_fingerprint = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (session["id"], body.device_fingerprint),
+        )
+        if device and device.get("revoked_at"):
+            raise HTTPException(status_code=403, detail="Dieses Gerät wurde für diese Session widerrufen")
+    if body.device_fingerprint:
+        device = execute(
+            """
+            INSERT INTO session_devices (tenant_id, session_id, device_name, device_fingerprint, last_seen_at)
+            VALUES (%s, %s, %s, %s, now())
+            ON CONFLICT (session_id, device_fingerprint) WHERE device_fingerprint IS NOT NULL
+            DO UPDATE
+              SET device_name = EXCLUDED.device_name,
+                  last_seen_at = now()
+              WHERE session_devices.revoked_at IS NULL
+            RETURNING *
+            """,
+            (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
+        )
+        if not device:
+            raise HTTPException(status_code=403, detail="Dieses Gerät wurde für diese Session widerrufen")
+        audit("device_seen", "session_device", str(device["id"]), device)
+    else:
+        device = execute(
+            """
+            INSERT INTO session_devices (tenant_id, session_id, device_name, device_fingerprint, last_seen_at)
+            VALUES (%s, %s, %s, %s, now())
+            RETURNING *
+            """,
+            (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
+        )
+        audit("device_joined", "session_device", str(device["id"]), device)
     return {"session": session, "device": device, "access_token": create_mobile_session_token(session, device), "token_type": "bearer"}
 
 
@@ -1433,6 +1501,7 @@ def create_item(body: ItemIn) -> dict[str, Any]:
 
 @app.get("/sessions/{session_id}/items")
 def session_items(session_id: str) -> list[dict[str, Any]]:
+    repair_stale_ai_statuses(session_id=session_id)
     rows = fetch_all(
         """
         SELECT i.*, oc.name AS object_class_name,
@@ -1479,6 +1548,7 @@ def session_items(session_id: str) -> list[dict[str, Any]]:
             "confidence": ai_result.get("confidence"),
             "notes": ai_result.get("notes"),
             "bga_detection": ai_result.get("bga_detection"),
+            "nameplate_extraction": ai_result.get("nameplate_extraction"),
             "suggested_fields": ai_result.get("suggested_fields"),
             "requires_manual_review": ai_result.get("requires_manual_review") or ai_result.get("requires_review"),
             "uncertainty_reason": ai_result.get("uncertainty_reason"),
@@ -1850,6 +1920,168 @@ async def upload_photo(
     return row
 
 
+@app.get("/offline-sync/status")
+def offline_sync_status(
+    request: Request,
+    session_id: str,
+    source_device_id: str,
+    client_item_id: str,
+    client_photo_ids: str | None = None,
+) -> dict[str, Any]:
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("kind") == "mobile_session" and str(auth.get("session_id") or "") != session_id:
+        raise HTTPException(status_code=403, detail="Sync-Status gehört nicht zu dieser mobilen Session")
+    session = get_session(session_id)
+    expected_photo_ids = [
+        value.strip()
+        for value in (client_photo_ids or "").split(",")
+        if value.strip()
+    ]
+    item = fetch_one(
+        """
+        SELECT id, session_id, source_device_id, client_item_id, object_type, sequence_number, status, review_status
+        FROM inventory_items
+        WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+        LIMIT 1
+        """,
+        (session_id, source_device_id, client_item_id),
+    )
+    if not item:
+        return {
+            "session_id": session_id,
+            "session_status": session.get("status"),
+            "source_device_id": source_device_id,
+            "client_item_id": client_item_id,
+            "server_item_id": None,
+            "item_status": "missing",
+            "photos": [],
+            "known_client_photo_ids": [],
+            "missing_client_photo_ids": expected_photo_ids,
+        }
+    photos = fetch_all(
+        """
+        SELECT id, item_id, photo_type, client_photo_id, original_path, uploaded_at
+        FROM item_photos
+        WHERE item_id = %s AND source_device_id = %s
+        ORDER BY uploaded_at, id
+        """,
+        (item["id"], source_device_id),
+    )
+    all_known_ids = [str(photo["client_photo_id"]) for photo in photos if photo.get("client_photo_id")]
+    all_known_set = set(all_known_ids)
+    if expected_photo_ids:
+        expected_set = set(expected_photo_ids)
+        known_ids = [photo_id for photo_id in all_known_ids if photo_id in expected_set]
+    else:
+        known_ids = all_known_ids
+    return {
+        "session_id": session_id,
+        "session_status": session.get("status"),
+        "source_device_id": source_device_id,
+        "client_item_id": client_item_id,
+        "server_item_id": str(item["id"]),
+        "item_status": "synced",
+        "server_item": item,
+        "photos": photos,
+        "known_client_photo_ids": known_ids,
+        "missing_client_photo_ids": [photo_id for photo_id in expected_photo_ids if photo_id not in all_known_set],
+    }
+
+
+@app.post("/offline-sync/reconcile")
+def offline_sync_reconcile(request: Request, body: OfflineReconcileIn) -> dict[str, Any]:
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("kind") == "mobile_session" and str(auth.get("session_id") or "") != body.session_id:
+        raise HTTPException(status_code=403, detail="Sync-Reconcile gehört nicht zu dieser mobilen Session")
+
+    session = fetch_one(
+        "SELECT id, status, inventory_type FROM inventory_sessions WHERE id = %s",
+        (body.session_id,),
+    )
+    if not session:
+        return {
+            "session_id": body.session_id,
+            "source_device_id": body.source_device_id,
+            "session_status": "missing",
+            "packages": [
+                {
+                    "client_item_id": package.client_item_id,
+                    "status": "discardable",
+                    "server_item_id": None,
+                    "known_client_photo_ids": [],
+                    "missing_client_photo_ids": list(dict.fromkeys(package.client_photo_ids)),
+                    "session_status": "missing",
+                }
+                for package in body.packages
+            ],
+        }
+
+    packages: list[dict[str, Any]] = []
+    for package in body.packages:
+        expected_photo_ids = [value for value in dict.fromkeys(package.client_photo_ids) if value]
+        if not package.client_item_id.strip() or not body.source_device_id.strip():
+            packages.append({
+                "client_item_id": package.client_item_id,
+                "status": "foreign_or_invalid",
+                "server_item_id": None,
+                "known_client_photo_ids": [],
+                "missing_client_photo_ids": expected_photo_ids,
+                "session_status": session.get("status"),
+            })
+            continue
+
+        item = fetch_one(
+            """
+            SELECT id, session_id, source_device_id, client_item_id, object_type, sequence_number, status, review_status
+            FROM inventory_items
+            WHERE session_id = %s AND source_device_id = %s AND client_item_id = %s
+            LIMIT 1
+            """,
+            (body.session_id, body.source_device_id, package.client_item_id),
+        )
+        if not item:
+            packages.append({
+                "client_item_id": package.client_item_id,
+                "status": "session_closed" if session.get("status") != "open" else "missing",
+                "server_item_id": None,
+                "known_client_photo_ids": [],
+                "missing_client_photo_ids": expected_photo_ids,
+                "session_status": session.get("status"),
+            })
+            continue
+
+        photos = fetch_all(
+            """
+            SELECT id, item_id, photo_type, client_photo_id, original_path, uploaded_at
+            FROM item_photos
+            WHERE item_id = %s AND source_device_id = %s
+            ORDER BY uploaded_at, id
+            """,
+            (item["id"], body.source_device_id),
+        )
+        all_known_ids = [str(photo["client_photo_id"]) for photo in photos if photo.get("client_photo_id")]
+        all_known_set = set(all_known_ids)
+        known_ids = [photo_id for photo_id in all_known_ids if not expected_photo_ids or photo_id in set(expected_photo_ids)]
+        missing_ids = [photo_id for photo_id in expected_photo_ids if photo_id not in all_known_set]
+        status = "session_closed" if session.get("status") != "open" else ("missing_photos" if missing_ids else "synced")
+        packages.append({
+            "client_item_id": package.client_item_id,
+            "status": status,
+            "server_item_id": str(item["id"]),
+            "server_item": item,
+            "known_client_photo_ids": known_ids,
+            "missing_client_photo_ids": missing_ids,
+            "session_status": session.get("status"),
+        })
+
+    return {
+        "session_id": body.session_id,
+        "source_device_id": body.source_device_id,
+        "session_status": session.get("status"),
+        "packages": packages,
+    }
+
+
 @app.post("/offline-sync/photos")
 async def offline_sync_photo(
     session_id: str = Form(...),
@@ -2137,6 +2369,93 @@ def ai_status_for_mode(mode: str, step: str) -> str:
     return matrix[normalized][step]
 
 
+def repair_stale_ai_statuses(session_id: str | None = None, item_id: str | None = None) -> list[dict[str, Any]]:
+    conditions = [
+        f"status IN ({AI_ACTIVE_STATUS_SQL})",
+        f"updated_at < now() - interval '{AI_STALE_INTERVAL_SQL}'",
+    ]
+    params: list[Any] = []
+    if session_id:
+        conditions.append("session_id = %s")
+        params.append(session_id)
+    if item_id:
+        conditions.append("id = %s")
+        params.append(item_id)
+    rows = fetch_all(
+        f"""
+        SELECT id, object_type, status, updated_at
+        FROM inventory_items
+        WHERE {" AND ".join(conditions)}
+        ORDER BY updated_at ASC
+        """,
+        tuple(params),
+    )
+    repaired: list[dict[str, Any]] = []
+    for row in rows:
+        updated = execute(
+            """
+            UPDATE inventory_items
+            SET status = 'ki_pruefung_offen',
+                updated_at = now()
+            WHERE id = %s
+              AND status <> 'finalisiert'
+            RETURNING id, object_type, status, updated_at
+            """,
+            (row["id"],),
+        )
+        if updated:
+            repaired.append(updated)
+            audit("ai_job_repaired", "inventory_item", str(row["id"]), {
+                "previous_status": row.get("status"),
+                "previous_updated_at": row.get("updated_at"),
+                "reason": f"active longer than {AI_STALE_INTERVAL_SQL}",
+            })
+    return repaired
+
+
+def current_active_ai_job(item_id: str) -> dict[str, Any] | None:
+    repair_stale_ai_statuses(item_id=item_id)
+    return fetch_one(
+        f"""
+        SELECT id, object_type, status, updated_at
+        FROM inventory_items
+        WHERE id = %s
+          AND status IN ({AI_ACTIVE_STATUS_SQL})
+          AND updated_at >= now() - interval '{AI_STALE_INTERVAL_SQL}'
+        """,
+        (item_id,),
+    )
+
+
+def ai_session_generation_for_item(item_id: str) -> int:
+    row = fetch_one(
+        """
+        SELECT COALESCE(s.ai_cancel_generation, 0) AS ai_cancel_generation
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    return int((row or {}).get("ai_cancel_generation") or 0)
+
+
+def ai_session_generation(session_id: str) -> int:
+    row = fetch_one(
+        "SELECT COALESCE(ai_cancel_generation, 0) AS ai_cancel_generation FROM inventory_sessions WHERE id = %s",
+        (session_id,),
+    )
+    return int((row or {}).get("ai_cancel_generation") or 0)
+
+
+def ai_job_cancelled(item_id: str, expected_generation: int | None = None) -> bool:
+    if item_id in AI_CANCELLED_ITEM_IDS:
+        return True
+    if expected_generation is None:
+        return False
+    return ai_session_generation_for_item(item_id) != expected_generation
+
+
 def latest_ai_context(item_id: str) -> str:
     row = fetch_one(
         """
@@ -2363,6 +2682,121 @@ def collect_search_sources(item: dict[str, Any], ai_context: str = "", limit: in
             if len(collected) >= limit:
                 return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
     return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
+
+
+def classify_deep_dive_source(source: dict[str, Any]) -> str:
+    host = source_host(str(source.get("url") or ""))
+    text = " ".join(str(source.get(key) or "") for key in ["title", "snippet", "url"]).lower()
+    if any(hint in host for hint in ("ebay.", "kleinanzeigen.", "willhaben.", "ricardo.", "rebuy.", "backmarket.", "refurbed.")):
+        return "gebrauchtmarkt"
+    if any(hint in host for hint in ("amazon.", "idealo.", "geizhals.", "notebooksbilliger.", "conrad.", "reichelt.")):
+        return "haendler"
+    if any(hint in text for hint in ("datenblatt", "data sheet", "datasheet", "manual", "bedienungsanleitung", ".pdf")):
+        return "datenblatt"
+    if any(hint in host for hint in ("forum", "reddit", "motor-talk", "gutefrage")):
+        return "forum"
+    if any(hint in host for hint in ("bosch", "siemens", "hp.", "dell.", "lenovo", "apple.", "nussbaum", "maha", "beissbarth")):
+        return "hersteller"
+    return "generisch"
+
+
+def deep_dive_source_evidence(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    product_terms = [
+        term
+        for term in search_tokens(" ".join(deep_dive_product_terms(item, ai_context)))
+        if len(term) >= 3 and term not in {"modell", "model", "objekt", "geraet", "gerät"}
+    ]
+    evidence: list[dict[str, Any]] = []
+    for source in sources:
+        text = " ".join(normalize_deep_dive_text(source.get(key)).lower() for key in ["title", "snippet", "url"])
+        matched_terms = [term for term in product_terms[:10] if term in text]
+        kind = classify_deep_dive_source(source)
+        score = min(
+            1.0,
+            (0.16 * len(matched_terms))
+            + (0.25 if kind in {"hersteller", "datenblatt"} else 0)
+            + (0.18 if kind in {"gebrauchtmarkt", "haendler"} else 0)
+            + (0.12 if source.get("rank") in {1, 2} else 0),
+        )
+        evidence.append(
+            {
+                "title": source.get("title"),
+                "url": source.get("url"),
+                "host": source_host(str(source.get("url") or "")),
+                "kind": kind,
+                "query": source.get("query"),
+                "rank": source.get("rank"),
+                "snippet": source.get("snippet"),
+                "matched_terms": matched_terms,
+                "relevance_score": round(score, 2),
+                "review_required": True,
+            }
+        )
+    return evidence
+
+
+def deep_dive_dossier(
+    item: dict[str, Any],
+    ai_context: str,
+    sources: list[dict[str, Any]],
+    estimated_value: Any = None,
+    estimated_value_range: dict[str, Any] | None = None,
+    estimated_value_confidence: float | None = None,
+    value_source: str | None = None,
+    price_candidates: list[dict[str, Any]] | None = None,
+    valuation_state: str | None = None,
+    reference_price_available: bool = False,
+    reference_price_label: str | None = None,
+    estimated_age_years: Any = None,
+    age_candidates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    basis = deep_dive_research_basis(item)
+    confidence = 0.35
+    if basis.get("model"):
+        confidence += 0.2
+    if basis.get("brand"):
+        confidence += 0.12
+    if basis.get("serial_number"):
+        confidence += 0.08
+    if sources:
+        confidence += min(0.25, 0.06 * len(sources))
+    return {
+        "identified_product": {
+            "designation": basis.get("designation") or basis.get("object_class"),
+            "manufacturer": basis.get("brand"),
+            "model": basis.get("model"),
+            "serial_number": basis.get("serial_number"),
+            "construction_year": basis.get("construction_year"),
+            "specification": basis.get("specification"),
+            "confidence": round(min(confidence, 0.92), 2),
+            "review_required": True,
+        },
+        "technical_facts": {
+            "object_class": basis.get("object_class"),
+            "condition": basis.get("condition"),
+            "specification": basis.get("specification"),
+            "typeplate_context": ai_context,
+            "review_required": True,
+        },
+        "source_evidence": deep_dive_source_evidence(item, ai_context, sources),
+        "price_candidates": price_candidates or [],
+        "age_candidates": age_candidates or [],
+        "suggested_value": {
+            "amount": estimated_value,
+            "range": estimated_value_range or {"min": None, "max": None},
+            "source": value_source or "offen",
+            "confidence": estimated_value_confidence or 0.0,
+            "review_required": True,
+            "reference_price_available": reference_price_available,
+            "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+        },
+        "valuation_state": valuation_state or ("reference_available" if reference_price_available else "no_reference"),
+        "reference_price_available": reference_price_available,
+        "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+        "suggested_age_years": estimated_age_years,
+        "confidence": round(min(confidence, 0.92), 2),
+        "review_required": True,
+    }
 
 
 def decode_search_url(value: str) -> str:
@@ -2611,6 +3045,7 @@ def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[in
         (("notebook", "laptop", "thinkpad"), (120, 900)),
         (("iphone", "smartphone"), (300, 1200)),
         (("monitor", "display"), (40, 300)),
+        (("nespresso", "kaffeemaschine", "kapselmaschine", "espresso"), (10, 90)),
         (("maus", "mouse", "tastatur", "keyboard"), (10, 80)),
         (("telefon", "dect"), (20, 300)),
         (("reifen", "radsatz"), (80, 700)),
@@ -2660,6 +3095,157 @@ def extract_price_candidates(text: str) -> list[float]:
     return values
 
 
+USED_MARKET_TERMS = (
+    "gebraucht",
+    "used",
+    "second hand",
+    "second-hand",
+    "kleinanzeigen",
+    "ebay",
+    "willhaben",
+    "refurbished",
+    "generalüberholt",
+    "generaluberholt",
+)
+
+NEW_PRICE_TERMS = (
+    "neu",
+    "neupreis",
+    "uvp",
+    "shop",
+    "warenkorb",
+    "lieferzeit",
+    "zzgl",
+)
+
+
+def price_market_kind(source: dict[str, Any], text: str) -> str:
+    haystack = f"{text} {source_host(str(source.get('url') or ''))}".lower()
+    if any(term in haystack for term in USED_MARKET_TERMS):
+        return "gebraucht"
+    if any(term in haystack for term in NEW_PRICE_TERMS):
+        return "neupreis"
+    return "unbekannt"
+
+
+def unique_tokens(tokens: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        normalized = token.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def source_match_text(source: dict[str, Any]) -> str:
+    return normalize_deep_dive_text(
+        " ".join(
+            str(source.get(key) or "")
+            for key in ["title", "snippet", "url", "excerpt"]
+        )
+    ).lower()
+
+
+def is_machine_like_item(item: dict[str, Any], ai_context: str = "") -> bool:
+    text = normalize_deep_dive_text(
+        " ".join(str(item.get(key) or "") for key in ["object_type", "object_class_name", "specification", "brand", "model"])
+        + " "
+        + ai_context
+    ).lower()
+    return any(
+        term in text
+        for term in [
+            "hebeb",
+            "lift",
+            "montiermaschine",
+            "reifenmontiermaschine",
+            "wuchtmaschine",
+            "kompressor",
+            "maschine",
+            "werkstatt",
+            "buehne",
+            "bÃ¼hne",
+        ]
+    )
+
+
+def source_reference_match(source: dict[str, Any], item: dict[str, Any], ai_context: str = "") -> dict[str, Any]:
+    text = source_match_text(source)
+    brand_tokens = search_tokens(str(item.get("brand") or ""))
+    model_tokens = search_tokens(" ".join(str(item.get(key) or "") for key in ["model", "serial_number"]))
+    spec_tokens = [
+        token
+        for token in search_tokens(str(item.get("specification") or "") + " " + ai_context)
+        if any(ch.isdigit() for ch in token) or len(token) >= 5
+    ]
+    object_tokens = search_tokens(" ".join(str(item.get(key) or "") for key in ["object_type", "object_class_name"]))
+    exact_terms = unique_tokens(model_tokens + brand_tokens + spec_tokens[:6] + object_tokens[:4])
+    matched_terms = [token for token in exact_terms if token in text]
+    missing_terms = [token for token in exact_terms if token not in text]
+    source_kind = classify_deep_dive_source(source)
+    market_kind = price_market_kind(source, text)
+    used_market = source_kind == "gebrauchtmarkt" or market_kind == "gebraucht"
+    brand_match = not brand_tokens or any(token in text for token in brand_tokens)
+    model_match_count = sum(1 for token in model_tokens if token in text)
+    spec_match_count = sum(1 for token in spec_tokens if token in text)
+    object_match = any(token in text for token in object_tokens)
+    machine_like = is_machine_like_item(item, ai_context)
+    has_strong_model = bool(model_tokens)
+    exact = False
+    reason = "Kein belastbarer Produktabgleich."
+    if used_market and has_strong_model and model_match_count >= max(1, min(len(model_tokens), 2)) and brand_match:
+        exact = True
+        reason = "Eindeutig: Modell/Typ und Hersteller passen zur Gebrauchtquelle."
+    elif used_market and has_strong_model and model_match_count == len(model_tokens) and not brand_tokens:
+        exact = True
+        reason = "Eindeutig: Modell/Typ passt zur Gebrauchtquelle."
+    elif used_market and machine_like and has_strong_model and object_match and model_match_count >= 1 and spec_match_count >= 1:
+        exact = True
+        reason = "Eindeutig genug: Maschinenklasse, Typenschild-/Modellhinweis und technische Daten passen."
+    if exact:
+        return {
+            "reference_match": "exact",
+            "reference_status": "referenzpreis_verfuegbar",
+            "match_score": min(1.0, 0.55 + 0.12 * len(matched_terms)),
+            "match_reason": reason,
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    if used_market and (object_match or model_match_count or spec_match_count) and not (machine_like and not has_strong_model):
+        return {
+            "reference_match": "similar",
+            "reference_status": "preisspanne_pruefen",
+            "match_score": min(0.74, 0.28 + 0.1 * len(matched_terms)),
+            "match_reason": "Aehnlicher Gebrauchtmarkt-Treffer, aber Hersteller/Modell/Typ sind nicht eindeutig genug.",
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    if used_market and object_match:
+        return {
+            "reference_match": "similar",
+            "reference_status": "preisspanne_pruefen",
+            "match_score": min(0.62, 0.22 + 0.08 * len(matched_terms)),
+            "match_reason": "Nur die Objektart passt. Kein Referenzpreis ohne passenden Modell-/Typnachweis.",
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    return {
+        "reference_match": "weak",
+        "reference_status": "keine_referenz",
+        "match_score": min(0.35, 0.08 * len(matched_terms)),
+        "match_reason": reason,
+        "matched_terms": matched_terms,
+        "missing_terms": missing_terms[:6],
+        "source_kind": source_kind,
+    }
+
+
 def fetch_source_excerpt(url: str) -> str:
     try:
         response = httpx.get(
@@ -2688,16 +3274,27 @@ def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any],
     candidates: list[dict[str, Any]] = []
     for source in sources[:5]:
         text = " ".join([str(source.get("title") or ""), str(source.get("snippet") or "")])
+        market_kind = price_market_kind(source, text)
         prices = extract_price_candidates(text)
+        source_for_match = source
         if not prices and any(hint in source_host(str(source.get("url") or "")) for hint in SHOP_SOURCE_HINTS):
-            prices = extract_price_candidates(fetch_source_excerpt(str(source.get("url") or "")))
+            excerpt = fetch_source_excerpt(str(source.get("url") or ""))
+            if excerpt:
+                market_kind = price_market_kind(source, f"{text} {excerpt[:2000]}")
+                source_for_match = {**source, "excerpt": excerpt[:2000]}
+            prices = extract_price_candidates(excerpt)
+        match = source_reference_match(source_for_match, item, ai_context)
         for price in prices[:4]:
             candidates.append({
                 "value": price,
                 "source": source.get("url"),
                 "title": source.get("title"),
+                "market_kind": market_kind,
+                **match,
             })
     object_class = normalize_bga_object_class(item.get("object_class_name"), item.get("object_type"))
+    if object_class in {"Computermaus", "Tastatur", "Kaffeemaschine"}:
+        candidates = [candidate for candidate in candidates if candidate.get("market_kind") == "gebraucht"]
     limit = plausible_value_limit(object_class)
     if limit:
         candidates = [candidate for candidate in candidates if float(candidate["value"]) <= max(limit * 1.5, limit + 40)]
@@ -2709,6 +3306,7 @@ def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any],
         "Telefon": 80,
         "Drucker": 25,
         "Scanner": 25,
+        "Kaffeemaschine": 10,
     }.get(object_class, 1)
     if any(term in (" ".join(str(item.get(key) or "").lower() for key in ["object_type", "brand", "model"]) + " " + ai_context.lower()) for term in ["iphone", "smartphone"]):
         class_floor = 150
@@ -2817,8 +3415,9 @@ def select_value_references(item: dict[str, Any], ai_context: str = "", limit: i
     return [row for _, row in scored[:limit]]
 
 
-def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
+def estimate_value_from_web_legacy(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
     price_candidates = source_price_candidates(sources, item, ai_context)
+    object_class = normalize_bga_object_class(item.get("object_class_name"), item.get("object_type"))
     condition = str(item.get("condition") or "gebraucht")
     condition_factor = {
         "neu": 1.0,
@@ -2841,6 +3440,15 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
             "value_requires_review": True,
             "price_candidates": price_candidates[:5],
         }
+    if object_class in {"Computermaus", "Tastatur", "Kaffeemaschine"}:
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": "Kein belastbarer Gebrauchtmarktpreis gefunden; Wert bleibt offen.",
+            "value_requires_review": True,
+            "price_candidates": [],
+        }
     value_min, value_max = estimate_value_range(item, ai_context)
     estimate = conservative_value_estimate(value_min, value_max)
     text = " ".join(str(item.get(key) or "").lower() for key in ["object_type", "object_class_name", "brand", "model"]) + " " + ai_context.lower()
@@ -2849,12 +3457,78 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
     return bga_value_guardrail(item, ai_context, estimate)
 
 
+def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
+    price_candidates = source_price_candidates(sources, item, ai_context)
+    condition = str(item.get("condition") or "gebraucht")
+    condition_factor = {
+        "neu": 1.0,
+        "sehr_gut": 1.0,
+        "gut": 1.0,
+        "gebraucht": 1.0,
+        "reparaturbeduerftig": 0.35,
+        "defekt": 0.15,
+        "aussondern": 0.05,
+    }.get(condition, 1.0)
+    trusted_candidates = [
+        candidate for candidate in price_candidates
+        if candidate.get("market_kind") == "gebraucht" and candidate.get("reference_match") == "exact"
+    ]
+    similar_candidates = [
+        candidate for candidate in price_candidates
+        if candidate.get("market_kind") == "gebraucht" and candidate.get("reference_match") == "similar"
+    ]
+    if trusted_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in trusted_candidates)
+        basis = sorted_values[min(len(sorted_values) - 1, max(0, len(sorted_values) // 3))]
+        estimate = max(1, round(basis * condition_factor))
+        return {
+            "estimated_value": estimate,
+            "estimated_value_range": {"min": max(1, round(estimate * 0.75)), "max": max(1, round(estimate * 1.25))},
+            "estimated_value_confidence": 0.82,
+            "estimated_value_reason": f"Referenzpreis aus {len(trusted_candidates)} eindeutig passendem Gebrauchtmarkt-Treffer(n). Zustand bleibt fachlich zu pruefen.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:8],
+            "value_source": "gebrauchtmarkt_referenz",
+            "valuation_state": "reference_available",
+            "reference_price_available": True,
+            "reference_price_label": "Referenzpreis verfuegbar",
+            "selected_price_reference": trusted_candidates[0],
+        }
+    if similar_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in similar_candidates)
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": max(1, round(sorted_values[0] * 0.8)), "max": max(1, round(sorted_values[-1] * 1.2))},
+            "estimated_value_confidence": 0.35,
+            "estimated_value_reason": "Aehnliche Gebrauchtmarkt-Treffer gefunden, aber kein eindeutiger Hersteller-/Modell-/Typ-Match. Kein Referenzpreis.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:8],
+            "value_source": "preisspanne_pruefen",
+            "valuation_state": "range_review",
+            "reference_price_available": False,
+            "reference_price_label": "Preisspanne pruefen",
+        }
+    return {
+        "estimated_value": None,
+        "estimated_value_range": {"min": None, "max": None},
+        "estimated_value_confidence": 0.0,
+        "estimated_value_reason": "Kein eindeutiger Gebrauchtmarkt-Referenzpreis gefunden; Wert bleibt offen.",
+        "value_requires_review": True,
+        "price_candidates": price_candidates[:8],
+        "value_source": "keine_referenz",
+        "valuation_state": "no_reference",
+        "reference_price_available": False,
+        "reference_price_label": "Kein Referenzpreis verfuegbar",
+    }
+
+
 def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: int) -> dict[str, Any]:
     text = " ".join(
         str(item.get(key) or "").lower()
         for key in ["object_type", "object_class_name", "brand", "model"]
     ) + " " + ai_context.lower()
     rules = [
+        (("nespresso", "kaffeemaschine", "kapselmaschine", "espresso"), 80, "Kaffeemaschine: Wert nur mit belastbarer Gebrauchtmarktquelle übernehmen."),
         (("computermaus", " maus", "mouse"), 100, "Computermaus: vierstellige Werte sind unplausibel."),
         (("tastatur", "keyboard"), 250, "Tastatur: nur niedriger bis mittlerer Gebrauchtwert plausibel."),
         (("monitor", "display"), 600, "Standardmonitor: vierstellige Werte nur mit sehr belastbarer Spezialbegründung."),
@@ -2866,6 +3540,14 @@ def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: 
     ]
     for needles, max_value, reason in rules:
         if any(needle in text for needle in needles):
+            if any(term in text for term in ["nespresso", "kaffeemaschine", "kapselmaschine", "espresso", "computermaus", " maus", "mouse", "tastatur", "keyboard"]):
+                return {
+                    "estimated_value": None,
+                    "estimated_value_range": {"min": None, "max": None},
+                    "estimated_value_confidence": 0.0,
+                    "estimated_value_reason": f"{reason} Ohne geprüfte Gebrauchtquelle bleibt der Wert offen.",
+                    "value_requires_review": True,
+                }
             if estimated_value > max_value:
                 return {
                     "estimated_value": None,
@@ -3129,6 +3811,11 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         reference_age = numeric_or_none(best_value_reference.get("estimated_age_years")) if best_value_reference else None
         construction_age = construction_year_age(item)
         if best_value_reference and (reference_value is not None or reference_age is not None):
+            reference_value_range = {
+                "min": max(1, round(reference_value * 0.9)) if reference_value is not None else None,
+                "max": max(1, round(reference_value * 1.1)) if reference_value is not None else None,
+            }
+            reference_age_value = construction_age if construction_age is not None else reference_age
             return {
                 "ai_stage": "deep_dive",
                 "estimated_by_ai": True,
@@ -3141,25 +3828,38 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                 "technical_context": ai_context,
                 "sources": [],
                 "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden; geprüfte Referenz genutzt.",
-                "estimated_age_years": construction_age if construction_age is not None else reference_age,
+                "estimated_age_years": reference_age_value,
                 "age_source": "gepruefte_wertreferenz" if construction_age is None and reference_age is not None else "baujahr",
                 "age_verification_status": "geschaetzt",
                 "age_confidence": 0.78 if construction_age is None and reference_age is not None else 0.9,
                 "age_reason": "Aus geprüfter Wertreferenz übernommen." if construction_age is None and reference_age is not None else "Aus eingegebenem Baujahr abgeleitet.",
                 "age_requires_review": True,
                 "estimated_value": round(reference_value) if reference_value is not None else None,
-                "estimated_value_range": {
-                    "min": max(1, round(reference_value * 0.9)) if reference_value is not None else None,
-                    "max": max(1, round(reference_value * 1.1)) if reference_value is not None else None,
-                },
+                "estimated_value_range": reference_value_range,
                 "estimated_value_confidence": 0.82 if reference_value is not None else 0.0,
                 "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}.",
                 "value_requires_review": True,
                 "value_source": "gepruefte_wertreferenz",
+                "valuation_state": "reference_available",
+                "reference_price_available": reference_value is not None,
+                "reference_price_label": "Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
                 "value_reference_used": best_value_reference,
                 "matching_value_references": value_references,
                 "notes": "Geprüfte interne Referenz genutzt. Wert und Alter bleiben prüfpflichtige Vorschläge.",
                 "manual_review_required": True,
+                **deep_dive_dossier(
+                    item,
+                    ai_context,
+                    [],
+                    estimated_value=round(reference_value) if reference_value is not None else None,
+                    estimated_value_range=reference_value_range,
+                    estimated_value_confidence=0.82 if reference_value is not None else 0.0,
+                    value_source="gepruefte_wertreferenz",
+                    valuation_state="reference_available" if reference_value is not None else "no_reference",
+                    reference_price_available=reference_value is not None,
+                    reference_price_label="Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
+                    estimated_age_years=reference_age_value,
+                ),
             }
         return {
             "ai_stage": "deep_dive",
@@ -3185,10 +3885,22 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "estimated_value_reason": "Keine belastbare Webquelle gefunden; Wert bleibt offen.",
             "value_requires_review": True,
             "value_source": "keine_webquelle",
+            "valuation_state": "no_reference",
+            "reference_price_available": False,
+            "reference_price_label": "Kein Referenzpreis verfuegbar",
             "value_reference_used": None,
             "matching_value_references": value_references,
             "notes": "Websuche ohne verwertbare Quelle. Preis und Alter werden nicht geraten und müssen manuell geprüft werden.",
             "manual_review_required": True,
+            **deep_dive_dossier(
+                item,
+                ai_context,
+                [],
+                value_source="keine_webquelle",
+                valuation_state="no_reference",
+                reference_price_available=False,
+                reference_price_label="Kein Referenzpreis verfuegbar",
+            ),
         }
     if is_tire_item(item, ai_context):
         tire_result = conservative_tire_estimate(item, ai_context, sources)
@@ -3197,12 +3909,24 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         estimated_value = tire_result["estimated_value"]
         estimated_age = tire_result["estimated_age_years"]
         notes = tire_result["notes"]
-        extra_result = {"tire_valuation": tire_result["tire_valuation"]}
+        extra_result = {
+            "tire_valuation": tire_result["tire_valuation"],
+            "valuation_state": "range_review",
+            "reference_price_available": False,
+            "reference_price_label": "Preisspanne pruefen",
+            "value_source": "reifen_heuristik",
+        }
     else:
         guarded_value = estimate_value_from_web(item, ai_context, sources)
-        estimated_value = guarded_value["estimated_value"]
-        value_min = guarded_value["estimated_value_range"]["min"]
-        value_max = guarded_value["estimated_value_range"]["max"]
+        value_range = guarded_value.get("estimated_value_range") or {}
+        estimated_value = guarded_value.get("estimated_value")
+        value_min = value_range.get("min")
+        value_max = value_range.get("max")
+        value_source = str(guarded_value.get("value_source") or "keine_referenz")
+        estimated_value_confidence = float(guarded_value.get("estimated_value_confidence") or 0)
+        estimated_value_reason = "KI-Webpreise werden nicht automatisch als Gebrauchtmarktwert übernommen. Ohne geprüfte Referenz bleibt der Wert offen."
+        estimated_value_reason = str(guarded_value.get("estimated_value_reason") or "Kein eindeutiger Referenzpreis gefunden.")
+        value_reference_used = None
         reference_value = numeric_or_none(best_value_reference.get("value_estimate")) if best_value_reference else None
         if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
             estimated_value = round(reference_value)
@@ -3215,7 +3939,23 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                 "estimated_value_confidence": max(float(guarded_value.get("estimated_value_confidence") or 0), 0.82),
                 "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}. Webquellen wurden zusätzlich geprüft.",
                 "value_requires_review": True,
+                "value_source": "gepruefte_wertreferenz",
+                "valuation_state": "reference_available",
+                "reference_price_available": True,
+                "reference_price_label": "Referenzpreis verfuegbar",
             }
+        if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
+            value_source = "gepruefte_wertreferenz"
+            estimated_value_confidence = 0.82
+            estimated_value_reason = f"Aus gepruefter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}."
+            value_reference_used = best_value_reference
+        elif guarded_value.get("reference_price_available") and guarded_value.get("estimated_value") is not None:
+            value_source = str(guarded_value.get("value_source") or "gebrauchtmarkt_referenz")
+            estimated_value_confidence = float(guarded_value.get("estimated_value_confidence") or 0.82)
+            estimated_value_reason = str(guarded_value.get("estimated_value_reason") or "Eindeutige Gebrauchtmarkt-Referenz gefunden.")
+            value_reference_used = guarded_value.get("selected_price_reference")
+        else:
+            estimated_value = None
         raw_age = estimate_age_years(item, sources, ai_context)
         age_from_construction_year = construction_year_age(item)
         manual_age = item.get("estimated_age_years") is not None and item.get("age_source") not in {None, "", "schaetzung", "unbekannt"}
@@ -3234,15 +3974,20 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         )
         notes = "Vorsichtige KI-Schätzung aus Objektangaben, Zustand und Referenzhinweisen. Unsichere oder unplausible Alter-/Wertangaben bleiben leer und müssen manuell geprüft werden."
         extra_result = {
-            "estimated_value_confidence": guarded_value["estimated_value_confidence"],
-            "estimated_value_reason": guarded_value["estimated_value_reason"],
-            "value_requires_review": guarded_value["value_requires_review"],
-            "value_reference_used": best_value_reference if reference_value is not None else None,
+            "estimated_value_confidence": estimated_value_confidence,
+            "estimated_value_reason": estimated_value_reason,
+            "value_requires_review": True,
+            "value_reference_used": value_reference_used,
             "matching_value_references": value_references,
             "price_candidates": guarded_value.get("price_candidates") or [],
+            "valuation_state": guarded_value.get("valuation_state") or "no_reference",
+            "reference_price_available": bool(guarded_value.get("reference_price_available")),
+            "reference_price_label": guarded_value.get("reference_price_label") or "Kein Referenzpreis verfuegbar",
+            "selected_price_reference": guarded_value.get("selected_price_reference"),
             "age_confidence": 0.8 if reference_age is not None and age_from_construction_year is None else 0.55 if estimated_age is not None else 0.0,
             "age_reason": age_reason,
             "age_requires_review": True,
+            "value_source": value_source,
         }
     return {
         "ai_stage": "deep_dive",
@@ -3264,36 +4009,220 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
         "value_source": "ki_web_schaetzung",
         "notes": notes,
         "manual_review_required": True,
+        **deep_dive_dossier(
+            item,
+            ai_context,
+            sources,
+            estimated_value=estimated_value,
+            estimated_value_range={"min": value_min, "max": value_max},
+            estimated_value_confidence=float(extra_result.get("estimated_value_confidence") or 0),
+            value_source=str(extra_result.get("value_source") or "ki_web_schaetzung"),
+            price_candidates=extra_result.get("price_candidates") or [],
+            valuation_state=str(extra_result.get("valuation_state") or "no_reference"),
+            reference_price_available=bool(extra_result.get("reference_price_available")),
+            reference_price_label=str(extra_result.get("reference_price_label") or "Kein Referenzpreis verfuegbar"),
+            estimated_age_years=estimated_age,
+        ),
         **extra_result,
     }
 
 
-def process_deep_dive_item(item_id: str) -> None:
-    result = build_deep_dive_result(item_id)
-    execute(
-        """
-        INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
-        VALUES (%s, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed')
-        RETURNING *
+def process_deep_dive_item(item_id: str, expected_generation: int | None = None) -> None:
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_start", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, ai_status_for_mode("review", "running"), expected_generation, final_only_guard=True):
+        audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_running_status", "expected_generation": expected_generation})
+        return
+    try:
+        result = build_deep_dive_result(item_id)
+        if ai_job_cancelled(item_id, expected_generation):
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_write", "expected_generation": expected_generation})
+            return
+        if expected_generation is None:
+            row = execute(
+                """
+                INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
+                VALUES (%s, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed')
+                RETURNING *
+                """,
+                (
+                    item_id,
+                    "web-search+heuristic",
+                    '["item_fields","web_search","reference_heuristic"]',
+                    json_string(result),
+                    0.55,
+                ),
+            )
+        else:
+            row = execute(
+                """
+                INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
+                SELECT i.id, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed'
+                FROM inventory_items i
+                JOIN inventory_sessions s ON s.id = i.session_id
+                WHERE i.id = %s
+                  AND COALESCE(s.ai_cancel_generation, 0) = %s
+                RETURNING *
+                """,
+                (
+                    "web-search+heuristic",
+                    '["item_fields","web_search","reference_heuristic"]',
+                    json_string(result),
+                    0.55,
+                    item_id,
+                    expected_generation,
+                ),
+            )
+        if not row:
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_write_race", "expected_generation": expected_generation})
+            return
+        if not update_ai_item_status(item_id, ai_status_for_mode("review", "done"), expected_generation, final_only_guard=True):
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_status", "expected_generation": expected_generation})
+            return
+        audit("ai_deep_dive_created", "inventory_item", item_id, result)
+    except Exception as exc:
+        update_ai_item_status(item_id, ai_status_for_mode("review", "open"), expected_generation, final_only_guard=True)
+        audit("ai_deep_dive_failed", "inventory_item", item_id, {"error": type(exc).__name__, "message": str(exc)[:240]})
+        raise
+
+
+FAST_AI_BLOCKED_FIELDS = {
+    "estimated_age_years",
+    "estimated_value",
+    "estimated_value_eur",
+    "estimated_value_confidence",
+    "estimated_value_reason",
+    "value_estimate",
+    "value_source",
+    "value_requires_review",
+    "age_confidence",
+    "age_reason",
+    "age_requires_review",
+    "age_source",
+    "age_verification_status",
+}
+
+
+def strip_fast_ai_estimates(suggestion: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(suggestion)
+    for key in FAST_AI_BLOCKED_FIELDS:
+        cleaned.pop(key, None)
+
+    suggested_fields = cleaned.get("suggested_fields")
+    if isinstance(suggested_fields, dict):
+        cleaned["suggested_fields"] = {
+            key: value
+            for key, value in suggested_fields.items()
+            if key not in FAST_AI_BLOCKED_FIELDS and key not in {"estimated_value", "estimated_age_years", "value_estimate"}
+        }
+
+    bga_detection = cleaned.get("bga_detection")
+    if isinstance(bga_detection, dict):
+        cleaned_bga = dict(bga_detection)
+        for key in FAST_AI_BLOCKED_FIELDS:
+            cleaned_bga.pop(key, None)
+        cleaned["bga_detection"] = cleaned_bga
+
+    cleaned["ai_latency_profile"] = "mobile_fast"
+    cleaned["estimation_policy"] = "no_age_or_value_in_mobile_fast"
+    return cleaned
+
+
+def status_state_for_item_status(scope: str, status: str | None) -> str:
+    if scope == "deep_dive":
+        if status == "ki_pruefung_wartet":
+            return "queued"
+        if status == "ki_pruefung_laeuft":
+            return "running"
+        return "idle"
+    if scope == "review":
+        if status == "ki_pruefung_wartet":
+            return "queued"
+        if status == "ki_pruefung_laeuft":
+            return "running"
+        if status == "ki_pruefung_fertig":
+            return "completed"
+        return "idle"
+    if status == "ki_schnell_wartet":
+        return "queued"
+    if status == "ki_schnell_laeuft":
+        return "running"
+    if status == "ki_schnell_fertig":
+        return "completed"
+    return "idle"
+
+
+def ai_result_type_for_scope(scope: str) -> str:
+    if scope == "deep_dive":
+        return "deep_dive"
+    if scope == "review":
+        return "review_vision"
+    return "quick_vision"
+
+
+def ai_updated_fields(result: dict[str, Any] | None) -> list[str]:
+    if not isinstance(result, dict):
+        return []
+    fields: set[str] = set()
+    suggested_fields = result.get("suggested_fields")
+    if isinstance(suggested_fields, dict):
+        fields.update(str(key) for key, value in suggested_fields.items() if value)
+    for key in ("object_type", "object_name", "specification", "serial_number", "construction_year", "condition", "suggested_remark"):
+        if result.get(key):
+            fields.add("object_type" if key == "object_name" else "remark" if key == "suggested_remark" else key)
+    nameplate = result.get("nameplate_extraction")
+    if isinstance(nameplate, dict):
+        for key, mapped in {
+            "suggested_object_type": "object_type",
+            "suggested_specification": "specification",
+            "serial_number": "serial_number",
+            "construction_year": "construction_year",
+            "suggested_remark": "remark",
+        }.items():
+            if nameplate.get(key):
+                fields.add(mapped)
+    return sorted(fields)
+
+
+def update_ai_item_status(item_id: str, status: str, expected_generation: int | None = None, final_only_guard: bool = False) -> dict[str, Any] | None:
+    if expected_generation is None:
+        final_guard = "AND status <> 'finalisiert'" if final_only_guard else ""
+        return execute(
+            f"UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s {final_guard} RETURNING id",
+            (status, item_id),
+        )
+    final_guard = "AND i.status <> 'finalisiert'" if final_only_guard else ""
+    return execute(
+        f"""
+        UPDATE inventory_items i
+        SET status = %s,
+            updated_at = now()
+        FROM inventory_sessions s
+        WHERE i.id = %s
+          AND s.id = i.session_id
+          AND COALESCE(s.ai_cancel_generation, 0) = %s
+          {final_guard}
+        RETURNING i.id
         """,
-        (
-            item_id,
-            "web-search+heuristic",
-            '["item_fields","web_search","reference_heuristic"]',
-            json_string(result),
-            0.55,
-        ),
+        (status, item_id, expected_generation),
     )
-    audit("ai_deep_dive_created", "inventory_item", item_id, result)
 
 
-def process_ai_item(item_id: str, mode: str = "fast") -> None:
+def process_ai_item(item_id: str, mode: str = "fast", expected_generation: int | None = None) -> None:
     normalized_mode = "review" if mode == "review" else "fast"
-    execute(
-        "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
-        (ai_status_for_mode(normalized_mode, "running"), item_id),
-    )
-    suggestion = build_ai_suggestion(item_id)
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_start", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, ai_status_for_mode(normalized_mode, "running"), expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_running_status", "expected_generation": expected_generation})
+        return
+    suggestion = build_ai_suggestion(item_id, normalized_mode)
+    if normalized_mode == "fast":
+        suggestion = strip_fast_ai_estimates(suggestion)
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_write", "expected_generation": expected_generation})
+        return
     model_used = suggestion.pop("_model_used", "phase1-stub")
     confidence = float(suggestion.get("confidence") or 0)
     needs_review_ai = normalized_mode == "fast" and (
@@ -3303,22 +4232,51 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
     )
     suggestion["ai_stage"] = normalized_mode
     suggestion["needs_review_ai"] = needs_review_ai
-    row = execute(
-        """
-        INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
-        VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
-        RETURNING *
-        """,
-        (
-            item_id,
-            "quick_vision" if normalized_mode == "fast" else "review_vision",
-            model_used,
-            "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
-            '["photos","audio"]',
-            json_string(suggestion),
-            confidence,
-        ),
-    )
+    if expected_generation is None:
+        row = execute(
+            """
+            INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
+            RETURNING *
+            """,
+            (
+                item_id,
+                "quick_vision" if normalized_mode == "fast" else "review_vision",
+                model_used,
+                "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
+                '["photos","audio"]',
+                json_string(suggestion),
+                confidence,
+            ),
+        )
+    else:
+        row = execute(
+            """
+            INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
+            SELECT i.id, %s, %s, %s, %s::jsonb, %s::jsonb, %s
+            FROM inventory_items i
+            JOIN inventory_sessions s ON s.id = i.session_id
+            WHERE i.id = %s
+              AND COALESCE(s.ai_cancel_generation, 0) = %s
+            RETURNING *
+            """,
+            (
+                "quick_vision" if normalized_mode == "fast" else "review_vision",
+                model_used,
+                "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
+                '["photos","audio"]',
+                json_string(suggestion),
+                confidence,
+                item_id,
+                expected_generation,
+            ),
+        )
+    if not row:
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_write_race", "expected_generation": expected_generation})
+        return
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_tasks", "expected_generation": expected_generation})
+        return
     create_rework_tasks(item_id, suggestion)
     execute(
         """
@@ -3330,21 +4288,27 @@ def process_ai_item(item_id: str, mode: str = "fast") -> None:
         (suggestion["requires_accounting_review"], item_id),
     )
     final_status = ai_status_for_mode(normalized_mode, "open" if needs_review_ai else "done")
-    execute(
-        "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
-        (final_status, item_id),
-    )
-    if normalized_mode == "review":
-        try:
-            process_deep_dive_item(item_id)
-        except Exception as exc:
-            audit("ai_deep_dive_failed", "inventory_item", item_id, {"error": type(exc).__name__, "message": str(exc)[:240]})
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_status", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, final_status, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_final_status", "expected_generation": expected_generation})
+        return
     audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, **suggestion})
 
 
 @app.post("/items/{item_id}/ai/run")
 def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") -> dict[str, Any]:
     require_item_session_open(item_id)
+    active = current_active_ai_job(item_id)
+    if active:
+        return {
+            "item_id": item_id,
+            "status": active.get("status"),
+            "stage": "review" if mode == "review" else "fast",
+            "message": "KI läuft bereits für diesen Artikel",
+            "already_running": True,
+        }
     if not has_ai_object_photo(item_id):
         return {
             "item_id": item_id,
@@ -3353,18 +4317,97 @@ def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") 
             "message": "KI-Vorschlag erst nach Objektfoto möglich. Bitte Objektfoto aufnehmen und erneut starten.",
         }
     normalized_mode = "review" if mode == "review" else "fast"
+    expected_generation = ai_session_generation_for_item(item_id)
+    AI_CANCELLED_ITEM_IDS.discard(item_id)
     queued_status = ai_status_for_mode(normalized_mode, "queued")
-    execute("UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id", (queued_status, item_id))
-    background_tasks.add_task(process_ai_item, item_id, normalized_mode)
-    audit("ai_job_queued", "inventory_item", item_id, {"status": queued_status, "stage": normalized_mode})
+    update_ai_item_status(item_id, queued_status, expected_generation)
+    background_tasks.add_task(process_ai_item, item_id, normalized_mode, expected_generation)
+    audit("ai_job_queued", "inventory_item", item_id, {"status": queued_status, "stage": normalized_mode, "expected_generation": expected_generation})
     label = "Prüf-KI" if normalized_mode == "review" else "Schnell-KI"
     return {"item_id": item_id, "status": queued_status, "stage": normalized_mode, "message": f"{label} läuft im Hintergrund"}
+
+@app.get("/items/{item_id}/ai/status")
+def get_ai_status(item_id: str, scope: str = "fast") -> dict[str, Any]:
+    require_item_session_open(item_id)
+    normalized_scope = "deep_dive" if scope in {"deep_dive", "deep-dive"} else "review" if scope == "review" else "fast"
+    repair_stale_ai_statuses(item_id=item_id)
+    item = fetch_one(
+        "SELECT id, object_type, status, updated_at FROM inventory_items WHERE id = %s",
+        (item_id,),
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    result_type = ai_result_type_for_scope(normalized_scope)
+    latest = fetch_one(
+        """
+        SELECT result_json, created_at, status
+        FROM ai_results
+        WHERE item_id = %s AND ai_type = %s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (item_id, result_type),
+    )
+    result = latest.get("result_json") if latest else None
+    state = status_state_for_item_status(normalized_scope, item.get("status"))
+    if result and state == "idle":
+        state = "completed"
+    if item_id in AI_CANCELLED_ITEM_IDS and state in {"queued", "running"}:
+        state = "cancelled"
+    messages = {
+        "fast": {
+            "queued": "Schnell-KI startet.",
+            "running": "Schnell-KI erkennt Bezeichnung und Typenschild.",
+            "completed": "Vorschlag bereit.",
+            "cancelled": "KI wurde abgebrochen.",
+            "idle": "Noch kein Schnell-KI-Lauf.",
+        },
+        "review": {
+            "queued": "Pruef-KI startet.",
+            "running": "Pruef-KI prueft den Datensatz.",
+            "completed": "Pruefvorschlag bereit.",
+            "cancelled": "KI wurde abgebrochen.",
+            "idle": "Noch kein Pruef-KI-Lauf.",
+        },
+        "deep_dive": {
+            "queued": "KI-Webrecherche startet.",
+            "running": "KI-Webrecherche sammelt Quellen.",
+            "completed": "Recherche-Dossier bereit.",
+            "cancelled": "KI-Webrecherche wurde abgebrochen.",
+            "idle": "Noch keine KI-Webrecherche.",
+        },
+    }
+    return {
+        "item_id": item_id,
+        "scope": normalized_scope,
+        "state": state,
+        "message": messages[normalized_scope].get(state, "KI-Status unbekannt."),
+        "result_preview": result,
+        "updated_fields": ai_updated_fields(result),
+        "can_cancel": state in {"queued", "running"},
+        "started_at": item.get("updated_at") if state in {"queued", "running"} else None,
+        "completed_at": latest.get("created_at") if latest and result else None,
+        "item_status": item.get("status"),
+    }
+
 
 @app.post("/items/{item_id}/ai/deep-dive")
 def run_ai_deep_dive(item_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
     require_item_session_open(item_id)
-    background_tasks.add_task(process_deep_dive_item, item_id)
-    audit("ai_deep_dive_queued", "inventory_item", item_id, {"stage": "deep_dive"})
+    active = current_active_ai_job(item_id)
+    if active:
+        return {
+            "item_id": item_id,
+            "stage": "deep_dive",
+            "status": active.get("status"),
+            "message": "KI läuft bereits für diesen Artikel",
+            "already_running": True,
+        }
+    expected_generation = ai_session_generation_for_item(item_id)
+    AI_CANCELLED_ITEM_IDS.discard(item_id)
+    update_ai_item_status(item_id, ai_status_for_mode("review", "queued"), expected_generation, final_only_guard=True)
+    background_tasks.add_task(process_deep_dive_item, item_id, expected_generation)
+    audit("ai_deep_dive_queued", "inventory_item", item_id, {"stage": "deep_dive", "expected_generation": expected_generation})
     return {
         "item_id": item_id,
         "stage": "deep_dive",
@@ -3373,22 +4416,101 @@ def run_ai_deep_dive(item_id: str, background_tasks: BackgroundTasks) -> dict[st
     }
 
 
+@app.post("/items/{item_id}/ai/cancel")
+def cancel_ai_item(item_id: str) -> dict[str, Any]:
+    require_item_session_open(item_id)
+    AI_CANCELLED_ITEM_IDS.add(item_id)
+    row = execute(
+        f"""
+        UPDATE inventory_items
+        SET status = 'ki_pruefung_offen',
+            updated_at = now()
+        WHERE id = %s
+          AND status IN ({AI_ACTIVE_STATUS_SQL})
+          AND status <> 'finalisiert'
+        RETURNING id, object_type, status, updated_at
+        """,
+        (item_id,),
+    )
+    audit("ai_job_cancelled", "inventory_item", item_id, {"status": row.get("status") if row else "not_active"})
+    return {
+        "item_id": item_id,
+        "status": row.get("status") if row else "not_active",
+        "message": "KI-Prozess abgebrochen. Du kannst ihn später neu starten.",
+    }
+
+
+@app.post("/sessions/{session_id}/ai/cancel")
+def cancel_session_ai(session_id: str) -> dict[str, Any]:
+    session = fetch_one("SELECT id, status FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    active_rows = fetch_all(
+        f"""
+        SELECT id
+        FROM inventory_items
+        WHERE session_id = %s
+          AND status IN ({AI_ACTIVE_STATUS_SQL})
+        """,
+        (session_id,),
+    )
+    for row in active_rows:
+        AI_CANCELLED_ITEM_IDS.add(str(row["id"]))
+    generation_row = execute(
+        """
+        UPDATE inventory_sessions
+        SET ai_cancel_generation = COALESCE(ai_cancel_generation, 0) + 1,
+            ai_cancelled_at = now()
+        WHERE id = %s
+        RETURNING id, ai_cancel_generation, ai_cancelled_at
+        """,
+        (session_id,),
+    )
+    fetch_all(
+        f"""
+        UPDATE inventory_items
+        SET status = 'ki_pruefung_offen',
+            updated_at = now()
+        WHERE session_id = %s
+          AND status IN ({AI_ACTIVE_STATUS_SQL})
+          AND status <> 'finalisiert'
+        RETURNING id
+        """,
+        (session_id,),
+    )
+    generation = int((generation_row or {}).get("ai_cancel_generation") or 0)
+    audit(
+        "session_ai_cancelled",
+        "inventory_session",
+        session_id,
+        {"cancelled": len(active_rows), "ai_cancel_generation": generation},
+    )
+    return {
+        "session_id": session_id,
+        "cancelled": len(active_rows),
+        "ai_cancel_generation": generation,
+        "status": "ki_pruefung_offen",
+        "message": f"{len(active_rows)} KI-Prozess(e) im Raum gestoppt.",
+    }
+
+
 @app.post("/sessions/{session_id}/ai/review")
 def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
-    session = fetch_one("SELECT id, status FROM inventory_sessions WHERE id = %s", (session_id,))
+    session = fetch_one("SELECT id, status, COALESCE(ai_cancel_generation, 0) AS ai_cancel_generation FROM inventory_sessions WHERE id = %s", (session_id,))
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if session["status"] != "open":
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
 
+    repair_stale_ai_statuses(session_id=session_id)
     rows = fetch_all(
-        """
+        f"""
         SELECT i.id
         FROM inventory_items i
         WHERE session_id = %s
           AND finalized_at IS NULL
           AND locked_at IS NULL
-          AND status NOT IN ('ki_pruefung_wartet', 'ki_pruefung_laeuft', 'finalisiert')
+          AND status NOT IN ({AI_ACTIVE_STATUS_SQL}, 'finalisiert')
           AND EXISTS (
             SELECT 1 FROM item_photos p
             WHERE p.item_id = i.id AND p.photo_type IN ('object', 'object_front')
@@ -3397,14 +4519,13 @@ def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) ->
         """,
         (session_id,),
     )
+    expected_generation = int(session.get("ai_cancel_generation") or 0)
     for row in rows:
         item_id = str(row["id"])
-        execute(
-            "UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s RETURNING id",
-            (ai_status_for_mode("review", "queued"), item_id),
-        )
-        background_tasks.add_task(process_ai_item, item_id, "review")
-    audit("session_ai_review_queued", "inventory_session", session_id, {"queued": len(rows)})
+        AI_CANCELLED_ITEM_IDS.discard(item_id)
+        update_ai_item_status(item_id, ai_status_for_mode("review", "queued"), expected_generation)
+        background_tasks.add_task(process_ai_item, item_id, "review", expected_generation)
+    audit("session_ai_review_queued", "inventory_session", session_id, {"queued": len(rows), "expected_generation": expected_generation})
     return {"session_id": session_id, "queued": len(rows), "status": "ki_pruefung_wartet"}
 
 

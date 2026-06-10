@@ -19,7 +19,12 @@ class Settings(BaseSettings):
     default_tenant_slug: str = "default"
     default_tenant_name: str = "Standardmandant"
     ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma4:31b-cloud"
+    ollama_local_url: str = "http://localhost:11434"
+    ollama_api_key: str = ""
+    ollama_model: str = "qwen3-vl:235b-cloud"
+    ollama_vision_model: str = "qwen3-vl:235b-cloud"
+    ollama_ocr_model: str = "glm-ocr:latest"
+    ollama_fallback_model: str = "gemma4:31b-cloud"
     ollama_timeout_seconds: float = 120.0
     search_provider: str = "searxng"
     searxng_base_url: str = "http://searxng-fe55-searxng-1:8080"

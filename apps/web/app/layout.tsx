@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import webPackage from "../package.json";
 
 export const metadata: Metadata = {
   title: "Inventar Maschine",
@@ -8,6 +9,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || webPackage.version;
+  const releaseId = process.env.NEXT_PUBLIC_RELEASE_ID || "local";
+  const deployEnv = process.env.NEXT_PUBLIC_DEPLOY_ENV || process.env.NODE_ENV || "unknown";
+  const versionLabel = `Version ${appVersion}`;
+  const buildLabel = `Build ${appVersion} / ${releaseId} / ${deployEnv}`;
+
   return (
     <html lang="de">
       <body>
@@ -18,8 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Inventar Maschine
                 <span>Mit dem Handy die Objekte schnell erfassen, mit dem Laptop/iPad bequem nacharbeiten.</span>
               </div>
-              <span className="status ki_vorgefuellt">Phase 1</span>
+              <div className="topbar-badges" aria-label="Build status">
+                <span className="status ki_vorgefuellt">Phase 1</span>
+                <span className="status version_badge">{versionLabel}</span>
+              </div>
             </div>
+            <div className="build-strip">{buildLabel}</div>
           </header>
           {children}
         </div>
