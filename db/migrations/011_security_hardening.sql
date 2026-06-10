@@ -1,0 +1,6 @@
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE inventory_items
+  ADD COLUMN IF NOT EXISTS ai_cancel_generation INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS ai_cancelled_at TIMESTAMPTZ;

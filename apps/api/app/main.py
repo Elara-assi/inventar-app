@@ -44,6 +44,7 @@ from .security import (
     create_mobile_session_token,
     current_user_from_request,
     decode_access_token,
+    hash_password,
     request_id,
     verify_password,
 )
@@ -59,7 +60,6 @@ AI_ACTIVE_STATUSES = {
 }
 AI_ACTIVE_STATUS_SQL = ", ".join(f"'{status}'" for status in sorted(AI_ACTIVE_STATUSES))
 AI_STALE_INTERVAL_SQL = "8 minutes"
-AI_CANCELLED_ITEM_IDS: set[str] = set()
 
 app = FastAPI(title="Inventar API", version="0.1.0-phase1")
 app.add_middleware(
@@ -367,6 +367,24 @@ def safe_photo_suffix(filename: str | None, mime_type: str | None) -> str:
         "image/heic": ".heic",
         "image/heif": ".heif",
     }.get(mime_type or "", ".jpg")
+
+
+def safe_audio_suffix(filename: str | None, content_type: str | None) -> str:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix in {".webm", ".m4a", ".mp3", ".mp4", ".wav", ".ogg", ".aac", ".txt"}:
+        return suffix
+    declared = (content_type or "").split(";")[0].strip().lower()
+    return {
+        "audio/webm": ".webm",
+        "audio/mp4": ".m4a",
+        "audio/mpeg": ".mp3",
+        "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/ogg": ".ogg",
+        "audio/aac": ".aac",
+        "video/mp4": ".m4a",
+        "text/plain": ".txt",
+    }.get(declared, ".bin")
 
 
 def validate_photo_upload(file: UploadFile, data: bytes) -> tuple[str, str]:
@@ -788,7 +806,7 @@ def health() -> dict[str, Any]:
         "upload_root": upload_root_ok,
         "upload_free_mb": upload_free_mb,
         "db_pool": db_pool_status(),
-        "auth_secret_configured": not settings.uses_default_auth_secret(),
+        "auth_secret_configured": settings.auth_secret_configured,
         "phase": "enterprise-foundation",
     }
 
@@ -997,13 +1015,14 @@ def create_user(body: UserIn) -> dict[str, Any]:
     existing = fetch_one("SELECT * FROM users WHERE lower(email) = lower(%s)", (email,))
     if existing:
         return existing
+    initial_password = secrets.token_urlsafe(18)
     user = execute(
         """
-        INSERT INTO users (tenant_id, email, display_name, password_hash)
-        VALUES (%s, %s, %s, 'demo')
+        INSERT INTO users (tenant_id, email, display_name, password_hash, password_reset_required)
+        VALUES (%s, %s, %s, %s, true)
         RETURNING *
         """,
-        (default_tenant_id(), email, name),
+        (default_tenant_id(), email, name, hash_password(initial_password)),
     )
     role = fetch_one("SELECT id FROM roles WHERE slug = %s", (body.role_slug,))
     if role:
@@ -1011,8 +1030,8 @@ def create_user(body: UserIn) -> dict[str, Any]:
             "INSERT INTO user_roles (user_id, role_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING user_id",
             (user["id"], role["id"]),
         )
-    audit("user_created", "user", str(user["id"]), {"email": email, "role_slug": body.role_slug})
-    return user
+    audit("user_created", "user", str(user["id"]), {"email": email, "role_slug": body.role_slug, "password_reset_required": True})
+    return {**user, "initial_password": initial_password}
 
 
 @app.post("/locations")
@@ -2334,7 +2353,12 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
     path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
     if file:
         data = await file.read()
-        path = Path(settings.upload_root, "audio", f"{item_id}-{file.filename}")
+        if not data:
+            raise HTTPException(status_code=400, detail="Audio-Datei ist leer")
+        if len(data) > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="Audio-Datei ist zu groÃŸ")
+        suffix = safe_audio_suffix(file.filename, file.content_type)
+        path = safe_upload_path(str(Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(16)}{suffix}")))
         path.write_bytes(data)
     else:
         path.write_text(transcript or "", encoding="utf-8")
@@ -2440,6 +2464,37 @@ def ai_session_generation_for_item(item_id: str) -> int:
     return int((row or {}).get("ai_cancel_generation") or 0)
 
 
+def ai_job_generation_for_item(item_id: str) -> dict[str, int]:
+    row = fetch_one(
+        """
+        SELECT COALESCE(s.ai_cancel_generation, 0) AS session_generation,
+               COALESCE(i.ai_cancel_generation, 0) AS item_generation
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    return {
+        "session": int((row or {}).get("session_generation") or 0),
+        "item": int((row or {}).get("item_generation") or 0),
+    }
+
+
+def expected_session_generation(expected_generation: Any) -> int | None:
+    if expected_generation is None:
+        return None
+    if isinstance(expected_generation, dict):
+        return int(expected_generation.get("session") or 0)
+    return int(expected_generation)
+
+
+def expected_item_generation(expected_generation: Any) -> int | None:
+    if isinstance(expected_generation, dict):
+        return int(expected_generation.get("item") or 0)
+    return None
+
+
 def ai_session_generation(session_id: str) -> int:
     row = fetch_one(
         "SELECT COALESCE(ai_cancel_generation, 0) AS ai_cancel_generation FROM inventory_sessions WHERE id = %s",
@@ -2448,12 +2503,15 @@ def ai_session_generation(session_id: str) -> int:
     return int((row or {}).get("ai_cancel_generation") or 0)
 
 
-def ai_job_cancelled(item_id: str, expected_generation: int | None = None) -> bool:
-    if item_id in AI_CANCELLED_ITEM_IDS:
-        return True
-    if expected_generation is None:
+def ai_job_cancelled(item_id: str, expected_generation: Any = None) -> bool:
+    expected_session = expected_session_generation(expected_generation)
+    if expected_session is None:
         return False
-    return ai_session_generation_for_item(item_id) != expected_generation
+    current = ai_job_generation_for_item(item_id)
+    if current["session"] != expected_session:
+        return True
+    expected_item = expected_item_generation(expected_generation)
+    return expected_item is not None and current["item"] != expected_item
 
 
 def latest_ai_context(item_id: str) -> str:
@@ -4027,7 +4085,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
     }
 
 
-def process_deep_dive_item(item_id: str, expected_generation: int | None = None) -> None:
+def process_deep_dive_item(item_id: str, expected_generation: Any = None) -> None:
     if ai_job_cancelled(item_id, expected_generation):
         audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_start", "expected_generation": expected_generation})
         return
@@ -4055,6 +4113,8 @@ def process_deep_dive_item(item_id: str, expected_generation: int | None = None)
                 ),
             )
         else:
+            expected_session = expected_session_generation(expected_generation)
+            expected_item = expected_item_generation(expected_generation)
             row = execute(
                 """
                 INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
@@ -4063,6 +4123,7 @@ def process_deep_dive_item(item_id: str, expected_generation: int | None = None)
                 JOIN inventory_sessions s ON s.id = i.session_id
                 WHERE i.id = %s
                   AND COALESCE(s.ai_cancel_generation, 0) = %s
+                  AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
                 RETURNING *
                 """,
                 (
@@ -4071,7 +4132,9 @@ def process_deep_dive_item(item_id: str, expected_generation: int | None = None)
                     json_string(result),
                     0.55,
                     item_id,
-                    expected_generation,
+                    expected_session,
+                    expected_item,
+                    expected_item,
                 ),
             )
         if not row:
@@ -4185,13 +4248,15 @@ def ai_updated_fields(result: dict[str, Any] | None) -> list[str]:
     return sorted(fields)
 
 
-def update_ai_item_status(item_id: str, status: str, expected_generation: int | None = None, final_only_guard: bool = False) -> dict[str, Any] | None:
-    if expected_generation is None:
+def update_ai_item_status(item_id: str, status: str, expected_generation: Any = None, final_only_guard: bool = False) -> dict[str, Any] | None:
+    expected_session = expected_session_generation(expected_generation)
+    if expected_session is None:
         final_guard = "AND status <> 'finalisiert'" if final_only_guard else ""
         return execute(
             f"UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s {final_guard} RETURNING id",
             (status, item_id),
         )
+    expected_item = expected_item_generation(expected_generation)
     final_guard = "AND i.status <> 'finalisiert'" if final_only_guard else ""
     return execute(
         f"""
@@ -4202,14 +4267,15 @@ def update_ai_item_status(item_id: str, status: str, expected_generation: int | 
         WHERE i.id = %s
           AND s.id = i.session_id
           AND COALESCE(s.ai_cancel_generation, 0) = %s
+          AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
           {final_guard}
         RETURNING i.id
         """,
-        (status, item_id, expected_generation),
+        (status, item_id, expected_session, expected_item, expected_item),
     )
 
 
-def process_ai_item(item_id: str, mode: str = "fast", expected_generation: int | None = None) -> None:
+def process_ai_item(item_id: str, mode: str = "fast", expected_generation: Any = None) -> None:
     normalized_mode = "review" if mode == "review" else "fast"
     if ai_job_cancelled(item_id, expected_generation):
         audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_start", "expected_generation": expected_generation})
@@ -4250,6 +4316,8 @@ def process_ai_item(item_id: str, mode: str = "fast", expected_generation: int |
             ),
         )
     else:
+        expected_session = expected_session_generation(expected_generation)
+        expected_item = expected_item_generation(expected_generation)
         row = execute(
             """
             INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
@@ -4258,6 +4326,7 @@ def process_ai_item(item_id: str, mode: str = "fast", expected_generation: int |
             JOIN inventory_sessions s ON s.id = i.session_id
             WHERE i.id = %s
               AND COALESCE(s.ai_cancel_generation, 0) = %s
+              AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
             RETURNING *
             """,
             (
@@ -4268,7 +4337,9 @@ def process_ai_item(item_id: str, mode: str = "fast", expected_generation: int |
                 json_string(suggestion),
                 confidence,
                 item_id,
-                expected_generation,
+                expected_session,
+                expected_item,
+                expected_item,
             ),
         )
     if not row:
@@ -4317,8 +4388,7 @@ def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") 
             "message": "KI-Vorschlag erst nach Objektfoto möglich. Bitte Objektfoto aufnehmen und erneut starten.",
         }
     normalized_mode = "review" if mode == "review" else "fast"
-    expected_generation = ai_session_generation_for_item(item_id)
-    AI_CANCELLED_ITEM_IDS.discard(item_id)
+    expected_generation = ai_job_generation_for_item(item_id)
     queued_status = ai_status_for_mode(normalized_mode, "queued")
     update_ai_item_status(item_id, queued_status, expected_generation)
     background_tasks.add_task(process_ai_item, item_id, normalized_mode, expected_generation)
@@ -4352,8 +4422,6 @@ def get_ai_status(item_id: str, scope: str = "fast") -> dict[str, Any]:
     state = status_state_for_item_status(normalized_scope, item.get("status"))
     if result and state == "idle":
         state = "completed"
-    if item_id in AI_CANCELLED_ITEM_IDS and state in {"queued", "running"}:
-        state = "cancelled"
     messages = {
         "fast": {
             "queued": "Schnell-KI startet.",
@@ -4403,8 +4471,7 @@ def run_ai_deep_dive(item_id: str, background_tasks: BackgroundTasks) -> dict[st
             "message": "KI läuft bereits für diesen Artikel",
             "already_running": True,
         }
-    expected_generation = ai_session_generation_for_item(item_id)
-    AI_CANCELLED_ITEM_IDS.discard(item_id)
+    expected_generation = ai_job_generation_for_item(item_id)
     update_ai_item_status(item_id, ai_status_for_mode("review", "queued"), expected_generation, final_only_guard=True)
     background_tasks.add_task(process_deep_dive_item, item_id, expected_generation)
     audit("ai_deep_dive_queued", "inventory_item", item_id, {"stage": "deep_dive", "expected_generation": expected_generation})
@@ -4419,11 +4486,12 @@ def run_ai_deep_dive(item_id: str, background_tasks: BackgroundTasks) -> dict[st
 @app.post("/items/{item_id}/ai/cancel")
 def cancel_ai_item(item_id: str) -> dict[str, Any]:
     require_item_session_open(item_id)
-    AI_CANCELLED_ITEM_IDS.add(item_id)
     row = execute(
         f"""
         UPDATE inventory_items
         SET status = 'ki_pruefung_offen',
+            ai_cancel_generation = COALESCE(ai_cancel_generation, 0) + 1,
+            ai_cancelled_at = now(),
             updated_at = now()
         WHERE id = %s
           AND status IN ({AI_ACTIVE_STATUS_SQL})
@@ -4454,8 +4522,6 @@ def cancel_session_ai(session_id: str) -> dict[str, Any]:
         """,
         (session_id,),
     )
-    for row in active_rows:
-        AI_CANCELLED_ITEM_IDS.add(str(row["id"]))
     generation_row = execute(
         """
         UPDATE inventory_sessions
@@ -4505,7 +4571,7 @@ def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) ->
     repair_stale_ai_statuses(session_id=session_id)
     rows = fetch_all(
         f"""
-        SELECT i.id
+        SELECT i.id, COALESCE(i.ai_cancel_generation, 0) AS ai_cancel_generation
         FROM inventory_items i
         WHERE session_id = %s
           AND finalized_at IS NULL
@@ -4522,9 +4588,9 @@ def run_session_review_ai(session_id: str, background_tasks: BackgroundTasks) ->
     expected_generation = int(session.get("ai_cancel_generation") or 0)
     for row in rows:
         item_id = str(row["id"])
-        AI_CANCELLED_ITEM_IDS.discard(item_id)
-        update_ai_item_status(item_id, ai_status_for_mode("review", "queued"), expected_generation)
-        background_tasks.add_task(process_ai_item, item_id, "review", expected_generation)
+        item_generation = {"session": expected_generation, "item": int(row.get("ai_cancel_generation") or 0)}
+        update_ai_item_status(item_id, ai_status_for_mode("review", "queued"), item_generation)
+        background_tasks.add_task(process_ai_item, item_id, "review", item_generation)
     audit("session_ai_review_queued", "inventory_session", session_id, {"queued": len(rows), "expected_generation": expected_generation})
     return {"session_id": session_id, "queued": len(rows), "status": "ki_pruefung_wartet"}
 
