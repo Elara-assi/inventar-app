@@ -895,16 +895,24 @@ function ItemReviewRow({
       remark: compactText(fields.remark || nameplate?.suggested_remark),
       condition: compactText(fields.condition),
     };
-    const changedFields: string[] = [];
+    const changedFields = [
+      nextValues.object_type ? "Bezeichnung" : "",
+      nextValues.specification ? "Typ/Spezifikation" : "",
+      nextValues.brand ? "Marke" : "",
+      nextValues.serial_number ? "Seriennummer" : "",
+      nextValues.construction_year ? "Baujahr" : "",
+      nextValues.remark ? "Bemerkung" : "",
+      nextValues.condition ? "Zustand" : "",
+    ].filter(Boolean);
     setDraft((current) => ({
       ...current,
-      object_type: nextValues.object_type ? (changedFields.push("Bezeichnung"), nextValues.object_type) : current.object_type,
-      specification: nextValues.specification ? (changedFields.push("Typ/Spezifikation"), nextValues.specification) : current.specification,
-      brand: nextValues.brand ? (changedFields.push("Marke"), nextValues.brand) : current.brand,
-      serial_number: nextValues.serial_number ? (changedFields.push("Seriennummer"), nextValues.serial_number) : current.serial_number,
-      construction_year: nextValues.construction_year ? (changedFields.push("Baujahr"), nextValues.construction_year) : current.construction_year,
-      remark: nextValues.remark ? (changedFields.push("Bemerkung"), nextValues.remark) : current.remark,
-      condition: nextValues.condition ? (changedFields.push("Zustand"), nextValues.condition) : current.condition,
+      object_type: nextValues.object_type || current.object_type,
+      specification: nextValues.specification || current.specification,
+      brand: nextValues.brand || current.brand,
+      serial_number: nextValues.serial_number || current.serial_number,
+      construction_year: nextValues.construction_year || current.construction_year,
+      remark: nextValues.remark || current.remark,
+      condition: nextValues.condition || current.condition,
     }));
     if (changedFields.length) {
       setDraftDirty(true);
