@@ -1106,6 +1106,7 @@ function ItemReviewRow({
     if (compactText(current) === value) return "";
     return value;
   };
+  const hasAiFieldSuggestion = Object.values(aiFieldSuggestions).some((value) => compactText(value));
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
@@ -1258,7 +1259,7 @@ function ItemReviewRow({
                 {suggestionLabel(draft.serial_number, aiFieldSuggestions.serial_number) ? <small className="field-suggestion">KI: {suggestionLabel(draft.serial_number, aiFieldSuggestions.serial_number)}</small> : null}
               </label>
             </div>
-            {aiProposal || aiProposalFields ? (
+            {hasAiFieldSuggestion ? (
               <button className="btn secondary compact-btn inline-ai-apply" type="button" onClick={applyAiSuggestionToDraft} disabled={readOnly}>
                 KI-Vorschlag übernehmen
               </button>

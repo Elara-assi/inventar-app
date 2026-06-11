@@ -5310,7 +5310,7 @@ body:has(.premium-session-page) {
 
   .premium-session-page .review-inspector-pane .item-row.is-inspector .photo-thumb {
     width: 100%;
-    min-height: 180px;
+    min-height: 220px;
   }
 
   .premium-session-page .review-inspector-pane .item-row.is-inspector .item-compact-grid,
