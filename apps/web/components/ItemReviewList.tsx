@@ -962,7 +962,7 @@ function ItemReviewRow({
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
         estimated_age_years: ageEstimate,
-        age_source: ageEstimate != null ? (ageComesFromConstructionYear ? "baujahr" : "manuell") : null,
+        age_source: ageEstimate != null ? (ageComesFromConstructionYear ? "baujahr" : "manuell") : "unbekannt",
         age_verification_status: ageEstimate != null ? "geprueft" : "offen",
         review_status: draft.review_status,
       }),

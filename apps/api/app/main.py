@@ -1793,6 +1793,10 @@ def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
+    if data.get("age_source") in (None, ""):
+        data["age_source"] = "unbekannt"
+    if data.get("age_verification_status") in (None, ""):
+        data["age_verification_status"] = "offen"
     if data.get("construction_year"):
         derived_age = construction_year_age({"construction_year": data.get("construction_year")})
         if derived_age is not None:
