@@ -217,7 +217,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               <small>{items.length} sichtbar</small>
             </div>
             <p className="muted">
-              {isClosed ? "Schreibgeschützt. Für Änderungen den Raum wieder öffnen." : "Direkt bearbeiten, Nacharbeit setzen, exportieren oder finalisieren."}
+              {isClosed
+                ? "Raum abgeschlossen. Web-Korrekturen, Nacharbeit und Finalisierung bleiben möglich."
+                : "Direkt bearbeiten, Nacharbeit setzen, exportieren oder finalisieren."}
             </p>
           </div>
 
@@ -225,7 +227,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             items={items}
             objectClasses={bootstrap?.object_classes ?? []}
             onChanged={load}
-            readOnly={isClosed}
+            readOnly={false}
           />
         </div>
 

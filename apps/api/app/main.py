@@ -403,7 +403,7 @@ def validate_photo_upload(file: UploadFile, data: bytes) -> tuple[str, str]:
     return effective, safe_photo_suffix(file.filename, effective)
 
 
-def require_item_session_open(item_id: str) -> dict[str, Any]:
+def require_item_session(item_id: str) -> dict[str, Any]:
     row = fetch_one(
         """
         SELECT i.id, i.session_id, s.status AS session_status
@@ -415,6 +415,11 @@ def require_item_session_open(item_id: str) -> dict[str, Any]:
     )
     if not row:
         raise HTTPException(status_code=404, detail="Item not found")
+    return row
+
+
+def require_item_session_open(item_id: str) -> dict[str, Any]:
+    row = require_item_session(item_id)
     if row["session_status"] != "open":
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
     return row
@@ -1784,7 +1789,7 @@ def patch_tire_wheel_data(item_id: str, body: TireWheelDataUpdate) -> dict[str, 
 
 @app.patch("/items/{item_id}")
 def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
-    require_item_session_open(item_id)
+    require_item_session(item_id)
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
@@ -1826,7 +1831,7 @@ def delete_item(item_id: str) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/finalize")
 def finalize_item(item_id: str) -> dict[str, Any]:
-    require_item_session_open(item_id)
+    require_item_session(item_id)
     blockers = finalization_blockers(item_id)
     if blockers:
         raise HTTPException(status_code=409, detail={"message": "Item has blockers", "blockers": blockers})
@@ -1849,7 +1854,7 @@ def finalize_item(item_id: str) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/request-rework")
 def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    require_item_session_open(item_id)
+    require_item_session(item_id)
     assigned_role = body.get("assigned_role", "Prüfer")
     row = execute(
         """
@@ -1879,7 +1884,7 @@ def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/items/{item_id}/change-status")
 def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    require_item_session_open(item_id)
+    require_item_session(item_id)
     row = execute(
         "UPDATE inventory_items SET status = %s, review_status = COALESCE(%s, review_status), updated_at = now() WHERE id = %s RETURNING *",
         (body.get("status"), body.get("review_status"), item_id),
