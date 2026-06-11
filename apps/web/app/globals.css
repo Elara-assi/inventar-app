@@ -5326,6 +5326,52 @@ body:has(.bga-wizard-page) .build-strip {
   transition: width 160ms ease;
 }
 
+.ai-work-meter {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 16px;
+  background: #eff6ff;
+  padding: 10px;
+  color: #173a74;
+}
+
+.ai-work-meter > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-work-meter strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-work-meter span {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-work-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.ai-work-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #22c55e);
+  transition: width 220ms ease;
+}
+
 .mobile-sync-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -5439,6 +5485,20 @@ body:has(.bga-wizard-page) .build-strip {
   letter-spacing: 0;
 }
 
+.scanner-action-dock.is-fast {
+  position: static;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 6px;
+  box-shadow: none;
+}
+
+.scanner-action-dock.is-fast label {
+  min-height: 54px;
+  grid-template-columns: auto auto;
+  justify-content: center;
+  column-gap: 8px;
+}
+
 .mobile-photo-proof {
   display: grid;
   gap: 10px;
@@ -5545,6 +5605,30 @@ body:has(.bga-wizard-page) .build-strip {
   color: white;
   font-size: 12px;
   font-weight: 900;
+}
+
+.photo-proof-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(254, 202, 202, 0.88);
+  border-radius: 999px;
+  background: rgba(255, 241, 242, 0.96);
+  color: #b91c1c;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.16);
+}
+
+.photo-proof-delete:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .photo-proof-label {
@@ -5721,6 +5805,52 @@ body:has(.bga-wizard-page) .build-strip {
   gap: 8px;
 }
 
+.copilot-ai-meter {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #eff6ff;
+  padding: 10px;
+  color: #173a74;
+}
+
+.copilot-ai-meter > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.copilot-ai-meter strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-ai-meter span {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.copilot-ai-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbeafe;
+}
+
+.copilot-ai-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #22c55e);
+  transition: width 180ms ease;
+}
+
 .mobile-copilot-summary span {
   display: grid;
   gap: 3px;
@@ -5779,7 +5909,7 @@ body:has(.bga-wizard-page) .build-strip {
 }
 
 .mobile-copilot-actions {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 8px;
 }
@@ -5950,6 +6080,10 @@ body:has(.bga-wizard-page) .build-strip {
   gap: 10px;
 }
 
+.mobile-condition-grid.is-compact {
+  grid-template-columns: 1fr;
+}
+
 .mobile-function-rail {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5981,7 +6115,7 @@ body:has(.bga-wizard-page) .build-strip {
   bottom: 8px;
   z-index: 4;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, .9fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid rgba(213, 228, 240, 0.92);
   border-radius: 18px;
@@ -5992,15 +6126,18 @@ body:has(.bga-wizard-page) .build-strip {
 }
 
 .mobile-conveyor-actions .btn {
-  min-height: 52px;
+  display: grid;
+  place-items: center;
+  min-height: 46px;
   border-radius: 14px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 950;
+  text-align: center;
 }
 
 .mobile-conveyor-actions .btn:first-child {
-  grid-row: span 2;
-  min-height: 112px;
+  grid-column: 1 / -1;
+  min-height: 54px;
   background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
 }
 
@@ -6021,6 +6158,49 @@ body:has(.bga-wizard-page) .build-strip {
 .capture-status.is-done {
   border-color: #86efac;
   background: #ecfdf5;
+}
+
+.bga-wizard .capture-status {
+  display: grid;
+  gap: 2px;
+  border-radius: 12px;
+  border-left-width: 4px;
+  padding: 8px 10px;
+}
+
+.bga-wizard .capture-status strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.bga-wizard .capture-status span {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.bga-wizard .mobile-sync-bar.is-compact {
+  border-radius: 12px;
+  padding: 7px 9px;
+}
+
+.bga-wizard .mobile-sync-bar.is-compact strong {
+  font-size: 12px;
+}
+
+.bga-wizard .mobile-room-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.bga-wizard .mobile-room-bar strong {
+  font-size: 14px;
+}
+
+.bga-wizard .mobile-room-bar span:not(.live-indicator) {
+  font-size: 11px;
 }
 
 .saved-card {
@@ -6202,6 +6382,7 @@ body:has(.bga-wizard-page) .build-strip {
 }
 
 .mobile-photo-previews figure {
+  position: relative;
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -6210,6 +6391,27 @@ body:has(.bga-wizard-page) .build-strip {
   border-radius: 14px;
   background: #f8fbff;
   padding: 8px;
+}
+
+.photo-preview-delete {
+  position: absolute;
+  right: 8px;
+  bottom: 44px;
+  min-height: 32px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: rgba(255, 241, 242, 0.96);
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0 10px;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.16);
+}
+
+.photo-preview-delete:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .mobile-photo-previews img {
@@ -6485,13 +6687,16 @@ body:has(.bga-wizard-page) .build-strip {
     grid-template-columns: 1fr;
   }
 
-  .mobile-condition-grid,
-  .mobile-conveyor-actions {
+  .mobile-condition-grid {
     grid-template-columns: 1fr;
   }
 
+  .mobile-conveyor-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .mobile-conveyor-actions .btn:first-child {
-    grid-row: auto;
+    grid-column: 1 / -1;
     min-height: 58px;
   }
 

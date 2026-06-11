@@ -24,6 +24,11 @@ type ReferenceMatch = {
   action?: string;
   note?: string;
   source_file?: string;
+  uvv_due?: boolean;
+  maintenance_due?: boolean;
+  inspection_book_missing?: boolean;
+  missing?: boolean;
+  defective?: boolean;
 };
 
 type AiSuggestedFields = {
@@ -324,6 +329,13 @@ function needsRework(item: ReviewItem) {
     || (item.open_tasks?.length ?? 0) > 0
     || item.review_status?.startsWith("nacharbeit")
     || item.process_hints?.some((hint) => hint.severity === "warn" || hint.severity === "danger");
+}
+
+function historyMatchNeedsAttention(match: ReferenceMatch, item: ReviewItem) {
+  if (match.uvv_due && !["vorhanden", "nicht_uvv_pflichtig"].includes(item.uvv_status ?? "")) return true;
+  if (match.inspection_book_missing && !["ja", "nicht_erforderlich"].includes(item.inspection_book_available ?? "")) return true;
+  if (match.defective && item.function_ok !== "ja") return true;
+  return Boolean(match.maintenance_due || match.missing);
 }
 
 function matchesReviewFilter(item: ReviewItem, filter: ReviewFilterKey) {
@@ -1024,6 +1036,13 @@ function ItemReviewRow({
     onChanged();
   }
 
+  async function finishEditing() {
+    if (!readOnly && draftDirty) {
+      await save();
+    }
+    setEditOpen(false);
+  }
+
   async function requestRework(role: "Auswertung" | "Erfasser" | "Technik", missingField: string) {
     if (readOnly) return;
     await api(`/items/${item.id}/request-rework`, {
@@ -1153,7 +1172,7 @@ function ItemReviewRow({
   const tasks = item.open_tasks ?? [];
   const hints = item.process_hints ?? [];
   const firstSpecial = item.ai_summary?.special_tool_matches?.[0];
-  const firstHistory = item.ai_summary?.inventory_history_matches?.[0];
+  const firstHistory = item.ai_summary?.inventory_history_matches?.find((match) => historyMatchNeedsAttention(match, item));
   const aiProposal = item.ai_summary?.bga_detection;
   const aiProposalFields = aiProposal?.suggested_fields ?? item.ai_summary?.suggested_fields;
   const nameplateProposal = aiProposal?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
@@ -1301,7 +1320,7 @@ function ItemReviewRow({
               </div>
               <div className="item-edit-head-actions">
                 <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly}>Speichern</button>
-                <button className="btn secondary compact-btn" type="button" onClick={() => setEditOpen(false)}>Fertig</button>
+                <button className="btn secondary compact-btn" type="button" onClick={finishEditing}>Fertig</button>
               </div>
             </div>
             <section className="item-edit-section">

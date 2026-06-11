@@ -480,6 +480,68 @@ def upsert_rework_task_for_type(
     )
 
 
+def complete_satisfied_bga_rework_tasks(item_id: str, item: dict[str, Any]) -> None:
+    function_resolved = item.get("function_ok") in {"ja", "nein"}
+    uvv_resolved = item.get("uvv_status") in {"vorhanden", "nicht_uvv_pflichtig"}
+    inspection_book_resolved = item.get("inspection_book_available") in {"ja", "nein", "nicht_erforderlich"}
+
+    if function_resolved and uvv_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%funktion%%'
+              AND lower(COALESCE(missing_field, '')) LIKE '%%uvv%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if function_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%funktion%%'
+              AND lower(COALESCE(missing_field, '')) NOT LIKE '%%uvv%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if uvv_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%uvv%%'
+              AND lower(COALESCE(missing_field, '')) NOT LIKE '%%funktion%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if inspection_book_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%prüfbuch%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+
+
 def parse_dot_week_year(value: str | None) -> tuple[int | None, int | None, bool]:
     raw = re.sub(r"\D", "", value or "")
     if len(raw) < 4:
@@ -564,6 +626,8 @@ def run_bga_rework_check(item_id: str) -> None:
         upsert_rework_task(item_id, "Erfasser", "Zustand unklar", "normal", "Zustand muss für die Aufnahme eingeordnet werden.")
     if item.get("function_ok") == "nein":
         upsert_rework_task(item_id, "Technik", "Funktion nicht in Ordnung", "hoch", "Funktionsstatus muss technisch geklärt werden.")
+
+    complete_satisfied_bga_rework_tasks(item_id, item)
 
     open_critical = fetch_one(
         """
@@ -733,18 +797,22 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
     if special_matches:
         add("reference", "Referenztreffer", "info")
     if history_matches:
-        add("history", "Historie", "warn")
+        add("history", "Historie", "info")
+
+    uvv_resolved = row.get("uvv_status") in {"vorhanden", "nicht_uvv_pflichtig"}
+    function_ok_resolved = row.get("function_ok") == "ja"
+    inspection_book_resolved = row.get("inspection_book_available") in {"ja", "nicht_erforderlich"}
 
     for match in history_matches:
-        if match.get("uvv_due"):
+        if match.get("uvv_due") and not uvv_resolved:
             add("uvv", "UVV prüfen", "danger")
         if match.get("maintenance_due"):
             add("maintenance", "Wartung prüfen", "warn")
-        if match.get("inspection_book_missing"):
+        if match.get("inspection_book_missing") and not inspection_book_resolved:
             add("inspection_book", "Prüfbuch fehlt", "warn")
         if match.get("missing"):
             add("target_missing", "Soll/Fehlt prüfen", "danger")
-        if match.get("defective"):
+        if match.get("defective") and not function_ok_resolved:
             add("defective", "Defekt prüfen", "danger")
 
     for task in tasks:
