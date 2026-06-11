@@ -5106,6 +5106,16 @@ body:has(.premium-session-page) {
   font-weight: 850;
 }
 
+.premium-session-page .edit-save-feedback {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
 .premium-session-page .item-edit-section {
   display: grid;
   gap: 10px;

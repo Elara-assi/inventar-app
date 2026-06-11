@@ -496,7 +496,7 @@ export function ItemReviewList({
 }: {
   items: ReviewItem[];
   objectClasses: Bootstrap["object_classes"];
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   readOnly?: boolean;
 }) {
   const [activeFilter, setActiveFilter] = useState<ReviewFilterKey>("all");
@@ -827,7 +827,7 @@ function ItemReviewRow({
 }: {
   item: ReviewItem;
   objectClasses: Bootstrap["object_classes"];
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   onOpenPhoto: (url: string, label: string) => void;
   readOnly: boolean;
   now: number;
@@ -975,8 +975,8 @@ function ItemReviewRow({
     setActionBusy("save");
     try {
       await persistDraft();
+      await onChanged();
       setMessage("Gespeichert");
-      onChanged();
       return true;
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Speichern fehlgeschlagen");
@@ -1006,8 +1006,8 @@ function ItemReviewRow({
         comment: `${missingField} im Raumtest nacharbeiten`,
       }),
     });
+    await onChanged();
     setMessage(role === "Auswertung" ? "Spätere Auswertung markiert" : `Nacharbeit ${role}`);
-    onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Nacharbeit konnte nicht gesetzt werden");
     } finally {
@@ -1025,8 +1025,8 @@ function ItemReviewRow({
     setActionBusy("finalize");
     try {
       await api(`/items/${item.id}/finalize`, { method: "POST", body: "{}" });
+      await onChanged();
       setMessage("Finalisiert");
-      onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Finalisierung blockiert");
     } finally {
@@ -1243,6 +1243,7 @@ function ItemReviewRow({
                 <strong>{itemName}</strong>
                 <span>Prüfen, korrigieren, speichern. Manuelle Eingaben sind führend.</span>
               </div>
+              {message ? <span className="edit-save-feedback">{message}</span> : null}
               <div className="item-edit-head-actions">
                 <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly || Boolean(actionBusy)}>{actionBusy === "save" ? "Speichert..." : "Speichern"}</button>
                 <button className="btn secondary compact-btn" type="button" onClick={finishEditing} disabled={Boolean(actionBusy)}>Fertig</button>
