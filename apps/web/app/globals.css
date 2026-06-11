@@ -2572,7 +2572,7 @@ body {
 
 .row-actions {
   display: grid;
-  grid-template-columns: minmax(150px, 0.9fr) minmax(140px, 0.8fr) minmax(290px, 1.6fr) minmax(110px, 0.65fr);
+  grid-template-columns: minmax(150px, .75fr) minmax(260px, 1.25fr);
   gap: 8px;
   align-items: stretch;
   border-top: 1px solid #e5edf8;
@@ -4869,8 +4869,8 @@ body:has(.premium-session-page) {
 
 .premium-session-page .review-inspector-pane .item-row.is-inspector {
   display: grid;
-  grid-template-columns: 124px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   border: 0;
   border-left: 4px solid #14b8a6;
   border-radius: 16px;
@@ -4880,8 +4880,16 @@ body:has(.premium-session-page) {
 }
 
 .premium-session-page .review-inspector-pane .item-row.is-inspector .photo-thumb {
-  width: 124px;
-  min-height: 124px;
+  width: 100%;
+  min-height: 220px;
+  max-height: 280px;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+}
+
+.premium-session-page .review-inspector-pane .item-row.is-inspector .photo-thumb img {
+  object-fit: contain;
+  background: #f8fafc;
 }
 
 .premium-session-page .review-inspector-pane .item-row.is-inspector .item-title-line {
@@ -4894,7 +4902,6 @@ body:has(.premium-session-page) {
 }
 
 .premium-session-page .review-inspector-pane .item-row.is-inspector .item-edit-panel {
-  grid-column: 1 / -1;
   margin-top: 0;
 }
 
@@ -5069,7 +5076,7 @@ body:has(.premium-session-page) {
 .premium-session-page .item-edit-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 12px;
   border: 1px solid #dbeafe;
@@ -5085,7 +5092,7 @@ body:has(.premium-session-page) {
 }
 
 .premium-session-page .item-edit-head-actions {
-  display: grid;
+  display: none;
   grid-template-columns: minmax(132px, auto) minmax(96px, auto);
   gap: 8px;
   align-items: stretch;
@@ -5136,6 +5143,10 @@ body:has(.premium-session-page) {
 
 .premium-session-page .inline-ai-apply {
   justify-self: start;
+}
+
+.premium-session-page .row-actions {
+  grid-template-columns: minmax(160px, .7fr) minmax(280px, 1.3fr);
 }
 
 .premium-session-page .item-edit-section {

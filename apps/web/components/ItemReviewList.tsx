@@ -886,17 +886,32 @@ function ItemReviewRow({
     const flexibleNameplate = nameplate as Record<string, string | number | null | undefined> | undefined;
     const modelText = compactText(flexibleFields.model || flexibleNameplate?.model);
     const specificationText = fields.specification || nameplate?.suggested_specification || modelText;
+    const nextValues = {
+      object_type: compactText(fields.object_type || detection?.object_name || nameplate?.suggested_object_type),
+      specification: compactText(specificationText),
+      brand: compactText(flexibleFields.brand || flexibleNameplate?.brand || flexibleNameplate?.manufacturer),
+      serial_number: compactText(fields.serial_number || detection?.serial_number || nameplate?.serial_number),
+      construction_year: compactText(fields.construction_year || nameplate?.construction_year),
+      remark: compactText(fields.remark || nameplate?.suggested_remark),
+      condition: compactText(fields.condition),
+    };
+    const changedFields: string[] = [];
     setDraft((current) => ({
       ...current,
-      object_type: current.object_type || fields.object_type || detection?.object_name || nameplate?.suggested_object_type || "",
-      specification: current.specification || specificationText || "",
-      serial_number: current.serial_number || fields.serial_number || detection?.serial_number || nameplate?.serial_number || "",
-      construction_year: current.construction_year || fields.construction_year || nameplate?.construction_year || "",
-      remark: current.remark || fields.remark || nameplate?.suggested_remark || current.remark,
-      condition: current.condition || fields.condition || "gebraucht",
+      object_type: nextValues.object_type ? (changedFields.push("Bezeichnung"), nextValues.object_type) : current.object_type,
+      specification: nextValues.specification ? (changedFields.push("Typ/Spezifikation"), nextValues.specification) : current.specification,
+      brand: nextValues.brand ? (changedFields.push("Marke"), nextValues.brand) : current.brand,
+      serial_number: nextValues.serial_number ? (changedFields.push("Seriennummer"), nextValues.serial_number) : current.serial_number,
+      construction_year: nextValues.construction_year ? (changedFields.push("Baujahr"), nextValues.construction_year) : current.construction_year,
+      remark: nextValues.remark ? (changedFields.push("Bemerkung"), nextValues.remark) : current.remark,
+      condition: nextValues.condition ? (changedFields.push("Zustand"), nextValues.condition) : current.condition,
     }));
-    setDraftDirty(true);
-    setMessage("KI-Vorschlag in leere Felder übernommen. Bitte prüfen und speichern.");
+    if (changedFields.length) {
+      setDraftDirty(true);
+      setMessage(`KI-Vorschlag übernommen: ${Array.from(new Set(changedFields)).join(", ")}. Bitte prüfen und speichern.`);
+    } else {
+      setMessage("Kein KI-Vorschlag für diese Felder vorhanden.");
+    }
   }
 
   async function persistDraft() {
@@ -1208,10 +1223,6 @@ function ItemReviewRow({
                 <span>Prüfen, korrigieren, speichern. Manuelle Eingaben sind führend.</span>
               </div>
               {message ? <span className="edit-save-feedback">{message}</span> : null}
-              <div className="item-edit-head-actions">
-                <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly || Boolean(actionBusy)}>{actionBusy === "save" ? "Speichert..." : "Speichern"}</button>
-                <button className="btn secondary compact-btn" type="button" onClick={finishEditing} disabled={Boolean(actionBusy)}>Fertig</button>
-              </div>
             </div>
             <section className="item-edit-section">
               <div className="item-edit-section-head">
@@ -1249,7 +1260,7 @@ function ItemReviewRow({
             </div>
             {aiProposal || aiProposalFields ? (
               <button className="btn secondary compact-btn inline-ai-apply" type="button" onClick={applyAiSuggestionToDraft} disabled={readOnly}>
-                KI-Vorschlag in leere Felder übernehmen
+                KI-Vorschlag übernehmen
               </button>
             ) : null}
             </section>
@@ -1366,6 +1377,7 @@ function ItemReviewRow({
             </details>
             <div className="row-actions">
               <button className="btn accent" type="button" onClick={save} disabled={readOnly || Boolean(actionBusy)}>{actionBusy === "save" ? "Speichert..." : "Speichern"}</button>
+              {!inspector ? <button className="btn secondary compact-btn" type="button" onClick={finishEditing} disabled={Boolean(actionBusy)}>Fertig</button> : null}
               <div className="rework-action">
                 <select disabled={readOnly} value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
                   {reworkOptions.map((option) => (
