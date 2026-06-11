@@ -816,10 +816,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   useEffect(() => {
     if (!joined || !isBgaSession) return;
-    refreshQueueSummary().then(() => {
+    const timeout = window.setTimeout(async () => {
+      const summary = await getQueueSummary(joined.session.id);
+      setQueueSummary(summary);
+      if (!summary.open) return;
       void runSync("Offene lokale Einträge werden synchronisiert.");
-    });
-  }, [joined, isBgaSession, refreshQueueSummary, runSync]);
+    }, 1_000);
+    return () => window.clearTimeout(timeout);
+  }, [joined, isBgaSession, runSync]);
 
   const hasManualInput = Boolean(
     form.object_type.trim() ||
