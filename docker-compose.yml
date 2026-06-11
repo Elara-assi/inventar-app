@@ -82,11 +82,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
+        NEXT_PUBLIC_API_URL: /api
         NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-unbekannt}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: https://inventar-api.elarahub.cloud
+      NEXT_PUBLIC_API_URL: /api
       NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-unbekannt}
     ports:
       - "3002:3000"
