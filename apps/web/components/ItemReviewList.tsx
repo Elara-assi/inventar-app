@@ -852,7 +852,6 @@ function ItemReviewRow({
   const [selectedRework, setSelectedRework] = useState<string>(reworkOptions[0].label);
   const [templateQuery, setTemplateQuery] = useState("");
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
-  const [moreOpen, setMoreOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(inspector);
   const [actionBusy, setActionBusy] = useState("");
 
@@ -972,14 +971,16 @@ function ItemReviewRow({
   }
 
   async function save() {
-    if (readOnly) return;
+    if (readOnly) return false;
     setActionBusy("save");
     try {
       await persistDraft();
       setMessage("Gespeichert");
       onChanged();
+      return true;
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Speichern fehlgeschlagen");
+      return false;
     } finally {
       setActionBusy("");
     }
@@ -987,7 +988,8 @@ function ItemReviewRow({
 
   async function finishEditing() {
     if (!readOnly && draftDirty) {
-      await save();
+      const saved = await save();
+      if (!saved) return;
     }
     setEditOpen(false);
   }
@@ -1153,7 +1155,7 @@ function ItemReviewRow({
       : aiWork ? `${aiWork.phaseLabel} · ${aiWork.elapsedLabel}` : item.status?.startsWith("ki_") ? "KI läuft" : "";
   const blockerSummary = blockers.slice(0, 3).map(displayTaskField).join(", ");
   const finalizeBlocked = blockers.length > 0;
-  const finalizableLabel = finalizeBlocked ? "Noch offen" : "Finalisieren";
+  const openStateLabel = finalizeBlocked ? `Noch offen: ${blockerSummary || "Pflichtangaben prüfen"}` : "Bereit zum Finalisieren";
 
   return (
     <div className={`item-row ${inspector ? "is-inspector" : ""} ${aiWork ? "is-ai-working" : ""} ${aiWork?.isVeryLong ? "is-ai-slow" : ""}`.trim()}>
@@ -1217,18 +1219,21 @@ function ItemReviewRow({
           </div>
         ) : null}
 
-        <div className="compact-row-actions">
+        <div className="compact-row-actions review-primary-actions">
           <button
-            className="btn secondary compact-btn"
+            className="btn accent compact-btn"
             type="button"
             onClick={() => inspector ? editPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }) : setEditOpen((current) => !current)}
           >
-            {inspector ? "Details" : editOpen ? "Schließen" : "Bearbeiten"}
+            Bearbeiten
           </button>
-          <button className="btn" type="button" onClick={finalize} disabled={readOnly || finalizeBlocked || Boolean(actionBusy)} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
-            {actionBusy === "finalize" ? "Finalisiere..." : finalizableLabel}
-          </button>
-          <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
+          {finalizeBlocked ? (
+            <span className="open-state-pill" title={blockerSummary ? `Fehlt: ${blockerSummary}` : "Pflichtangaben prüfen"}>{openStateLabel}</span>
+          ) : (
+            <button className="btn compact-btn" type="button" onClick={finalize} disabled={readOnly || Boolean(actionBusy)} title="Datensatz finalisieren">
+              {actionBusy === "finalize" ? "Finalisiere..." : "Finalisieren"}
+            </button>
+          )}
         </div>
 
         {editOpen ? (
@@ -1564,14 +1569,12 @@ function ItemReviewRow({
                 <button className="btn secondary compact-btn" type="button" onClick={requestSelectedRework} disabled={readOnly || Boolean(actionBusy)}>Nacharbeit setzen</button>
               </div>
             </div>
+            <div className="more-actions review-secondary-actions">
+              <button className="btn secondary compact-btn" type="button" onClick={runReviewAi} disabled={readOnly || Boolean(aiWork) || Boolean(actionBusy)}>{aiWork ? "KI läuft..." : "Prüf-KI manuell"}</button>
+              <button className="btn secondary compact-btn" type="button" onClick={exportItem}>Excel Einzelzeile</button>
+              <button className="btn danger compact-btn" type="button" onClick={removeItem} disabled={readOnly || Boolean(actionBusy)}>Löschen</button>
+            </div>
             </section>
-          </div>
-        ) : null}
-        {moreOpen ? (
-          <div className="more-actions">
-            <button className="btn secondary compact-btn" type="button" onClick={runReviewAi} disabled={readOnly || Boolean(aiWork) || Boolean(actionBusy)}>{aiWork ? "KI läuft..." : "Prüf-KI manuell"}</button>
-            <button className="btn secondary compact-btn" type="button" onClick={exportItem}>Excel Einzelzeile</button>
-            <button className="btn danger compact-btn" type="button" onClick={removeItem} disabled={readOnly || Boolean(actionBusy)}>Löschen</button>
           </div>
         ) : null}
       </div>

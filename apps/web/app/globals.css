@@ -2502,12 +2502,31 @@ body {
 
 .compact-row-actions {
   display: grid;
-  grid-template-columns: minmax(140px, .8fr) minmax(140px, .8fr) minmax(92px, .45fr);
+  grid-template-columns: minmax(140px, .8fr) minmax(180px, 1.2fr);
   gap: 8px;
 }
 
 .compact-row-actions .btn {
   min-height: 38px;
+}
+
+.review-primary-actions {
+  align-items: stretch;
+}
+
+.open-state-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 900;
+  padding: 8px 10px;
+  text-align: center;
 }
 
 .item-edit-panel {
@@ -2573,12 +2592,16 @@ body {
 .more-actions {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
   gap: 8px;
   border: 1px solid #dbeafe;
   border-radius: 12px;
   background: #f8fbff;
   padding: 8px;
+}
+
+.review-secondary-actions {
+  margin-top: 8px;
 }
 
 .room-main-panel,
@@ -5010,7 +5033,7 @@ body:has(.premium-session-page) {
 }
 
 .premium-session-page .compact-row-actions {
-  grid-template-columns: minmax(140px, .8fr) minmax(140px, .8fr) minmax(92px, .45fr);
+  grid-template-columns: minmax(160px, .75fr) minmax(220px, 1.25fr);
 }
 
 .premium-session-page .compact-row-actions .btn,
