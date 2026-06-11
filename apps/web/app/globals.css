@@ -5116,6 +5116,19 @@ body:has(.premium-session-page) {
   padding: 7px 10px;
 }
 
+.premium-session-page .field-suggestion {
+  display: block;
+  margin-top: 5px;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 850;
+  overflow-wrap: anywhere;
+}
+
+.premium-session-page .inline-ai-apply {
+  justify-self: start;
+}
+
 .premium-session-page .item-edit-section {
   display: grid;
   gap: 10px;

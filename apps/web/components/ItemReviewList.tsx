@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bootstrap, ItemTemplate, api, apiObjectUrl, downloadApiFile } from "@/lib/api";
+import { Bootstrap, api, apiObjectUrl, downloadApiFile } from "@/lib/api";
 import { StatusBadge } from "./StatusBadge";
 
 type Task = {
@@ -286,23 +286,9 @@ function displayTaskField(field?: string) {
   return replacements[value] ?? value.replace(/^Buchhaltung:\s*/i, "").replace(/^BUCHHALTUNG:\s*/i, "");
 }
 
-function hostLabel(url?: string) {
-  if (!url) return "Quelle";
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url.replace(/^https?:\/\//, "").split("/")[0] || "Quelle";
-  }
-}
-
 function compactText(value?: string | number | null) {
   const text = String(value ?? "").trim();
   return text || "";
-}
-
-function percentLabel(value?: number | null) {
-  if (value == null || Number.isNaN(Number(value))) return "offen";
-  return `${Math.round(Number(value) * 100)} %`;
 }
 
 function reviewSortPriority(item: ReviewItem) {
@@ -850,8 +836,6 @@ function ItemReviewRow({
   const [draftDirty, setDraftDirty] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedRework, setSelectedRework] = useState<string>(reworkOptions[0].label);
-  const [templateQuery, setTemplateQuery] = useState("");
-  const [templates, setTemplates] = useState<ItemTemplate[]>([]);
   const [editOpen, setEditOpen] = useState(inspector);
   const [actionBusy, setActionBusy] = useState("");
 
@@ -877,34 +861,6 @@ function ItemReviewRow({
   useEffect(() => {
     if (inspector) setEditOpen(true);
   }, [inspector, item.id]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (!templateQuery.trim()) {
-        setTemplates([]);
-        return;
-      }
-      const search = new URLSearchParams({ q: templateQuery, limit: "8" });
-      api<ItemTemplate[]>(`/item-templates?${search.toString()}`)
-        .then(setTemplates)
-        .catch(() => setTemplates([]));
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, [templateQuery]);
-
-  function applyTemplate(template: ItemTemplate) {
-    setDraft((current) => ({
-      ...current,
-      object_type: template.object_type || template.label,
-      object_class_id: template.object_class_id || current.object_class_id,
-      brand: template.brand || current.brand,
-      model: template.model || current.model,
-    }));
-    setDraftDirty(true);
-    setTemplateQuery(template.label);
-    setTemplates([]);
-    setMessage("Vorlage gewählt");
-  }
 
   function updateDraft(patch: Partial<typeof draft>) {
     setDraft((current) => ({ ...current, ...patch }));
@@ -1115,18 +1071,23 @@ function ItemReviewRow({
   const aiProposalFields = aiProposal?.suggested_fields ?? item.ai_summary?.suggested_fields;
   const nameplateProposal = aiProposal?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
   const deepDive = item.ai_summary?.deep_dive;
-  const researchBasis = [
-    { label: "Bezeichnung", value: draft.object_type || compactText(deepDive?.research_basis?.designation) },
-    { label: "Typ/Spezifikation", value: draft.specification || compactText(deepDive?.research_basis?.specification) },
-    { label: "Marke", value: draft.brand || compactText(deepDive?.research_basis?.brand) },
-    { label: "Modell", value: draft.model || compactText(deepDive?.research_basis?.model) },
-    { label: "Seriennummer", value: draft.serial_number || compactText(deepDive?.research_basis?.serial_number) },
-    { label: "Baujahr", value: draft.construction_year || compactText(deepDive?.research_basis?.construction_year) },
-    { label: "Zustand", value: (conditionLabels[draft.condition] ?? draft.condition) || compactText(deepDive?.research_basis?.condition) },
-  ].filter((entry) => compactText(entry.value));
-  const searchQueries = deepDive?.search_queries?.length ? deepDive.search_queries : deepDive?.query ? [deepDive.query] : [];
-  const sourceList = deepDive?.sources ?? [];
-  const sourceEvidence = deepDive?.source_evidence ?? [];
+  const flexibleAiFields = aiProposalFields as Record<string, string | number | null | undefined> | undefined;
+  const flexibleNameplate = nameplateProposal as Record<string, string | number | null | undefined> | undefined;
+  const aiFieldSuggestions = {
+    object_type: aiProposalFields?.object_type || aiProposal?.object_name || nameplateProposal?.suggested_object_type || "",
+    specification: aiProposalFields?.specification || nameplateProposal?.suggested_specification || "",
+    brand: flexibleAiFields?.brand || flexibleNameplate?.brand || flexibleNameplate?.manufacturer || "",
+    model: flexibleAiFields?.model || flexibleNameplate?.model || "",
+    serial_number: aiProposalFields?.serial_number || aiProposal?.serial_number || nameplateProposal?.serial_number || "",
+    construction_year: aiProposalFields?.construction_year || nameplateProposal?.construction_year || "",
+    condition: aiProposalFields?.condition || "",
+  };
+  const suggestionLabel = (current: string | null | undefined, suggestion: unknown) => {
+    const value = typeof suggestion === "string" || typeof suggestion === "number" ? compactText(suggestion) : "";
+    if (!value) return "";
+    if (compactText(current) === value) return "";
+    return value;
+  };
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
@@ -1252,22 +1213,45 @@ function ItemReviewRow({
             <section className="item-edit-section">
               <div className="item-edit-section-head">
                 <strong>Papierliste</strong>
-                <span>Die Felder der ursprünglichen BGA-Zählliste. KI füllt nur leere Felder vor.</span>
+                <span>KI-Vorschläge stehen direkt am Feld. Speichern übernimmt nur deine Eingaben.</span>
               </div>
             <div className="item-main-fields">
               <label className="field">
                 <span>Bezeichnung</span>
                 <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="z. B. Computermaus" />
+                {suggestionLabel(draft.object_type, aiFieldSuggestions.object_type) ? <small className="field-suggestion">KI: {suggestionLabel(draft.object_type, aiFieldSuggestions.object_type)}</small> : null}
               </label>
               <label className="field">
                 <span>Typ / Spezifikation</span>
                 <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="z. B. Modell, Größe, Ausführung" />
+                {suggestionLabel(draft.specification, aiFieldSuggestions.specification) ? <small className="field-suggestion">KI: {suggestionLabel(draft.specification, aiFieldSuggestions.specification)}</small> : null}
               </label>
               <label className="field">
                 <span>Baujahr</span>
                 <input disabled={readOnly} value={draft.construction_year} onChange={(event) => updateConstructionYear(event.target.value)} placeholder="z. B. 2025" />
+                {suggestionLabel(draft.construction_year, aiFieldSuggestions.construction_year) ? <small className="field-suggestion">KI: {suggestionLabel(draft.construction_year, aiFieldSuggestions.construction_year)}</small> : null}
+              </label>
+              <label className="field">
+                <span>Marke</span>
+                <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="z. B. Apple" />
+                {suggestionLabel(draft.brand, aiFieldSuggestions.brand) ? <small className="field-suggestion">KI: {suggestionLabel(draft.brand, aiFieldSuggestions.brand)}</small> : null}
+              </label>
+              <label className="field">
+                <span>Modell</span>
+                <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="z. B. iPhone 16" />
+                {suggestionLabel(draft.model, aiFieldSuggestions.model) ? <small className="field-suggestion">KI: {suggestionLabel(draft.model, aiFieldSuggestions.model)}</small> : null}
+              </label>
+              <label className="field">
+                <span>Seriennummer</span>
+                <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="falls vorhanden" />
+                {suggestionLabel(draft.serial_number, aiFieldSuggestions.serial_number) ? <small className="field-suggestion">KI: {suggestionLabel(draft.serial_number, aiFieldSuggestions.serial_number)}</small> : null}
               </label>
             </div>
+            {aiProposal || aiProposalFields ? (
+              <button className="btn secondary compact-btn inline-ai-apply" type="button" onClick={applyAiSuggestionToDraft} disabled={readOnly}>
+                KI-Vorschlag in leere Felder übernehmen
+              </button>
+            ) : null}
             </section>
 
             <section className="item-edit-section">
@@ -1306,69 +1290,7 @@ function ItemReviewRow({
                   <option value="unklar">Unklar</option>
                 </select>
               </label> : null}
-            </div>
-            </section>
-
-            <section className="item-edit-section">
-              <div className="item-edit-section-head">
-                <strong>Optionale KI-Details</strong>
-                <span>Marke, Modell, Seriennummer und Alter sind Zusatzfelder, nicht Teil der Papierpflicht.</span>
-              </div>
-            <div className="item-main-fields">
               <label className="field">
-                <span>Marke</span>
-                <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="z. B. Logitech" />
-              </label>
-              <label className="field">
-                <span>Modell</span>
-                <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="z. B. M908" />
-              </label>
-              <label className="field">
-                <span>Seriennummer</span>
-                <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="falls vorhanden" />
-              </label>
-              <label className="field">
-                <span>{deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}</span>
-                <input
-                  disabled={readOnly}
-                  value={draft.estimated_age_years}
-                  onChange={(event) => updateDraft({ estimated_age_years: event.target.value })}
-                  inputMode="decimal"
-                  placeholder="z. B. 1"
-                />
-              </label>
-            </div>
-            </section>
-
-            <section className="item-edit-section">
-              <div className="item-edit-section-head">
-                <strong>Vorlage & Status</strong>
-                <span>Optional schneller zuordnen</span>
-              </div>
-            <div className="template-picker compact">
-              <label className="field">
-                <span>Vorlage suchen</span>
-              <input
-                value={templateQuery}
-                disabled={readOnly}
-                placeholder="Vorlage suchen: Hebebühne, Wuchtmaschine, VAS ..."
-                onChange={(event) => setTemplateQuery(event.target.value)}
-              />
-              </label>
-              {templates.length ? (
-                <div className="template-results">
-                  {templates.map((template) => (
-                    <button className="template-result" key={template.id} type="button" onClick={() => applyTemplate(template)}>
-                      <strong>{template.label}</strong>
-                      <span>{template.source}{template.subtitle ? ` · ${template.subtitle}` : ""}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="item-review-selects">
-              <label>
                 <span>Klasse</span>
                 <select disabled={readOnly} value={draft.object_class_id} onChange={(event) => updateDraft({ object_class_id: event.target.value })}>
                   <option value="">Offen</option>
@@ -1384,6 +1306,7 @@ function ItemReviewRow({
                     <option key={entry} value={entry}>{conditionLabels[entry] ?? entry}</option>
                   ))}
                 </select>
+                {suggestionLabel(draft.condition, aiFieldSuggestions.condition) ? <small className="field-suggestion">KI: {suggestionLabel(draft.condition, aiFieldSuggestions.condition)}</small> : null}
               </label>
               <label>
                 <span>Bearbeitung</span>
@@ -1419,124 +1342,6 @@ function ItemReviewRow({
                 {tasks.map((task) => <span className="status nacharbeit_pruefer" key={task.id}>{displayTaskRole(task.assigned_role)}: {displayTaskField(task.missing_field)}</span>)}
                 {message ? <span className="status pruefen">{message}</span> : null}
               </div>
-            ) : null}
-            {aiProposal || aiProposalFields ? (
-              <details className="deep-dive-box">
-                <summary>
-                  <strong>KI-Vorschlag</strong>
-                  <span>
-                    {aiProposalFields?.object_type || aiProposal?.object_name || "Vorschlag vorhanden"}
-                    {aiProposal?.confidence ? ` · ${(Number(aiProposal.confidence) * 100).toFixed(0)} %` : ""}
-                  </span>
-                </summary>
-                <p className="deep-dive-note">Vorschlag – bitte prüfen. Er wird erst durch Übernahme und Speichern zum Datensatz.</p>
-                <div className="deep-dive-grid">
-                  <span>Bezeichnung: <b>{aiProposalFields?.object_type || aiProposal?.object_name || "offen"}</b></span>
-                  <span>Klasse: <b>{aiProposal?.object_class || "offen"}</b></span>
-                  <span>Typ/Spezifikation: <b>{aiProposalFields?.specification || "offen"}</b></span>
-                  <span>Seriennummer: <b>{aiProposalFields?.serial_number || aiProposal?.serial_number || nameplateProposal?.serial_number || "offen"}</b></span>
-                  <span>Baujahr: <b>{aiProposalFields?.construction_year || nameplateProposal?.construction_year || "offen"}</b></span>
-                  <span>Zustand: <b>{aiProposalFields?.condition || "offen"}</b></span>
-                </div>
-                {aiProposal?.estimated_age_years ? (
-                  <p className="deep-dive-note">
-                    KI-Altershinweis: {aiProposal.estimated_age_years} Jahre. Manuell prüfen.
-                  </p>
-                ) : null}
-                {aiProposal?.uncertainty_reason || item.ai_summary?.uncertainty_reason ? (
-                  <p className="deep-dive-note">{aiProposal?.uncertainty_reason || item.ai_summary?.uncertainty_reason}</p>
-                ) : null}
-                <button className="btn secondary compact-btn" type="button" onClick={applyAiSuggestionToDraft} disabled={readOnly}>
-                  In leere Felder übernehmen
-                </button>
-              </details>
-            ) : null}
-            {deepDive ? (
-              <details className="deep-dive-box deep-dive-research-box">
-            <summary>
-              <strong>KI-Details</strong>
-              <span>
-                {displayedAgeLabel}
-                {ageBasis ? ` (${ageBasis})` : ""}
-              </span>
-            </summary>
-            <p className="deep-dive-note">Wert- und Preisrecherche ist vorerst deaktiviert. Diese Ansicht zeigt nur erkannte technische Details.</p>
-            {researchBasis.length ? (
-              <div className="research-block">
-                <strong>Verwendete Eingaben</strong>
-                <div className="research-chip-list">
-                  {researchBasis.map((entry) => (
-                    <span className="research-chip" key={entry.label}>
-                      <b>{entry.label}</b>{entry.value}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {searchQueries.length ? (
-              <div className="research-block">
-                <strong>Suchanfragen</strong>
-                <div className="research-query-list">
-                  {searchQueries.slice(0, 4).map((query) => <span key={query}>{query}</span>)}
-                </div>
-              </div>
-            ) : null}
-            <div className="deep-dive-grid">
-              <span>Alter: <b>{displayedAge != null ? `${displayedAge} Jahre` : "offen"}</b>{ageBasis ? ` · ${ageBasis}` : ""}</span>
-              <span>Alter-Sicherheit: <b>{percentLabel(deepDive.age_confidence)}</b></span>
-            </div>
-            {deepDive.identified_product || sourceEvidence.length ? (
-              <div className="research-block">
-                <strong>Recherche-Dossier</strong>
-                <div className="research-chip-list">
-                  {deepDive.identified_product?.designation ? <span className="research-chip"><b>Produkt</b>{deepDive.identified_product.designation}</span> : null}
-                  {deepDive.identified_product?.manufacturer ? <span className="research-chip"><b>Hersteller</b>{deepDive.identified_product.manufacturer}</span> : null}
-                  {deepDive.identified_product?.model ? <span className="research-chip"><b>Modell</b>{deepDive.identified_product.model}</span> : null}
-                  <span className="research-chip"><b>Quellen</b>{sourceEvidence.length ? `${sourceEvidence.length} bewertet` : "Keine belastbare Quelle"}</span>
-                </div>
-              </div>
-            ) : null}
-            {sourceEvidence.length ? (
-              <div className="research-block">
-                <strong>Quellen-Evidenz</strong>
-                <div className="research-source-list">
-                  {sourceEvidence.slice(0, 4).filter((source) => source.url).map((source) => (
-                    <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
-                      <b>{source.kind || "Quelle"} · {Math.round((source.relevance_score ?? 0) * 100)}%</b>
-                      <span>{source.title || source.host || "Quelle"}{source.matched_terms?.length ? ` · Treffer: ${source.matched_terms.slice(0, 4).join(", ")}` : ""}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            {deepDive.estimated_value_reason || deepDive.age_reason ? (
-              <p className="deep-dive-note">
-                {deepDive.age_reason || "Altersgrundlage offen"}
-              </p>
-            ) : null}
-            {deepDive.tire_valuation ? (
-              <div className="deep-dive-grid">
-                <span>Reifen-Neupreis: <b>{deepDive.tire_valuation.lowest_new_price_basis ?? "offen"} €</b></span>
-                <span>DOT-Alter: <b>{deepDive.tire_valuation.dot_age_years ?? "offen"} Jahre</b></span>
-                <span>Profil: <b>{deepDive.tire_valuation.profile_depth_mm ?? "offen"} mm</b></span>
-              </div>
-            ) : null}
-            {deepDive.notes ? <p className="deep-dive-note">{deepDive.notes}</p> : null}
-            {deepDive.web_search_error ? <p className="deep-dive-note">Suchhinweis: {deepDive.web_search_error}</p> : null}
-            {sourceList.length ? (
-              <div className="research-block">
-                <strong>Quellen</strong>
-                <div className="research-source-list">
-                  {sourceList.slice(0, 5).filter((source) => source.url).map((source) => (
-                    <a key={source.url || source.title} href={source.url || "#"} target="_blank" rel="noreferrer">
-                      <b>{source.title || hostLabel(source.url)}</b>
-                      <span>{hostLabel(source.url)}{source.snippet ? ` · ${source.snippet}` : ""}</span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-              </details>
             ) : null}
             <details className="evidence-add-panel">
               <summary>Fotos ergänzen ({Math.min(itemPhotos.length, 5)}/5)</summary>
