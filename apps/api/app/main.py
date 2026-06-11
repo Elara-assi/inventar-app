@@ -4319,6 +4319,125 @@ def ai_updated_fields(result: dict[str, Any] | None) -> list[str]:
     return sorted(fields)
 
 
+def first_ai_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def normalize_ai_condition(value: Any) -> str | None:
+    text = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    mapping = {
+        "neu": "neu",
+        "sehr_gut": "sehr_gut",
+        "sehrgut": "sehr_gut",
+        "gut": "gut",
+        "gebraucht": "gebraucht",
+        "normal": "gebraucht",
+        "reparaturbeduerftig": "reparaturbeduerftig",
+        "reparaturbedürftig": "reparaturbeduerftig",
+        "defekt": "defekt",
+        "aussondern": "aussondern",
+        "unklar": "unklar",
+    }
+    return mapping.get(text)
+
+
+def bga_uvv_status_from_ai(object_type: str, object_class: str, specification: str) -> str | None:
+    text = f"{object_type} {object_class} {specification}".lower()
+    uvv_required_tokens = (
+        "hebebühne", "hebebuehne", "kompressor", "kran", "winde", "hubwagen", "stapler",
+        "maschine", "reifenmontier", "wuchtmaschine", "werkstatt", "druckbehälter", "druckbehaelter",
+    )
+    uvv_not_required_tokens = (
+        "smartphone", "iphone", "telefon", "computermaus", "maus", "tastatur", "keyboard",
+        "monitor", "drucker", "scanner", "laptop", "notebook", "pc", "schreibtisch",
+        "bürostuhl", "buerostuhl", "stuhl", "regal", "schrank", "kaffeemaschine",
+    )
+    if any(token in text for token in uvv_required_tokens):
+        return None
+    if any(token in text for token in uvv_not_required_tokens):
+        return "nicht_uvv_pflichtig"
+    return None
+
+
+def object_class_id_for_ai(object_class: str, object_type: str) -> str | None:
+    for value in (object_class, object_type):
+        normalized = normalize_bga_object_class(value)
+        if not normalized or normalized == "Unklar":
+            continue
+        row = fetch_one(
+            """
+            SELECT id
+            FROM object_classes
+            WHERE lower(name) = lower(%s) OR lower(slug) = lower(%s)
+            LIMIT 1
+            """,
+            (normalized, normalized),
+        )
+        if row:
+            return str(row["id"])
+    return None
+
+
+def apply_ai_suggestion_to_empty_item_fields(item_id: str, suggestion: dict[str, Any]) -> dict[str, Any]:
+    item = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not item:
+        return {}
+    fields = suggestion.get("suggested_fields") if isinstance(suggestion.get("suggested_fields"), dict) else {}
+    detection = suggestion.get("bga_detection") if isinstance(suggestion.get("bga_detection"), dict) else {}
+    if isinstance(detection.get("suggested_fields"), dict):
+        fields = {**detection["suggested_fields"], **fields}
+    nameplate = (
+        detection.get("nameplate_extraction")
+        if isinstance(detection.get("nameplate_extraction"), dict)
+        else suggestion.get("nameplate_extraction") if isinstance(suggestion.get("nameplate_extraction"), dict) else {}
+    )
+    object_type = first_ai_text(fields.get("object_type"), suggestion.get("object_type"), suggestion.get("object_name"), detection.get("object_name"), nameplate.get("suggested_object_type"))
+    specification = first_ai_text(fields.get("specification"), suggestion.get("specification"), detection.get("specification"), nameplate.get("suggested_specification"))
+    serial_number = first_ai_text(fields.get("serial_number"), suggestion.get("serial_number"), detection.get("serial_number"), nameplate.get("serial_number"))
+    construction_year = first_ai_text(fields.get("construction_year"), suggestion.get("construction_year"), nameplate.get("construction_year"))
+    brand = first_ai_text(suggestion.get("brand"), suggestion.get("manufacturer"), detection.get("brand"), detection.get("manufacturer"), nameplate.get("manufacturer"))
+    model = first_ai_text(suggestion.get("model"), detection.get("model"), nameplate.get("model"), nameplate.get("type_designation"))
+    remark = first_ai_text(fields.get("remark"), suggestion.get("suggested_remark"), detection.get("suggested_remark"), nameplate.get("suggested_remark"))
+    condition = normalize_ai_condition(first_ai_text(fields.get("condition"), suggestion.get("condition"), suggestion.get("condition_guess"), detection.get("condition_guess")))
+    object_class = first_ai_text(suggestion.get("object_class"), detection.get("object_class"))
+
+    updates: dict[str, Any] = {}
+    for key, value in {
+        "object_type": object_type,
+        "specification": specification,
+        "serial_number": serial_number,
+        "construction_year": construction_year,
+        "brand": brand,
+        "model": model,
+        "remark": remark,
+    }.items():
+        if value and not str(item.get(key) or "").strip():
+            updates[key] = value
+    if condition and item.get("condition") in {None, "", "unklar", "gebraucht"}:
+        updates["condition"] = condition
+    if item.get("uvv_status") in {None, "", "unklar"}:
+        uvv_status = bga_uvv_status_from_ai(object_type, object_class, specification)
+        if uvv_status:
+            updates["uvv_status"] = uvv_status
+    if not item.get("object_class_id"):
+        object_class_id = object_class_id_for_ai(object_class, object_type)
+        if object_class_id:
+            updates["object_class_id"] = object_class_id
+    if not updates:
+        return {}
+    fields_sql = ", ".join(f"{key} = %s" for key in updates)
+    execute(
+        f"UPDATE inventory_items SET {fields_sql}, updated_at = now() WHERE id = %s RETURNING id",
+        tuple(updates.values()) + (item_id,),
+    )
+    run_inventory_rework_check(item_id)
+    return updates
+
+
 def update_ai_item_status(item_id: str, status: str, expected_generation: Any = None, final_only_guard: bool = False) -> dict[str, Any] | None:
     expected_session = expected_session_generation(expected_generation)
     if expected_session is None:
@@ -4419,6 +4538,7 @@ def process_ai_item(item_id: str, mode: str = "fast", expected_generation: Any =
     if ai_job_cancelled(item_id, expected_generation):
         audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_tasks", "expected_generation": expected_generation})
         return
+    applied_fields = apply_ai_suggestion_to_empty_item_fields(item_id, suggestion)
     create_rework_tasks(item_id, suggestion)
     execute(
         """
@@ -4436,7 +4556,7 @@ def process_ai_item(item_id: str, mode: str = "fast", expected_generation: Any =
     if not update_ai_item_status(item_id, final_status, expected_generation):
         audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_final_status", "expected_generation": expected_generation})
         return
-    audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, **suggestion})
+    audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, "applied_fields": applied_fields, **suggestion})
 
 
 @app.post("/items/{item_id}/ai/run")

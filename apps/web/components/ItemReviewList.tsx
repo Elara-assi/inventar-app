@@ -854,6 +854,7 @@ function ItemReviewRow({
   const [templates, setTemplates] = useState<ItemTemplate[]>([]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(inspector);
+  const [actionBusy, setActionBusy] = useState("");
 
   useEffect(() => {
     if (editOpen && draftDirty) return;
@@ -939,49 +940,7 @@ function ItemReviewRow({
     setMessage("KI-Vorschlag in leere Felder übernommen. Bitte prüfen und speichern.");
   }
 
-  function applyDeepDiveEstimate(kind: "age" | "value" | "both") {
-    const referenceValue = deepDive?.estimated_value;
-    const canApplyValue = Boolean(
-      referenceValue != null
-      && (deepDive?.reference_price_available || deepDive?.value_source === "gepruefte_wertreferenz" || deepDive?.value_source === "gebrauchtmarkt_referenz"),
-    );
-    if ((kind === "value" || kind === "both") && !canApplyValue) {
-      setMessage("Wert nicht übernommen: Ohne eindeutigen Referenzpreis bleibt der Wert offen.");
-      return;
-    }
-    setDraft((current) => ({
-      ...current,
-      estimated_age_years:
-        (kind === "age" || kind === "both") && deepDive?.estimated_age_years != null
-          ? String(deepDive.estimated_age_years)
-          : current.estimated_age_years,
-      value_estimate:
-        (kind === "value" || kind === "both") && canApplyValue
-          ? String(referenceValue)
-          : current.value_estimate,
-    }));
-    setDraftDirty(true);
-    setMessage("Geprüfte KI-Angabe übernommen. Bitte fachlich prüfen und speichern.");
-  }
-
-  function discardDeepDiveValue() {
-    updateDraft({ value_estimate: "" });
-    setMessage("Wertvorschlag verworfen. Der Datensatz bleibt ohne Schätzwert, bis du einen Wert manuell setzt.");
-  }
-
-  function applyValueReference(reference?: ValueReference | null) {
-    if (!reference) return;
-    setDraft((current) => ({
-      ...current,
-      value_estimate: reference.value_estimate != null ? String(reference.value_estimate) : current.value_estimate,
-      estimated_age_years: reference.estimated_age_years != null ? String(reference.estimated_age_years) : current.estimated_age_years,
-    }));
-    setDraftDirty(true);
-    setMessage("Geprüfte Wertreferenz übernommen. Bitte speichern.");
-  }
-
   async function persistDraft() {
-    const valueEstimate = optionalNumber(draft.value_estimate);
     const derivedAge = ageFromConstructionYear(draft.construction_year);
     const typedAge = optionalNumber(draft.estimated_age_years);
     const ageEstimate = typedAge ?? derivedAge;
@@ -1001,7 +960,6 @@ function ItemReviewRow({
         inspection_book_available: draft.inspection_book_available,
         remark: draft.remark || null,
         type_plate_status: draft.type_plate_status,
-        value_estimate: valueEstimate,
         object_class_id: draft.object_class_id || null,
         condition: draft.condition,
         estimated_age_years: ageEstimate,
@@ -1013,27 +971,18 @@ function ItemReviewRow({
     setDraftDirty(false);
   }
 
-  function hasValueReferenceDraft() {
-    return optionalNumber(draft.value_estimate) != null || optionalNumber(draft.estimated_age_years) != null;
-  }
-
-  async function persistLearningReference(notes = "Geprüfte Wertreferenz aus manueller Prüferkorrektur") {
-    await api(`/items/${item.id}/ai/learning-example`, {
-      method: "POST",
-      body: JSON.stringify({ notes }),
-    });
-  }
-
   async function save() {
     if (readOnly) return;
-    await persistDraft();
-    if (hasValueReferenceDraft()) {
-      await persistLearningReference("Automatisch aus gespeicherten Prüferwerten als Wertreferenz gemerkt");
-      setMessage("Gespeichert und als Wertreferenz gemerkt");
-    } else {
+    setActionBusy("save");
+    try {
+      await persistDraft();
       setMessage("Gespeichert");
+      onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Speichern fehlgeschlagen");
+    } finally {
+      setActionBusy("");
     }
-    onChanged();
   }
 
   async function finishEditing() {
@@ -1045,6 +994,8 @@ function ItemReviewRow({
 
   async function requestRework(role: "Auswertung" | "Erfasser" | "Technik", missingField: string) {
     if (readOnly) return;
+    setActionBusy("rework");
+    try {
     await api(`/items/${item.id}/request-rework`, {
       method: "POST",
       body: JSON.stringify({
@@ -1055,6 +1006,11 @@ function ItemReviewRow({
     });
     setMessage(role === "Auswertung" ? "Spätere Auswertung markiert" : `Nacharbeit ${role}`);
     onChanged();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Nacharbeit konnte nicht gesetzt werden");
+    } finally {
+      setActionBusy("");
+    }
   }
 
   async function requestSelectedRework() {
@@ -1064,12 +1020,15 @@ function ItemReviewRow({
 
   async function finalize() {
     if (readOnly) return;
+    setActionBusy("finalize");
     try {
       await api(`/items/${item.id}/finalize`, { method: "POST", body: "{}" });
       setMessage("Finalisiert");
       onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Finalisierung blockiert");
+    } finally {
+      setActionBusy("");
     }
   }
 
@@ -1085,27 +1044,15 @@ function ItemReviewRow({
 
   async function runReviewAi() {
     if (readOnly) return;
+    setActionBusy("ai");
     try {
       await api(`/items/${item.id}/ai/run?mode=review`, { method: "POST", body: "{}" });
       setMessage("Prüf-KI gestartet");
       onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Prüf-KI konnte nicht gestartet werden");
-    }
-  }
-
-  async function runDeepDive() {
-    if (readOnly) return;
-    try {
-      if (draftDirty) {
-        setMessage("Änderungen werden gespeichert und danach neu bewertet");
-        await persistDraft();
-      }
-      await api(`/items/${item.id}/ai/deep-dive`, { method: "POST", body: "{}" });
-      setMessage("Manuelle Preisrecherche mit aktuellen Eingaben gestartet");
-      window.setTimeout(onChanged, 1200);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Preisrecherche konnte nicht gestartet werden");
+    } finally {
+      setActionBusy("");
     }
   }
 
@@ -1120,31 +1067,20 @@ function ItemReviewRow({
     }
   }
 
-  async function saveLearningExample() {
-    if (readOnly) return;
-    try {
-      if (draftDirty) {
-        setMessage("Änderungen werden gespeichert und als Referenz gemerkt");
-        await persistDraft();
-      }
-      await persistLearningReference();
-      setMessage("Als geprüfte Wertreferenz gespeichert");
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Wertreferenz konnte nicht gespeichert werden");
-    }
-  }
-
   async function removeItem() {
     if (readOnly) return;
     const label = item.object_type || item.inventory_id || item.temporary_id || "Gegenstand";
     const confirmed = window.confirm(`Gegenstand "${label}" wirklich löschen? Fotos und Notizen bleiben im Uploadspeicher erhalten, der Datensatz wird aus dieser Session entfernt.`);
     if (!confirmed) return;
+    setActionBusy("delete");
     try {
       await api(`/items/${item.id}`, { method: "DELETE" });
       setMessage("Gelöscht");
       onChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Gegenstand konnte nicht gelöscht werden");
+    } finally {
+      setActionBusy("");
     }
   }
 
@@ -1187,11 +1123,8 @@ function ItemReviewRow({
     { label: "Zustand", value: (conditionLabels[draft.condition] ?? draft.condition) || compactText(deepDive?.research_basis?.condition) },
   ].filter((entry) => compactText(entry.value));
   const searchQueries = deepDive?.search_queries?.length ? deepDive.search_queries : deepDive?.query ? [deepDive.query] : [];
-  const priceCandidates = deepDive?.price_candidates ?? [];
   const sourceList = deepDive?.sources ?? [];
   const sourceEvidence = deepDive?.source_evidence ?? [];
-  const valueReferences = deepDive?.matching_value_references ?? [];
-  const usedValueReference = deepDive?.value_reference_used ?? valueReferences[0];
   const itemPhotos = item.photos ?? [];
   const mainPhoto = itemPhotos.find((photo) => photo.photo_type === "object" || photo.photo_type === "object_front") ?? itemPhotos[0];
   const photoPath = mainPhoto ? `/uploads/photos/${mainPhoto.id}` : item.object_photo_id ? `/uploads/photos/${item.object_photo_id}` : "";
@@ -1213,22 +1146,10 @@ function ItemReviewRow({
   const displayedAgeLabel = displayedAge != null ? `${displayedAge} Jahre` : "Alter offen";
   const ageBasis = derivedAgeFromYear != null ? `aus Baujahr ${draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year}` : null;
   const isAiEstimate = Boolean(!ageBasis && (deepDive?.estimated_by_ai || item.age_source === "schaetzung" || item.age_verification_status === "geschaetzt"));
-  const hasTrustedDeepDiveValue = Boolean(
-    deepDive?.estimated_value != null
-    && (deepDive.reference_price_available || deepDive.value_source === "gepruefte_wertreferenz" || deepDive.value_source === "gebrauchtmarkt_referenz"),
-  );
-  const valuationState = deepDive?.valuation_state || (hasTrustedDeepDiveValue ? "reference_available" : "no_reference");
-  const valuationLabel = deepDive?.reference_price_label
-    || (valuationState === "reference_available" ? "Referenzpreis verfügbar" : valuationState === "range_review" ? "Preisspanne prüfen" : "Kein Referenzpreis verfügbar");
-  const deepDiveRange = deepDive?.estimated_value_range;
-  const rangeLabel = deepDiveRange?.min != null && deepDiveRange?.max != null ? `${deepDiveRange.min} - ${deepDiveRange.max} €` : "offen";
-  const compactValue = draft.value_estimate ? `${draft.value_estimate} €` : "Wert offen";
-  const savedValueLabel = item.value_estimate != null ? `${item.value_estimate} €` : "Wert offen";
-  const compactDeepDiveValue = hasTrustedDeepDiveValue ? `${deepDive?.estimated_value} € Referenz` : valuationLabel;
   const compactKi = deepDive
-    ? `${displayedAgeLabel}${ageBasis ? ` (${ageBasis})` : ""} · ${compactDeepDiveValue}`
+    ? `${displayedAgeLabel}${ageBasis ? ` (${ageBasis})` : ""}`
     : isAiEstimate
-      ? `${displayedAgeLabel} · ${savedValueLabel}`
+      ? displayedAgeLabel
       : aiWork ? `${aiWork.phaseLabel} · ${aiWork.elapsedLabel}` : item.status?.startsWith("ki_") ? "KI läuft" : "";
   const blockerSummary = blockers.slice(0, 3).map(displayTaskField).join(", ");
   const finalizeBlocked = blockers.length > 0;
@@ -1276,7 +1197,6 @@ function ItemReviewRow({
           <span><b>Bearbeitung</b>{reviewStatusLabels[draft.review_status] ?? draft.review_status}</span>
           <span><b>Funktion</b>{functionLabels[draft.function_ok] ?? draft.function_ok}</span>
           <span><b>UVV</b>{uvvLabels[draft.uvv_status] ?? draft.uvv_status}</span>
-          <span><b>Schätzwert</b>{compactValue}</span>
           {compactKi ? <span className={isAiEstimate ? "ki-estimate-cell" : ""}><b>{isAiEstimate ? "KI-Schätzung" : "KI"}</b>{compactKi}</span> : null}
         </div>
         {blockerSummary ? (
@@ -1305,8 +1225,8 @@ function ItemReviewRow({
           >
             {inspector ? "Details" : editOpen ? "Schließen" : "Bearbeiten"}
           </button>
-          <button className="btn" onClick={finalize} disabled={readOnly || finalizeBlocked} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
-            {finalizableLabel}
+          <button className="btn" type="button" onClick={finalize} disabled={readOnly || finalizeBlocked || Boolean(actionBusy)} title={finalizeBlocked ? `Fehlt: ${blockerSummary}` : "Datensatz finalisieren"}>
+            {actionBusy === "finalize" ? "Finalisiere..." : finalizableLabel}
           </button>
           <button className="btn secondary compact-btn" type="button" onClick={() => setMoreOpen((current) => !current)}>Mehr</button>
         </div>
@@ -1319,8 +1239,8 @@ function ItemReviewRow({
                 <span>Prüfen, korrigieren, speichern. Manuelle Eingaben sind führend.</span>
               </div>
               <div className="item-edit-head-actions">
-                <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly}>Speichern</button>
-                <button className="btn secondary compact-btn" type="button" onClick={finishEditing}>Fertig</button>
+                <button className="btn accent compact-btn" type="button" onClick={save} disabled={readOnly || Boolean(actionBusy)}>{actionBusy === "save" ? "Speichert..." : "Speichern"}</button>
+                <button className="btn secondary compact-btn" type="button" onClick={finishEditing} disabled={Boolean(actionBusy)}>Fertig</button>
               </div>
             </div>
             <section className="item-edit-section">
@@ -1386,7 +1306,7 @@ function ItemReviewRow({
             <section className="item-edit-section">
               <div className="item-edit-section-head">
                 <strong>Optionale KI-Details</strong>
-                <span>Marke, Modell, Seriennummer, Wert und Alter sind Zusatzfelder, nicht Teil der Papierpflicht.</span>
+                <span>Marke, Modell, Seriennummer und Alter sind Zusatzfelder, nicht Teil der Papierpflicht.</span>
               </div>
             <div className="item-main-fields">
               <label className="field">
@@ -1400,16 +1320,6 @@ function ItemReviewRow({
               <label className="field">
                 <span>Seriennummer</span>
                 <input disabled={readOnly} value={draft.serial_number} onChange={(event) => updateDraft({ serial_number: event.target.value })} placeholder="falls vorhanden" />
-              </label>
-              <label className="field">
-                <span>Schätzwert €</span>
-                <input
-                  disabled={readOnly}
-                  value={draft.value_estimate}
-                  onChange={(event) => updateDraft({ value_estimate: event.target.value })}
-                  inputMode="decimal"
-                  placeholder="z. B. 26"
-                />
               </label>
               <label className="field">
                 <span>{deepDive?.estimated_by_ai ? "KI-Alter Jahre" : "Alter Jahre"}</span>
@@ -1536,18 +1446,15 @@ function ItemReviewRow({
               </details>
             ) : null}
             {deepDive ? (
-              <details className="deep-dive-box deep-dive-research-box" open>
+              <details className="deep-dive-box deep-dive-research-box">
             <summary>
-              <strong>KI-Webrecherche</strong>
+              <strong>KI-Details</strong>
               <span>
                 {displayedAgeLabel}
                 {ageBasis ? ` (${ageBasis})` : ""}
-                {" · "}
-                {hasTrustedDeepDiveValue ? `${deepDive.estimated_value} € Referenz` : valuationLabel}
-                {deepDive.web_search_performed ? " · Websuche" : ""}
               </span>
             </summary>
-            <p className="deep-dive-note">Diese Recherche nutzt die aktuell gespeicherten Eingaben. Werte werden nur mit eindeutigem Gebrauchtmarkt-Match übernommen; ähnliche Treffer bleiben Prüfhinweise.</p>
+            <p className="deep-dive-note">Wert- und Preisrecherche ist vorerst deaktiviert. Diese Ansicht zeigt nur erkannte technische Details.</p>
             {researchBasis.length ? (
               <div className="research-block">
                 <strong>Verwendete Eingaben</strong>
@@ -1570,12 +1477,7 @@ function ItemReviewRow({
             ) : null}
             <div className="deep-dive-grid">
               <span>Alter: <b>{displayedAge != null ? `${displayedAge} Jahre` : "offen"}</b>{ageBasis ? ` · ${ageBasis}` : ""}</span>
-              <span>Wertstatus: <b>{valuationLabel}</b></span>
-              <span>Wert: <b>{hasTrustedDeepDiveValue ? `${deepDive.estimated_value} €` : valuationState === "range_review" ? rangeLabel : "offen"}</b></span>
-              <span>Quelle: <b>{deepDive.web_search_performed ? `Websuche (${deepDive.search_provider || "Quelle"})` : "Keine verwertbare Webquelle"}</b></span>
-              <span>Wert-Sicherheit: <b>{percentLabel(deepDive.estimated_value_confidence)}</b></span>
               <span>Alter-Sicherheit: <b>{percentLabel(deepDive.age_confidence)}</b></span>
-              <span>Preisfunde: <b>{priceCandidates.length || 0}</b></span>
             </div>
             {deepDive.identified_product || sourceEvidence.length ? (
               <div className="research-block">
@@ -1584,7 +1486,6 @@ function ItemReviewRow({
                   {deepDive.identified_product?.designation ? <span className="research-chip"><b>Produkt</b>{deepDive.identified_product.designation}</span> : null}
                   {deepDive.identified_product?.manufacturer ? <span className="research-chip"><b>Hersteller</b>{deepDive.identified_product.manufacturer}</span> : null}
                   {deepDive.identified_product?.model ? <span className="research-chip"><b>Modell</b>{deepDive.identified_product.model}</span> : null}
-                  <span className="research-chip"><b>Wertstatus</b>{valuationLabel}</span>
                   <span className="research-chip"><b>Quellen</b>{sourceEvidence.length ? `${sourceEvidence.length} bewertet` : "Keine belastbare Quelle"}</span>
                 </div>
               </div>
@@ -1602,116 +1503,11 @@ function ItemReviewRow({
                 </div>
               </div>
             ) : null}
-            {valueReferences.length ? (
-              <div className="research-block value-reference-block">
-                <strong>Geprüfte Wertreferenzen</strong>
-                <div className="value-reference-list">
-                  {valueReferences.slice(0, 3).map((reference) => (
-                    <div className="value-reference-card" key={reference.id || `${reference.object_type}-${reference.created_at}`}>
-                      <div>
-                        <b>{reference.object_type || "Ähnliches Objekt"}</b>
-                        <span>
-                          {[reference.brand, reference.model, reference.specification, reference.construction_year, reference.condition].filter(Boolean).join(" · ") || "geprüfter Vergleich"}
-                        </span>
-                        <small>{reference.match_reason || "ähnliche geprüfte Eingaben"}</small>
-                      </div>
-                      <div className="value-reference-values">
-                        <span>{reference.value_estimate != null ? `${reference.value_estimate} €` : "Wert offen"}</span>
-                        <span>{reference.estimated_age_years != null ? `${reference.estimated_age_years} Jahre` : "Alter offen"}</span>
-                      </div>
-                      <button className="btn secondary compact-btn" type="button" onClick={() => applyValueReference(reference)} disabled={readOnly}>
-                        Referenz übernehmen
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                {usedValueReference ? <p className="deep-dive-note">Beste Referenz: {usedValueReference.match_reason || "ähnliches geprüftes Objekt"}. Manuell prüfen, dann speichern.</p> : null}
-              </div>
-            ) : null}
-            <div className="deep-dive-actions">
-              <button
-                className="btn secondary compact-btn"
-                type="button"
-                onClick={() => applyDeepDiveEstimate("value")}
-                disabled={readOnly || !hasTrustedDeepDiveValue}
-              >
-                Wert übernehmen
-              </button>
-              <button
-                className="btn secondary compact-btn"
-                type="button"
-                onClick={discardDeepDiveValue}
-                disabled={readOnly || (!draft.value_estimate && !deepDive.estimated_value)}
-              >
-                Wert verwerfen
-              </button>
-              <button
-                className="btn secondary compact-btn"
-                type="button"
-                onClick={() => applyDeepDiveEstimate("age")}
-                disabled={readOnly || deepDive.estimated_age_years == null}
-              >
-                Alter übernehmen
-              </button>
-              <button
-                className="btn secondary compact-btn"
-                type="button"
-                onClick={() => applyDeepDiveEstimate("both")}
-                disabled={readOnly || !hasTrustedDeepDiveValue}
-              >
-                Schätzung übernehmen
-              </button>
-            </div>
             {deepDive.estimated_value_reason || deepDive.age_reason ? (
               <p className="deep-dive-note">
-                {deepDive.estimated_value_reason || "Wertgrundlage offen"}
-                {deepDive.age_reason ? ` · ${deepDive.age_reason}` : ""}
+                {deepDive.age_reason || "Altersgrundlage offen"}
               </p>
             ) : null}
-            {priceCandidates.length ? (
-              <div className="research-block">
-                <strong>Gefundene Preis-Indizien</strong>
-                <div className="research-source-list">
-                  {priceCandidates.slice(0, 5).map((candidate, index) => {
-                    const candidateIsExact = candidate.reference_match === "exact";
-                    return (
-                      <div className="value-reference-card" key={`${candidate.source || "price"}-${index}`}>
-                        <div>
-                          <b>{candidate.value ? `${candidate.value} €` : "Preis offen"} · {candidateIsExact ? "Referenzpreis" : candidate.reference_match === "similar" ? "Preisspanne prüfen" : "keine Referenz"}</b>
-                          <span>{candidate.title || hostLabel(candidate.source)}</span>
-                          <small>{candidate.match_reason || "Produktmatch nicht eindeutig."}</small>
-                        </div>
-                        <div className="deep-dive-actions">
-                          <a className="btn secondary compact-btn" href={candidate.source || "#"} target="_blank" rel="noreferrer">
-                            Quelle ansehen
-                          </a>
-                          <button
-                            className="btn secondary compact-btn"
-                            type="button"
-                            onClick={() => {
-                              updateDraft({ value_estimate: candidate.value != null ? String(candidate.value) : "" });
-                              setMessage("Referenzpreis übernommen. Bitte speichern.");
-                            }}
-                            disabled={readOnly || !candidateIsExact || candidate.value == null}
-                          >
-                            Übernehmen
-                          </button>
-                          <button
-                            className="btn secondary compact-btn"
-                            type="button"
-                            onClick={() => setMessage("Preisfund verworfen. Der Datensatz bleibt unverändert.")}
-                          >
-                            Verwerfen
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <p className="deep-dive-note">Keine belastbare Gebrauchtquelle erkannt. Der Wert bleibt offen.</p>
-            )}
             {deepDive.tire_valuation ? (
               <div className="deep-dive-grid">
                 <span>Reifen-Neupreis: <b>{deepDive.tire_valuation.lowest_new_price_basis ?? "offen"} €</b></span>
@@ -1758,14 +1554,14 @@ function ItemReviewRow({
               </div>
             </details>
             <div className="row-actions">
-              <button className="btn accent" onClick={save} disabled={readOnly}>Speichern</button>
+              <button className="btn accent" type="button" onClick={save} disabled={readOnly || Boolean(actionBusy)}>{actionBusy === "save" ? "Speichert..." : "Speichern"}</button>
               <div className="rework-action">
                 <select disabled={readOnly} value={selectedRework} onChange={(event) => setSelectedRework(event.target.value as typeof selectedRework)}>
                   {reworkOptions.map((option) => (
                     <option key={option.label} value={option.label}>{option.label}</option>
                   ))}
                 </select>
-                <button className="btn secondary compact-btn" onClick={requestSelectedRework} disabled={readOnly}>Nacharbeit setzen</button>
+                <button className="btn secondary compact-btn" type="button" onClick={requestSelectedRework} disabled={readOnly || Boolean(actionBusy)}>Nacharbeit setzen</button>
               </div>
             </div>
             </section>
@@ -1773,11 +1569,9 @@ function ItemReviewRow({
         ) : null}
         {moreOpen ? (
           <div className="more-actions">
-            <button className="btn secondary compact-btn" onClick={runReviewAi} disabled={readOnly || Boolean(aiWork)}>{aiWork ? "KI läuft..." : "Prüf-KI manuell"}</button>
-            <button className="btn secondary compact-btn" onClick={runDeepDive} disabled={readOnly || Boolean(aiWork)}>{aiWork ? "KI läuft..." : "Preisrecherche manuell"}</button>
-            <button className="btn secondary compact-btn" onClick={exportItem}>Excel Einzelzeile</button>
-            <button className="btn secondary compact-btn" onClick={saveLearningExample} disabled={readOnly}>Als Wertreferenz merken</button>
-            <button className="btn danger compact-btn" onClick={removeItem} disabled={readOnly}>Löschen</button>
+            <button className="btn secondary compact-btn" type="button" onClick={runReviewAi} disabled={readOnly || Boolean(aiWork) || Boolean(actionBusy)}>{aiWork ? "KI läuft..." : "Prüf-KI manuell"}</button>
+            <button className="btn secondary compact-btn" type="button" onClick={exportItem}>Excel Einzelzeile</button>
+            <button className="btn danger compact-btn" type="button" onClick={removeItem} disabled={readOnly || Boolean(actionBusy)}>Löschen</button>
           </div>
         ) : null}
       </div>
