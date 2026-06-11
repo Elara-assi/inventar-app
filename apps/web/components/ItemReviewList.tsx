@@ -580,7 +580,7 @@ export function ItemReviewList({
                     <input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Bezeichnung, Modell, Seriennummer ..."
+                      placeholder="Bezeichnung, Typ, Seriennummer ..."
                     />
                   </label>
                   <div>
@@ -882,10 +882,14 @@ function ItemReviewRow({
     const detection = item.ai_summary?.bga_detection;
     const fields = detection?.suggested_fields ?? item.ai_summary?.suggested_fields ?? {};
     const nameplate = detection?.nameplate_extraction ?? item.ai_summary?.nameplate_extraction;
+    const flexibleFields = fields as Record<string, string | number | null | undefined>;
+    const flexibleNameplate = nameplate as Record<string, string | number | null | undefined> | undefined;
+    const modelText = compactText(flexibleFields.model || flexibleNameplate?.model);
+    const specificationText = fields.specification || nameplate?.suggested_specification || modelText;
     setDraft((current) => ({
       ...current,
       object_type: current.object_type || fields.object_type || detection?.object_name || nameplate?.suggested_object_type || "",
-      specification: current.specification || fields.specification || nameplate?.suggested_specification || "",
+      specification: current.specification || specificationText || "",
       serial_number: current.serial_number || fields.serial_number || detection?.serial_number || nameplate?.serial_number || "",
       construction_year: current.construction_year || fields.construction_year || nameplate?.construction_year || "",
       remark: current.remark || fields.remark || nameplate?.suggested_remark || current.remark,
@@ -1075,9 +1079,8 @@ function ItemReviewRow({
   const flexibleNameplate = nameplateProposal as Record<string, string | number | null | undefined> | undefined;
   const aiFieldSuggestions = {
     object_type: aiProposalFields?.object_type || aiProposal?.object_name || nameplateProposal?.suggested_object_type || "",
-    specification: aiProposalFields?.specification || nameplateProposal?.suggested_specification || "",
+    specification: aiProposalFields?.specification || nameplateProposal?.suggested_specification || flexibleAiFields?.model || flexibleNameplate?.model || "",
     brand: flexibleAiFields?.brand || flexibleNameplate?.brand || flexibleNameplate?.manufacturer || "",
-    model: flexibleAiFields?.model || flexibleNameplate?.model || "",
     serial_number: aiProposalFields?.serial_number || aiProposal?.serial_number || nameplateProposal?.serial_number || "",
     construction_year: aiProposalFields?.construction_year || nameplateProposal?.construction_year || "",
     condition: aiProposalFields?.condition || "",
@@ -1103,7 +1106,7 @@ function ItemReviewRow({
   const itemName = draft.object_type || "Unbekanntes Objekt";
   const aiWork = aiWorkState(item, now);
   const selectedClassName = filteredObjectClasses.find((entry) => entry.id === draft.object_class_id)?.name || item.object_class_name || "Offen";
-  const itemMeta = [draft.specification, draft.brand, draft.model].filter(Boolean).join(" · ") || selectedClassName || "Details offen";
+  const itemMeta = [draft.specification, draft.brand].filter(Boolean).join(" · ") || selectedClassName || "Details offen";
   const derivedAgeFromYear = ageFromConstructionYear(draft.construction_year || item.construction_year || deepDive?.research_basis?.construction_year);
   const displayedAge = derivedAgeFromYear ?? deepDive?.estimated_age_years ?? item.estimated_age_years ?? null;
   const displayedAgeLabel = displayedAge != null ? `${displayedAge} Jahre` : "Alter offen";
@@ -1218,12 +1221,14 @@ function ItemReviewRow({
             <div className="item-main-fields">
               <label className="field">
                 <span>Bezeichnung</span>
-                <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="z. B. Computermaus" />
+                <input disabled={readOnly} value={draft.object_type} onChange={(event) => updateDraft({ object_type: event.target.value })} placeholder="Artikelname, z. B. Smartphone" />
+                <small className="field-help">Führendes Feld für Liste und Export.</small>
                 {suggestionLabel(draft.object_type, aiFieldSuggestions.object_type) ? <small className="field-suggestion">KI: {suggestionLabel(draft.object_type, aiFieldSuggestions.object_type)}</small> : null}
               </label>
               <label className="field">
                 <span>Typ / Spezifikation</span>
-                <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="z. B. Modell, Größe, Ausführung" />
+                <input disabled={readOnly} value={draft.specification} onChange={(event) => updateDraft({ specification: event.target.value })} placeholder="Modell, Typ, Größe, Ausführung" />
+                <small className="field-help">Modell gehört hier hinein, nicht in die Bezeichnung.</small>
                 {suggestionLabel(draft.specification, aiFieldSuggestions.specification) ? <small className="field-suggestion">KI: {suggestionLabel(draft.specification, aiFieldSuggestions.specification)}</small> : null}
               </label>
               <label className="field">
@@ -1235,11 +1240,6 @@ function ItemReviewRow({
                 <span>Marke</span>
                 <input disabled={readOnly} value={draft.brand} onChange={(event) => updateDraft({ brand: event.target.value })} placeholder="z. B. Apple" />
                 {suggestionLabel(draft.brand, aiFieldSuggestions.brand) ? <small className="field-suggestion">KI: {suggestionLabel(draft.brand, aiFieldSuggestions.brand)}</small> : null}
-              </label>
-              <label className="field">
-                <span>Modell</span>
-                <input disabled={readOnly} value={draft.model} onChange={(event) => updateDraft({ model: event.target.value })} placeholder="z. B. iPhone 16" />
-                {suggestionLabel(draft.model, aiFieldSuggestions.model) ? <small className="field-suggestion">KI: {suggestionLabel(draft.model, aiFieldSuggestions.model)}</small> : null}
               </label>
               <label className="field">
                 <span>Seriennummer</span>
