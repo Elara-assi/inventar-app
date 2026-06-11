@@ -480,6 +480,68 @@ def upsert_rework_task_for_type(
     )
 
 
+def complete_satisfied_bga_rework_tasks(item_id: str, item: dict[str, Any]) -> None:
+    function_resolved = item.get("function_ok") == "ja"
+    uvv_resolved = item.get("uvv_status") in {"vorhanden", "nicht_uvv_pflichtig"}
+    inspection_book_resolved = item.get("inspection_book_available") in {"ja", "nein", "nicht_erforderlich"}
+
+    if function_resolved and uvv_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%funktion%%'
+              AND lower(COALESCE(missing_field, '')) LIKE '%%uvv%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if function_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%funktion%%'
+              AND lower(COALESCE(missing_field, '')) NOT LIKE '%%uvv%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if uvv_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%uvv%%'
+              AND lower(COALESCE(missing_field, '')) NOT LIKE '%%funktion%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+    if inspection_book_resolved:
+        execute(
+            """
+            UPDATE accounting_tasks
+            SET status = 'completed', completed_at = now()
+            WHERE item_id = %s
+              AND status = 'open'
+              AND assigned_role IN ('Erfasser', 'Technik')
+              AND lower(COALESCE(missing_field, '')) LIKE '%%prüfbuch%%'
+            RETURNING id
+            """,
+            (item_id,),
+        )
+
+
 def parse_dot_week_year(value: str | None) -> tuple[int | None, int | None, bool]:
     raw = re.sub(r"\D", "", value or "")
     if len(raw) < 4:
@@ -564,6 +626,8 @@ def run_bga_rework_check(item_id: str) -> None:
         upsert_rework_task(item_id, "Erfasser", "Zustand unklar", "normal", "Zustand muss für die Aufnahme eingeordnet werden.")
     if item.get("function_ok") == "nein":
         upsert_rework_task(item_id, "Technik", "Funktion nicht in Ordnung", "hoch", "Funktionsstatus muss technisch geklärt werden.")
+
+    complete_satisfied_bga_rework_tasks(item_id, item)
 
     open_critical = fetch_one(
         """
@@ -733,18 +797,22 @@ def build_process_hints(row: dict[str, Any], ai_result: dict[str, Any], tasks: l
     if special_matches:
         add("reference", "Referenztreffer", "info")
     if history_matches:
-        add("history", "Historie", "warn")
+        add("history", "Historie", "info")
+
+    uvv_resolved = row.get("uvv_status") in {"vorhanden", "nicht_uvv_pflichtig"}
+    function_ok_resolved = row.get("function_ok") == "ja"
+    inspection_book_resolved = row.get("inspection_book_available") in {"ja", "nicht_erforderlich"}
 
     for match in history_matches:
-        if match.get("uvv_due"):
+        if match.get("uvv_due") and not uvv_resolved:
             add("uvv", "UVV prüfen", "danger")
         if match.get("maintenance_due"):
             add("maintenance", "Wartung prüfen", "warn")
-        if match.get("inspection_book_missing"):
+        if match.get("inspection_book_missing") and not inspection_book_resolved:
             add("inspection_book", "Prüfbuch fehlt", "warn")
         if match.get("missing"):
             add("target_missing", "Soll/Fehlt prüfen", "danger")
-        if match.get("defective"):
+        if match.get("defective") and not function_ok_resolved:
             add("defective", "Defekt prüfen", "danger")
 
     for task in tasks:
@@ -4737,6 +4805,14 @@ def export_value(row: dict[str, Any], key: str) -> Any:
             "nicht_uvv_pflichtig": "nicht UVV-pflichtig",
             "unklar": "unklar",
         }.get(str(row.get("uvv_status") or ""), row.get("uvv_status"))
+    if key == "uvv_valid_until":
+        if row.get("uvv_valid_until"):
+            return format_excel_datetime(row.get("uvv_valid_until"))
+        if row.get("uvv_status") == "nicht_uvv_pflichtig":
+            return "nicht UVV-pflichtig"
+        if row.get("uvv_status") == "nicht_vorhanden":
+            return "UVV nicht vorhanden"
+        return ""
     if key == "inspection_book_label":
         return {
             "ja": "Ja",
@@ -4781,7 +4857,6 @@ def export_value(row: dict[str, Any], key: str) -> Any:
         "first_photo_uploaded_at",
         "last_photo_uploaded_at",
         "captured_at",
-        "uvv_valid_until",
     }:
         return format_excel_datetime(row.get(key))
     value = row.get(key)
@@ -4901,6 +4976,64 @@ def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict
     )
 
 
+def refreshed_export_rows(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    rows = export_query(where_sql, params)
+    refreshed = False
+    for row in rows:
+        if row.get("id") and row.get("inventory_type") == "bga":
+            run_inventory_rework_check(str(row["id"]))
+            refreshed = True
+    rows = export_query(where_sql, params) if refreshed else rows
+    return normalize_export_open_tasks(rows)
+
+
+def bga_task_satisfied_by_item(task: dict[str, Any], item: dict[str, Any]) -> bool:
+    if item.get("inventory_type") != "bga":
+        return False
+    field = label_field(task.get("missing_field")).lower()
+    function_resolved = item.get("function_ok") == "ja"
+    uvv_resolved = item.get("uvv_status") in {"vorhanden", "nicht_uvv_pflichtig"}
+    inspection_book_resolved = item.get("inspection_book_available") in {"ja", "nein", "nicht_erforderlich"}
+    if "funktion" in field and "uvv" in field:
+        return function_resolved and uvv_resolved
+    if "funktion" in field:
+        return function_resolved
+    if "uvv" in field:
+        return uvv_resolved
+    if "prüfbuch" in field or "pruefbuch" in field:
+        return inspection_book_resolved
+    return False
+
+
+def export_task_relevant(task: dict[str, Any], item: dict[str, Any]) -> bool:
+    if bga_task_satisfied_by_item(task, item):
+        return False
+    if item.get("inventory_type") == "bga" and "prüfbuch" in label_field(task.get("missing_field")).lower():
+        return False
+    return True
+
+
+def normalize_export_open_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for item in rows:
+        if not item.get("id"):
+            continue
+        item_tasks = fetch_all(
+            """
+            SELECT *
+            FROM accounting_tasks
+            WHERE item_id = %s AND status = 'open'
+            ORDER BY created_at
+            """,
+            (item["id"],),
+        )
+        relevant = [task for task in item_tasks if export_task_relevant(task, item)]
+        item["open_task_count"] = len(relevant)
+        roles = sorted({str(task.get("assigned_role") or "") for task in relevant if task.get("assigned_role")})
+        item["open_task_roles"] = ", ".join(roles)
+        item["open_task_fields"] = ", ".join(str(task.get("missing_field") or "") for task in relevant if task.get("missing_field"))
+    return rows
+
+
 def task_action(role: str | None, field: str | None) -> str:
     role_label = label_role(role)
     field_label = label_field(field)
@@ -4938,6 +5071,8 @@ def fetch_export_tasks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             (item["id"],),
         )
         for task in item_tasks:
+            if not export_task_relevant(task, item):
+                continue
             if item.get("inventory_type") == "bga" and "prüfbuch" in label_field(task.get("missing_field")).lower():
                 continue
             task["item"] = item
@@ -5398,7 +5533,7 @@ def export_excel(session_id: str) -> dict[str, Any]:
             status_code=409,
             detail=f"Excel-Export für {inventory_type_label(session_inventory_type)} ist vorbereitet, aber noch nicht aktiv.",
         )
-    rows = export_query("WHERE i.session_id = %s", (session_id,))
+    rows = refreshed_export_rows("WHERE i.session_id = %s", (session_id,))
     return save_export(
         title=f"Raumaufnahme {session.get('room_name') or session_id}",
         rows=rows,
@@ -5462,7 +5597,7 @@ def export_excel(session_id: str) -> dict[str, Any]:
 @app.post("/items/{item_id}/export/excel")
 def export_item_excel(item_id: str) -> dict[str, Any]:
     item = get_item(item_id)
-    rows = export_query("WHERE i.id = %s", (item_id,))
+    rows = refreshed_export_rows("WHERE i.id = %s", (item_id,))
     if not rows:
         raise HTTPException(status_code=404, detail="Gegenstand nicht gefunden")
     row = rows[0]
@@ -5487,7 +5622,7 @@ def export_item_excel(item_id: str) -> dict[str, Any]:
 
 @app.post("/exports/excel")
 def export_all_excel() -> dict[str, Any]:
-    rows = export_query()
+    rows = refreshed_export_rows()
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     locations = len({row.get("location_name") for row in rows if row.get("location_name")})
     rooms = len({(row.get("location_name"), row.get("building_name"), row.get("room_name")) for row in rows})

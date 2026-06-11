@@ -44,7 +44,8 @@ type LocalItem = {
 };
 
 type PhotoType = "object_front" | "object_back" | "type_plate" | "uvv_label" | "condition_detail" | "other";
-type CapturedPhoto = { type: PhotoType; id?: string; name: string; size: number; previewUrl?: string };
+type CapturedPhoto = { type: PhotoType; id?: string; queueId?: string; name: string; size: number; previewUrl?: string };
+type AiProgressState = { active: boolean; label: string; progress: number };
 type FunctionOk = "ja" | "nein" | "nicht_geprueft";
 type UvvStatus = "vorhanden" | "nicht_vorhanden" | "nicht_uvv_pflichtig" | "unklar";
 type InspectionBook = "ja" | "nein" | "nicht_erforderlich" | "unklar";
@@ -381,6 +382,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [discardConfirm, setDiscardConfirm] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<ServerItemSuggestion | null>(null);
   const [aiSuggestionMessage, setAiSuggestionMessage] = useState("");
+  const [aiProgress, setAiProgress] = useState<AiProgressState>({ active: false, label: "", progress: 0 });
   const [, setDismissedAiKey] = useState("");
   const [dismissedValueKey, setDismissedValueKey] = useState("");
   const [abortConfirm, setAbortConfirm] = useState(false);
@@ -410,6 +412,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const summaryStepRef = useRef<HTMLElement>(null);
   const lastStepRef = useRef(step);
   const aiAutoRequestKeyRef = useRef("");
+  const aiProgressRunRef = useRef("");
+  const activeItemRef = useRef<LocalItem | null>(null);
   const dismissedAiKeyRef = useRef("");
   const lastAutoSyncRef = useRef(0);
   const savedResetTimerRef = useRef<number | null>(null);
@@ -440,6 +444,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   useEffect(() => {
     joinedRef.current = joined;
   }, [joined]);
+
+  useEffect(() => {
+    activeItemRef.current = activeItem;
+  }, [activeItem]);
 
   useEffect(() => {
     async function checkStorage() {
@@ -936,12 +944,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         file_type: prepared.type,
         file_size: prepared.size,
       });
-      const nextPhoto = { type, id: queuedPhoto.client_photo_id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) };
+      const nextPhoto = { type, id: queuedPhoto.client_photo_id, queueId: queuedPhoto.id, name: prepared.name, size: prepared.size, previewUrl: URL.createObjectURL(prepared) };
       const nextPhotos = [...photos, nextPhoto];
       setPhotos((current) => [...current, nextPhoto]);
       setMessage(`${photoLabels[type]} lokal gespeichert. ${getOnlineStatus() ? "Synchronisierung läuft." : "Foto wird später übertragen."}`);
       await refreshQueueSummary();
-      void runSync("Foto wird synchronisiert.");
       const shouldStartAi = type === "object_front" || type === "type_plate" || nextPhotos.length >= 2;
       if (shouldStartAi) {
         const requestKey = aiRequestKey(item, nextPhotos);
@@ -949,7 +956,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         dismissedAiKeyRef.current = "";
         setDismissedValueKey("");
         aiAutoRequestKeyRef.current = requestKey;
+        setAiProgress({ active: true, label: "KI startet", progress: 8 });
+        setAiSuggestionMessage("KI startet.");
         void loadAiSuggestion({ silent: true, itemOverride: item, photosOverride: nextPhotos, requestKey });
+      } else {
+        void runSync("Foto wird synchronisiert.");
       }
       if (nextPhotos.length >= 2 || type === "type_plate") {
         setStep(1);
@@ -963,6 +974,40 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setBusy(false);
       setUploadState("");
       setUploadProgress(0);
+    }
+  }
+
+  async function removeCapturedPhoto(photo: CapturedPhoto, index: number) {
+    if (busy) return;
+    const remainingPhotos = photos.filter((_, photoIndex) => photoIndex !== index);
+    if (photo.previewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(photo.previewUrl);
+    }
+    setSavedItem(null);
+    setAbortConfirm(false);
+    setPhotos(remainingPhotos);
+    const hasAiPhoto = remainingPhotos.some((entry) => entry.type === "object_front" || entry.type === "type_plate");
+    if (!hasAiPhoto) {
+      setAiSuggestion(null);
+      setAiSuggestionMessage("");
+      setAiProgress({ active: false, label: "", progress: 0 });
+      aiAutoRequestKeyRef.current = "";
+    } else if (activeItem) {
+      aiAutoRequestKeyRef.current = aiRequestKey(activeItem, remainingPhotos);
+    }
+    try {
+      let queueId = photo.queueId;
+      if (!queueId && photo.id) {
+        const queued = (await listQueueItems()).find((item) => item.type === "photo_upload" && item.client_photo_id === photo.id);
+        queueId = queued?.id;
+      }
+      if (queueId) {
+        await discardQueueItems([queueId]);
+        await refreshQueueSummary();
+      }
+      setMessage(`${photoLabels[photo.type]} geloescht.`);
+    } catch {
+      setMessage(`${photoLabels[photo.type]} aus der Ansicht entfernt. Lokale Queue bitte pruefen.`);
     }
   }
 
@@ -1179,7 +1224,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     } else {
       setMessage("Funktion erfasst. Weiter mit UVV oder Bemerkung.");
     }
-    focusAfterRender(() => uvvStatusRef.current ?? remarkFieldRef.current);
   }
 
   function decideUvvStatus(value: UvvStatus) {
@@ -1218,6 +1262,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setPhotos([]);
     setAiSuggestion(null);
     setAiSuggestionMessage("");
+    setAiProgress({ active: false, label: "", progress: 0 });
     setDismissedAiKey("");
     dismissedAiKeyRef.current = "";
     setDismissedValueKey("");
@@ -1382,6 +1427,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     setPhotos([]);
     setAiSuggestion(null);
     setAiSuggestionMessage("");
+    setAiProgress({ active: false, label: "", progress: 0 });
     setDismissedAiKey("");
     dismissedAiKeyRef.current = "";
     setDismissedValueKey("");
@@ -1408,6 +1454,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setPhotos([]);
       setAiSuggestion(null);
       setAiSuggestionMessage("");
+      setAiProgress({ active: false, label: "", progress: 0 });
       setDismissedAiKey("");
       dismissedAiKeyRef.current = "";
       setDismissedValueKey("");
@@ -1628,9 +1675,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setAiSuggestionMessage("Offline - KI-Prüfung wird übersprungen. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
       return;
     }
+    const aiRunId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ai-${Date.now()}-${Math.random()}`;
+    aiProgressRunRef.current = aiRunId;
     if (!silent) setBusy(true);
     const hasTypePlatePhoto = photosForAi.some((photo) => photo.type === "type_plate");
-    setAiSuggestionMessage(silent ? "KI liest im Hintergrund." : hasTypePlatePhoto ? "Typenschild wird gelesen." : "KI-Vorschlag wird vorbereitet.");
+    const startLabel = silent ? "KI liest im Hintergrund" : hasTypePlatePhoto ? "Typenschild wird gelesen" : "KI-Vorschlag wird vorbereitet";
+    setAiSuggestionMessage(`${startLabel}.`);
+    setAiProgress({ active: true, label: startLabel, progress: 12 });
     try {
       await enqueueItemDraft({
         session_id: joined?.session.id ?? "",
@@ -1639,21 +1690,25 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         sequence_number: itemForAi.sequence_number,
         draft: buildDraft(itemForAi.id),
       });
+      if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "Daten werden vorbereitet", progress: 28 });
       await runSync("Fotos und Objekt werden für KI synchronisiert.");
       if (!getOnlineStatus()) {
         setIsOnline(false);
         setAiSuggestionMessage("Offline - KI-Prüfung wurde gestoppt. Deine Daten bleiben lokal gespeichert; KI startet erst mit Verbindung.");
         return;
       }
+      if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "Fotos werden uebertragen", progress: 48 });
       let serverItemId = await findServerItemId(itemForAi.id);
       for (let attempt = 0; !serverItemId && attempt < 6; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 550));
         serverItemId = await findServerItemId(itemForAi.id);
+        if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "Server bestaetigt Objekt", progress: Math.min(62, 50 + attempt * 2) });
       }
       if (!serverItemId) {
         setAiSuggestionMessage("Objekt ist lokal gesichert. KI-Vorschlag kommt nach der Synchronisierung.");
         return;
       }
+      if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "KI wird gestartet", progress: 66 });
       const aiStart = await api<{ status?: string; message?: string }>(`/items/${serverItemId}/ai/run?mode=fast`, { method: "POST", body: "{}" }).catch(() => null);
       if (aiStart?.status === "skipped") {
         setAiSuggestionMessage(aiStart.message || "KI-Vorschlag erst nach Objektfoto möglich.");
@@ -1664,12 +1719,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         if (effectiveRequestKey && dismissedAiKeyRef.current === effectiveRequestKey) return;
+        if (activeItemRef.current?.id !== itemForAi.id) return;
+        if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "KI analysiert Foto", progress: Math.min(92, 70 + attempt * 3) });
         lastStatus = await api<AiStatusResponse>(`/items/${serverItemId}/ai/status?scope=fast`);
         serverSuggestion = normalizeAiPayload(lastStatus.result_preview);
         if (serverSuggestion || lastStatus.state === "completed" || lastStatus.state === "failed" || lastStatus.state === "cancelled") break;
       }
       if (serverSuggestion) {
         if (effectiveRequestKey && dismissedAiKeyRef.current === effectiveRequestKey) return;
+        if (activeItemRef.current?.id !== itemForAi.id) return;
+        if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: true, label: "KI-Vorschlag ist da", progress: 100 });
         setAiSuggestion(serverSuggestion);
         applyAiSuggestionsToEmptyFields(serverSuggestion);
       } else if (lastStatus?.state === "running" || lastStatus?.state === "queued") {
@@ -1685,6 +1744,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setAiSuggestionMessage("KI-Vorschlag ist gerade nicht verfügbar. Du kannst normal weiterarbeiten.");
     } finally {
       if (!silent) setBusy(false);
+      if (aiProgressRunRef.current === aiRunId) {
+        window.setTimeout(() => {
+          if (aiProgressRunRef.current === aiRunId) setAiProgress({ active: false, label: "", progress: 0 });
+        }, 450);
+      }
     }
   }
 
@@ -1886,7 +1950,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
         {canCaptureInThisSession && !savedItem ? (
           <>
-            <div className="scanner-action-dock" ref={captureStartRef} tabIndex={-1} aria-label="Profi-Scanner Aktionen">
+            <div className="scanner-action-dock is-fast" ref={captureStartRef} tabIndex={-1} aria-label="Profi-Scanner Aktionen">
               <label
                 className={busy ? "is-disabled" : ""}
                 htmlFor={photoInputId("object_front")}
@@ -1895,45 +1959,41 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 <strong>Foto</strong>
                 <span>{hasObjectPhoto ? "gesichert" : "Pflicht"}</span>
               </label>
-              <button type="button" disabled={busy} onClick={() => setStep(1)}>
-                <strong>Code</strong>
-                <span>ID / Typ</span>
-              </button>
-              <button type="button" disabled={busy} onClick={() => setStep(2)}>
-                <strong>Sprache</strong>
-                <span>Notiz</span>
-              </button>
             </div>
             <CapturePhotoStrip
               photos={photos}
               labels={photoLabels}
               busy={busy}
+              onRemovePhoto={removeCapturedPhoto}
               onTypePlateRequested={() => decideTypePlate("vorhanden")}
             />
-            <MobileCopilotCard
-              form={form}
-              photos={photos}
-              aiSuggestion={aiSuggestion}
-              aiSuggestionMessage={aiSuggestionMessage}
-              suggestionRows={visibleSuggestionRows}
-              confidenceLabel={aiSuggestion ? aiConfidenceLabel(aiSuggestion) : "unklar"}
-              isOnline={isOnline}
-              busy={busy}
-              canFinish={canSaveDraft}
-              abortConfirm={abortConfirm}
-              onApplyField={applyAiSuggestionField}
-              onDiscardAi={discardAiSuggestion}
-              onDiscardValue={discardValueSuggestion}
-              onAccept={() => setStep(summaryBlockers.length ? 1 : 3)}
-              onEdit={() => { setAbortConfirm(false); setStep(1); }}
-              onFinish={() => void saveObject()}
-              onAbort={() => void abortCurrentObject()}
-            />
+            {hasObjectPhoto || aiProgress.active || aiSuggestion ? (
+              <MobileCopilotCard
+                form={form}
+                photos={photos}
+                aiSuggestion={aiSuggestion}
+                aiSuggestionMessage={aiSuggestionMessage}
+                aiProgress={aiProgress}
+                suggestionRows={visibleSuggestionRows}
+                confidenceLabel={aiSuggestion ? aiConfidenceLabel(aiSuggestion) : "unklar"}
+                isOnline={isOnline}
+                busy={busy}
+                canFinish={canSaveDraft}
+                abortConfirm={abortConfirm}
+                onApplyField={applyAiSuggestionField}
+                onDiscardAi={discardAiSuggestion}
+                onDiscardValue={discardValueSuggestion}
+                onAccept={() => setStep(summaryBlockers.length ? 1 : 3)}
+                onEdit={() => { setAbortConfirm(false); setStep(1); }}
+                onFinish={() => void saveObject()}
+                onAbort={() => void abortCurrentObject()}
+              />
+            ) : null}
             <section className="mobile-conveyor-card" aria-label="Schnelle Erfassung">
               <div className="mobile-conveyor-head">
                 <div>
-                  <strong>Fließband-Erfassung</strong>
-                  <span>Foto, Bezeichnung, Zustand, speichern. Alles andere bleibt optional.</span>
+                  <strong>Schnelle Erfassung</strong>
+                  <span>Foto, Bezeichnung, Zustand, speichern.</span>
                 </div>
                 <span>{photos.length}/5 Fotos</span>
               </div>
@@ -1949,10 +2009,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   />
                   {speechButton("object_type", "Bezeichnung")}
                 </div>
-                <small>{form.object_type ? "Kann überschrieben werden." : "Nach zwei Fotos schlägt die KI hier etwas vor."}</small>
+                <small>{form.object_type ? "Kann geaendert werden." : hasObjectPhoto ? "KI kann dieses Feld fuellen." : "Kurz eingeben oder nach Foto von KI fuellen lassen."}</small>
               </label>
 
-              <div className="mobile-condition-grid">
+              <div className="mobile-condition-grid is-compact">
                 <label className="field">
                   <span>Zustand</span>
                   <select value={form.condition} onChange={(event) => update("condition", event.target.value)}>
@@ -1964,6 +2024,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     <option value="unklar">unklar</option>
                   </select>
                 </label>
+              </div>
+
+              {showAdvancedFlow ? (
+                <>
                 <label className="field mobile-voice-field">
                   <span>Zustand sprechen</span>
                   <div className="speech-input-row">
@@ -1975,7 +2039,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     {speechButton("condition_note", "Zustand")}
                   </div>
                 </label>
-              </div>
 
               <div className="mobile-function-rail" aria-label="Funktion">
                 {[
@@ -2006,6 +2069,8 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   {speechButton("remark", "Bemerkung")}
                 </div>
               </label>
+                </>
+              ) : null}
 
               {speechMessage ? <p className="speech-live-status" aria-live="polite">{speechMessage}</p> : null}
 
@@ -2013,6 +2078,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 <button className="btn accent" type="button" disabled={busy || !canSaveDraft} onClick={() => void saveObject()}>
                   Speichern · nächstes Objekt
                 </button>
+                <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId(hasObjectPhoto ? "other" : "object_front")} onClick={(event) => busy && event.preventDefault()}>
+                  Foto +
+                </label>
                 <button className="btn secondary" type="button" disabled={busy} onClick={() => void abortCurrentObject()}>
                   {abortConfirm ? "Verwerfen bestätigen" : "Abbrechen"}
                 </button>
@@ -2268,7 +2336,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span><b>UVV</b>{form.uvv_status}{form.uvv_valid_until ? ` bis ${form.uvv_valid_until}` : ""}</span>
                   <span><b>Fotos</b>{photos.length}/5</span>
                 </div>
-                {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
+                {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} onRemovePhoto={removeCapturedPhoto} busy={busy} /> : null}
                 <div className="summary-checks">
                   {summaryBlockers.length ? (
                     <div className="summary-box danger">
@@ -2422,6 +2490,7 @@ function MobileCopilotCard({
   photos,
   aiSuggestion,
   aiSuggestionMessage,
+  aiProgress,
   suggestionRows,
   confidenceLabel,
   isOnline,
@@ -2440,6 +2509,7 @@ function MobileCopilotCard({
   photos: CapturedPhoto[];
   aiSuggestion: ServerItemSuggestion | null;
   aiSuggestionMessage: string;
+  aiProgress: AiProgressState;
   suggestionRows: Array<{ key: string; label: string; value: string; field?: keyof BgaForm; note?: string }>;
   confidenceLabel: string;
   isOnline: boolean;
@@ -2489,6 +2559,10 @@ function MobileCopilotCard({
   const valueRow = suggestionRows.find((row) => row.key === "estimate");
   const confidenceTone = confidenceLabel === "sicher" ? "safe" : confidenceLabel === "prüfen" ? "review" : "unknown";
 
+  const showAiProgress = aiProgress.active || (hasObjectPhoto && !aiSuggestion && /KI/.test(aiSuggestionMessage));
+  const aiProgressValue = Math.max(5, Math.min(100, aiProgress.progress || 16));
+  const aiProgressLabel = aiProgress.label || aiSuggestionMessage || "KI arbeitet";
+
   return (
     <section className={`mobile-copilot-card ${aiSuggestion ? "has-ai" : ""}`} aria-label="KI-Copilot">
       <div className="mobile-copilot-head">
@@ -2498,6 +2572,18 @@ function MobileCopilotCard({
         </div>
         <span className={`copilot-confidence is-${confidenceTone}`}>{confidenceLabel}</span>
       </div>
+
+      {showAiProgress ? (
+        <div className="copilot-ai-meter" role="status" aria-live="polite" aria-label="KI arbeitet">
+          <div>
+            <strong>{aiProgressLabel}</strong>
+            <span>{aiProgressValue}%</span>
+          </div>
+          <div className="copilot-ai-track">
+            <span style={{ width: `${aiProgressValue}%` }} />
+          </div>
+        </div>
+      ) : null}
 
       <div className="mobile-copilot-summary">
         <span><b>Übernommen</b>{accepted.length ? accepted.join(", ") : "noch nichts"}</span>
@@ -2543,11 +2629,13 @@ function CapturePhotoStrip({
   photos,
   labels,
   busy,
+  onRemovePhoto,
   onTypePlateRequested,
 }: {
   photos: CapturedPhoto[];
   labels: Record<PhotoType, string>;
   busy: boolean;
+  onRemovePhoto: (photo: CapturedPhoto, index: number) => void;
   onTypePlateRequested: () => void;
 }) {
   const slotPlan: Array<{ type: PhotoType; title: string; state: string; optional?: boolean }> = [
@@ -2569,17 +2657,24 @@ function CapturePhotoStrip({
           const photo = photos[index];
           if (photo) {
             return (
-              <label
+              <div
                 key={`${photo.type}-${photo.id ?? photo.name}-${index}`}
                 className={`photo-proof-card has-image ${busy ? "is-disabled" : ""}`}
-                htmlFor={photoInputId(photo.type)}
-                onClick={(event) => busy && event.preventDefault()}
               >
                 {photo.previewUrl ? <img src={photo.previewUrl} alt={labels[photo.type]} /> : <span className="photo-proof-fallback">Foto</span>}
                 <span className="photo-proof-index">{index + 1}</span>
+                <button
+                  className="photo-proof-delete"
+                  type="button"
+                  disabled={busy}
+                  aria-label={`${labels[photo.type]} loeschen`}
+                  onClick={() => onRemovePhoto(photo, index)}
+                >
+                  x
+                </button>
                 <span className="photo-proof-label">{labels[photo.type]}</span>
                 <span className="photo-proof-state">lokal</span>
-              </label>
+              </div>
             );
           }
           return (
@@ -2606,12 +2701,33 @@ function CapturePhotoStrip({
   );
 }
 
-function PhotoPreviewList({ photos, labels }: { photos: CapturedPhoto[]; labels: Record<PhotoType, string> }) {
+function PhotoPreviewList({
+  photos,
+  labels,
+  onRemovePhoto,
+  busy = false,
+}: {
+  photos: CapturedPhoto[];
+  labels: Record<PhotoType, string>;
+  onRemovePhoto?: (photo: CapturedPhoto, index: number) => void;
+  busy?: boolean;
+}) {
   return (
     <div className="mobile-photo-previews">
       {photos.map((photo, index) => (
         <figure key={`${photo.type}-${photo.name}-${index}`}>
           {photo.previewUrl ? <img src={photo.previewUrl} alt={labels[photo.type]} /> : null}
+          {onRemovePhoto ? (
+            <button
+              className="photo-preview-delete"
+              type="button"
+              disabled={busy}
+              aria-label={`${labels[photo.type]} loeschen`}
+              onClick={() => onRemovePhoto(photo, index)}
+            >
+              Foto loeschen
+            </button>
+          ) : null}
           <figcaption>
             <span>{labels[photo.type]}</span>
             <small>Foto {index + 1}</small>
