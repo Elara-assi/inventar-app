@@ -33,6 +33,7 @@ type Joined = {
   };
   device: { id: string };
   access_token?: string;
+  bootstrap?: Bootstrap | null;
 };
 
 type LocalItem = {
@@ -106,6 +107,10 @@ function revokePhotoPreviews(photos: CapturedPhoto[]) {
       URL.revokeObjectURL(photo.previewUrl);
     }
   });
+}
+
+function defaultObjectClassId(boot?: Bootstrap | null) {
+  return boot?.object_classes.find((entry) => entry.slug === "bga")?.id ?? boot?.object_classes[0]?.id ?? "";
 }
 
 type BgaForm = {
@@ -488,16 +493,20 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       .then(setDeviceId)
       .catch(() => setDeviceId(`device-${Date.now()}-${Math.random().toString(16).slice(2)}`));
     initQueue()
-      .then(refreshQueueSummary)
       .catch((error) => {
         setSyncMessage(error instanceof Error ? error.message : "Lokale Speicherung ist auf diesem Gerät nicht verfügbar.");
       });
-  }, [refreshQueueSummary]);
+  }, []);
 
   useEffect(() => {
-    if (!joined) return;
+    if (!joined?.session.id) return;
+    refreshQueueSummary();
+  }, [joined?.session.id, refreshQueueSummary]);
+
+  useEffect(() => {
+    if (!joined || bootstrap?.object_classes.length) return;
     api<Bootstrap>("/meta/bootstrap").then((boot) => {
-      const nextObjectClassId = boot.object_classes.find((entry) => entry.slug === "bga")?.id ?? boot.object_classes[0]?.id ?? "";
+      const nextObjectClassId = defaultObjectClassId(boot);
       setBootstrap(boot);
       setObjectClassId(nextObjectClassId);
       if (token) {
@@ -507,26 +516,34 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       const capsule = loadMobileSessionCapsule(token);
       if (capsule?.bootstrap) {
         setBootstrap(capsule.bootstrap);
-        setObjectClassId(capsule.objectClassId ?? capsule.bootstrap.object_classes.find((entry) => entry.slug === "bga")?.id ?? capsule.bootstrap.object_classes[0]?.id ?? "");
+        setObjectClassId(capsule.objectClassId ?? defaultObjectClassId(capsule.bootstrap));
         setMessage("Offline-Modus: Stammdaten aus lokaler Session geladen.");
         return;
       }
       setMessage(err instanceof Error ? err.message : "Stammdaten nicht erreichbar");
     });
-  }, [joined, token]);
+  }, [bootstrap?.object_classes.length, joined, objectClassId, token]);
 
   useEffect(() => {
     if (!token || !deviceId) return;
     setJoinError("");
+    const capsule = loadMobileSessionCapsule(token);
+    if (capsule?.bootstrap) {
+      setBootstrap(capsule.bootstrap);
+      setObjectClassId(capsule.objectClassId ?? defaultObjectClassId(capsule.bootstrap));
+    }
     api<Joined>("/sessions/join", {
       method: "POST",
       body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
     }).then((result) => {
       if (result.access_token) setAuthToken(result.access_token);
+      const nextBootstrap = result.bootstrap ?? capsule?.bootstrap ?? null;
+      const nextObjectClassId = defaultObjectClassId(nextBootstrap) || capsule?.objectClassId || "";
+      if (nextBootstrap) setBootstrap(nextBootstrap);
+      if (nextObjectClassId) setObjectClassId(nextObjectClassId);
       setJoined(result);
-      saveMobileSessionCapsule({ token, joined: result, bootstrap, objectClassId, accessToken: result.access_token });
+      saveMobileSessionCapsule({ token, joined: result, bootstrap: nextBootstrap ?? bootstrap, objectClassId: nextObjectClassId || objectClassId, accessToken: result.access_token });
     }).catch((err) => {
-      const capsule = loadMobileSessionCapsule(token);
       if (capsule) {
         if (capsule.accessToken) setAuthToken(capsule.accessToken);
         setJoined(capsule.joined);
@@ -553,10 +570,16 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       body: JSON.stringify({ token, device_name: "Handy-Erfassung BGA", device_fingerprint: deviceId }),
     });
     if (result.access_token) setAuthToken(result.access_token);
+    const nextBootstrap = result.bootstrap ?? bootstrap;
+    const nextObjectClassId = defaultObjectClassId(nextBootstrap) || objectClassId;
+    if (result.bootstrap) {
+      setBootstrap(result.bootstrap);
+      setObjectClassId(nextObjectClassId);
+    }
     joinedRef.current = result;
     lastJoinRefreshRef.current = now;
     setJoined(result);
-    saveMobileSessionCapsule({ token, joined: result, bootstrap, objectClassId, accessToken: result.access_token });
+    saveMobileSessionCapsule({ token, joined: result, bootstrap: nextBootstrap, objectClassId: nextObjectClassId, accessToken: result.access_token });
     return result;
   }, [bootstrap, deviceId, objectClassId, token]);
 

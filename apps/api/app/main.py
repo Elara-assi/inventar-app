@@ -983,6 +983,28 @@ def bootstrap() -> dict[str, Any]:
     }
 
 
+def mobile_join_bootstrap(session: dict[str, Any]) -> dict[str, Any]:
+    location = fetch_one(
+        "SELECT id, name, code FROM locations WHERE id = %s",
+        (session.get("location_id"),),
+    ) if session.get("location_id") else None
+    building = fetch_one(
+        "SELECT id, name, location_id FROM buildings WHERE id = %s",
+        (session.get("building_id"),),
+    ) if session.get("building_id") else None
+    room = fetch_one(
+        "SELECT id, name, building_id, code, room_type FROM rooms WHERE id = %s",
+        (session.get("room_id"),),
+    ) if session.get("room_id") else None
+    return {
+        "users": [],
+        "locations": [location] if location else [],
+        "buildings": [building] if building else [],
+        "rooms": [room] if room else [],
+        "object_classes": fetch_all("SELECT id, name, slug FROM object_classes ORDER BY name"),
+    }
+
+
 def template_from_object_class(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": f"class:{row['id']}",
@@ -1420,7 +1442,13 @@ def join_session(body: JoinIn) -> dict[str, Any]:
             (session.get("tenant_id") or default_tenant_id(), session["id"], body.device_name, body.device_fingerprint),
         )
         audit("device_joined", "session_device", str(device["id"]), device)
-    return {"session": session, "device": device, "access_token": create_mobile_session_token(session, device), "token_type": "bearer"}
+    return {
+        "session": session,
+        "device": device,
+        "access_token": create_mobile_session_token(session, device),
+        "token_type": "bearer",
+        "bootstrap": mobile_join_bootstrap(session),
+    }
 
 
 @app.post("/sessions/{session_id}/close")
