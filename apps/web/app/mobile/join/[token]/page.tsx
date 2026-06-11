@@ -477,16 +477,28 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
   const refreshQueueSummary = useCallback(async () => {
     try {
-      const [summary, details] = await Promise.all([
-        getQueueSummary(joined?.session.id),
-        getQueueDetails(joined?.session.id),
-      ]);
+      const summary = await getQueueSummary(joined?.session.id);
       setQueueSummary(summary);
-      setQueueDetails(details);
     } catch {
       setSyncMessage("Lokale Sync-Liste konnte nicht gelesen werden.");
     }
   }, [joined?.session.id]);
+
+  const refreshQueueDetails = useCallback(async () => {
+    try {
+      setQueueDetails(await getQueueDetails(joined?.session.id));
+    } catch {
+      setSyncMessage("Lokale Sync-Details konnten nicht gelesen werden.");
+    }
+  }, [joined?.session.id]);
+
+  const toggleQueueDetails = useCallback(() => {
+    setShowQueueDetails((value) => {
+      const next = !value;
+      if (next && !queueDetails) void refreshQueueDetails();
+      return next;
+    });
+  }, [queueDetails, refreshQueueDetails]);
 
   useEffect(() => {
     getOrCreateDeviceId()
@@ -1308,14 +1320,14 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const currentQueueItems = queueDetails?.currentSessionItems ?? [];
   const foreignQueueItems = queueDetails?.otherSessionItems ?? [];
   const openQueueItems = currentQueueItems;
-  const openQueueObjects = openQueueItems.filter((item) => item.type === "item_draft").length;
-  const openQueuePhotos = openQueueItems.filter((item) => item.type === "photo_upload").length;
-  const hasOpenLocalQueue = Boolean(joined) && isBgaSession && openQueueItems.length > 0;
+  const openQueuePhotos = queueDetails ? openQueueItems.filter((item) => item.type === "photo_upload").length : queueSummary.pendingPhotos;
+  const openQueueObjects = queueDetails ? openQueueItems.filter((item) => item.type === "item_draft").length : Math.max(0, queueSummary.open - openQueuePhotos);
+  const hasOpenLocalQueue = Boolean(joined) && isBgaSession && queueSummary.open > 0;
   const openQueueIntro = openQueuePhotos
     ? `Es sind noch ${openQueuePhotos} Fotos auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`
     : `Es sind noch ${openQueueObjects} Objekte auf diesem iPhone gespeichert, die noch nicht übertragen wurden.`;
-  const otherSessionOpen = foreignQueueItems.length;
-  const currentSessionOpen = currentQueueItems.length;
+  const otherSessionOpen = queueDetails ? foreignQueueItems.length : 0;
+  const currentSessionOpen = queueDetails ? currentQueueItems.length : queueSummary.open;
   const hasQueueFailure = queueSummary.failed > 0;
   const hasQueueConflict = queueSummary.conflict > 0;
   const isRepairingSync = queueSummary.unknownAck > 0 || queueSummary.repairing > 0 || syncMessage.includes("repariert");
@@ -1372,6 +1384,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     || hasQueueFailure
     || hasQueueConflict
     || (Boolean(syncMessage) && !["Synchronisierung abgeschlossen.", "Alles übertragen.", "Alles übertragen"].includes(syncMessage));
+
+  useEffect(() => {
+    if ((shouldPauseForQueue || showQueueDetails) && !queueDetails) {
+      void refreshQueueDetails();
+    }
+  }, [queueDetails, refreshQueueDetails, shouldPauseForQueue, showQueueDetails]);
 
   useEffect(() => {
     if (!canCaptureInThisSession || savedItem) return;
@@ -1834,7 +1852,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               </button>
             ) : null}
             {queueSummary.failed ? <button className="btn secondary" type="button" onClick={() => void retrySync()}>Fehler erneut versuchen</button> : null}
-            {hasOpenLocalQueue ? <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button> : null}
+            {hasOpenLocalQueue ? <button className="btn secondary" type="button" onClick={toggleQueueDetails}>Details anzeigen</button> : null}
           </div>
         ) : null}
 
@@ -1844,7 +1862,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               <strong>Alte lokale Daten gefunden</strong>
               <span>{otherSessionOpen} alte EintrÃ¤ge liegen noch auf diesem iPhone. Sie blockieren diese Session nicht.</span>
             </div>
-            <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
+            <button className="btn secondary" type="button" onClick={toggleQueueDetails}>Details anzeigen</button>
           </div>
         ) : null}
 
@@ -1894,7 +1912,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <p className="muted">{syncDetail}</p>
             <div className="queue-actions">
               <button className="btn accent" type="button" onClick={() => void retrySync()}>Jetzt synchronisieren</button>
-              <button className="btn secondary" type="button" onClick={() => setShowQueueDetails((value) => !value)}>Details anzeigen</button>
+              <button className="btn secondary" type="button" onClick={toggleQueueDetails}>Details anzeigen</button>
             </div>
             {showQueueDetails ? (
               <QueueDetailsPanel

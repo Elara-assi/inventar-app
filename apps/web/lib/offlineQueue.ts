@@ -94,7 +94,7 @@ export type QueueRepairResult = {
 };
 
 const DB_NAME = "inventar-offline-queue";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_NAME = "queue_items";
 const META_STORE_NAME = "queue_meta";
 const DEVICE_KEY = "inventar.device_id";
@@ -158,6 +158,8 @@ export function initQueue(): Promise<IDBDatabase> {
       if (!store.indexNames.contains("status")) store.createIndex("status", "status");
       if (!store.indexNames.contains("type")) store.createIndex("type", "type");
       if (!store.indexNames.contains("session_id")) store.createIndex("session_id", "session_id");
+      if (!store.indexNames.contains("session_status")) store.createIndex("session_status", ["session_id", "status"]);
+      if (!store.indexNames.contains("session_type_status")) store.createIndex("session_type_status", ["session_id", "type", "status"]);
       if (!store.indexNames.contains("client_item_id")) store.createIndex("client_item_id", "client_item_id");
       if (!db.objectStoreNames.contains(META_STORE_NAME)) {
         db.createObjectStore(META_STORE_NAME, { keyPath: "key" });
@@ -457,7 +459,84 @@ export async function getQueueDetails(currentSessionId?: string | null): Promise
   return { openItems, currentSessionItems, otherSessionItems, sessions };
 }
 
+function countRequest(request: IDBRequest<number>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result ?? 0);
+    request.onerror = () => reject(request.error ?? new Error("Queue-Zähler konnte nicht gelesen werden"));
+  });
+}
+
+async function getSessionQueueSummary(currentSessionId: string): Promise<QueueSummary> {
+  const db = await initQueue();
+  const transaction = db.transaction(STORE_NAME, "readonly");
+  const store = transaction.objectStore(STORE_NAME);
+  const bySession = store.index("session_id");
+  const bySessionStatus = store.index("session_status");
+  const bySessionTypeStatus = store.index("session_type_status");
+  const statusCount = (status: QueueStatus) => countRequest(bySessionStatus.count(IDBKeyRange.only([currentSessionId, status])));
+  const photoStatusCount = (status: QueueStatus) => countRequest(bySessionTypeStatus.count(IDBKeyRange.only([currentSessionId, "photo_upload", status])));
+
+  const [
+    total,
+    pending,
+    uploading,
+    unknownAck,
+    synced,
+    failed,
+    conflict,
+    repairing,
+    discardPending,
+    discarded,
+    pendingPhotos,
+    uploadingPhotos,
+    unknownAckPhotos,
+    conflictPhotos,
+    repairingPhotos,
+    failedPhotos,
+  ] = await Promise.all([
+    countRequest(bySession.count(IDBKeyRange.only(currentSessionId))),
+    statusCount("pending"),
+    statusCount("uploading"),
+    statusCount("unknown_ack"),
+    statusCount("synced"),
+    statusCount("failed"),
+    statusCount("conflict"),
+    statusCount("repairing"),
+    statusCount("discard_pending"),
+    statusCount("discarded"),
+    photoStatusCount("pending"),
+    photoStatusCount("uploading"),
+    photoStatusCount("unknown_ack"),
+    photoStatusCount("conflict"),
+    photoStatusCount("repairing"),
+    photoStatusCount("failed"),
+  ]);
+
+  return {
+    total,
+    pending,
+    uploading,
+    unknownAck,
+    synced,
+    failed,
+    conflict,
+    repairing,
+    discardPending,
+    discarded,
+    open: pending + uploading + unknownAck + failed + conflict + repairing,
+    pendingPhotos: pendingPhotos + uploadingPhotos + unknownAckPhotos + conflictPhotos + repairingPhotos,
+    failedPhotos,
+  };
+}
+
 export async function getQueueSummary(currentSessionId?: string | null): Promise<QueueSummary> {
+  if (currentSessionId) {
+    try {
+      return await getSessionQueueSummary(currentSessionId);
+    } catch {
+      // Fall back to the compatibility path while older browser stores finish upgrading.
+    }
+  }
   const items = (await listQueueItems()).filter((item) => !currentSessionId || item.session_id === currentSessionId);
   const lastFailed = items
     .filter((item) => item.status === "failed" && item.last_error)
