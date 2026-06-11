@@ -2558,7 +2558,8 @@ body {
 }
 
 .item-main-fields {
-  grid-template-columns: minmax(170px, 1.15fr) minmax(120px, 0.75fr) minmax(140px, 0.85fr) minmax(150px, 0.9fr) minmax(125px, 0.7fr);
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  align-items: start;
 }
 
 .item-review-selects {
@@ -5152,6 +5153,11 @@ body:has(.premium-session-page) {
 
 .premium-session-page .item-edit-section-head {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.premium-session-page .item-main-fields {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  align-items: start;
 }
 
 .premium-session-page .item-row input,
