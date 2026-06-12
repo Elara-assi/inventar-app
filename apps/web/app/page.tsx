@@ -725,6 +725,7 @@ export default function DashboardPage() {
             <h2>Aktive Raum-Sessions</h2>
             <p className="muted">Gestartete Räume bleiben sichtbar, bis sie abgeschlossen oder bereinigt werden.</p>
           </div>
+          <a className="btn-cockpit-link" href="/cockpit">Cockpit (Live)</a>
           <button className="btn secondary compact-btn" onClick={exportAll}>Excel Gesamt</button>
         </div>
 

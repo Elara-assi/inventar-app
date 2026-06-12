@@ -5952,3 +5952,155 @@ async def session_events(session_id: str):
 @app.get("/uploads/{file_id}")
 def upload_placeholder(file_id: str) -> dict[str, str]:
     return {"message": "Phase 1 stores file paths internally. Signed file lookup is reserved for hardening.", "file_id": file_id}
+
+
+# ---------------------------------------------------------------------------
+# Inventur-Cockpit: Live-Steuerstand ueber alle Raeume (Roadmap Sprint 1).
+# Bewusst als reiner Lese-Endpoint am Dateiende ergaenzt.
+# ---------------------------------------------------------------------------
+
+@app.get("/cockpit/overview")
+def cockpit_overview() -> dict[str, Any]:
+    sessions = fetch_all(
+        """
+        SELECT s.id, s.status, s.started_at, s.closed_at, s.inventory_type,
+               r.name AS room_name, b.name AS building_name, l.name AS location_name
+        FROM inventory_sessions s
+        JOIN rooms r ON r.id = s.room_id
+        JOIN buildings b ON b.id = s.building_id
+        JOIN locations l ON l.id = s.location_id
+        WHERE s.status = 'open' OR s.closed_at::date = CURRENT_DATE
+        ORDER BY (s.status = 'open') DESC, s.started_at DESC
+        LIMIT 24
+        """
+    )
+    session_ids = [str(row["id"]) for row in sessions]
+    stats_rows = fetch_all(
+        """
+        SELECT session_id,
+               count(*)::int AS items,
+               count(*) FILTER (WHERE review_status = 'finalisiert')::int AS finalized,
+               count(*) FILTER (WHERE review_status LIKE 'nacharbeit%%')::int AS rework,
+               count(*) FILTER (WHERE captured_at > now() - interval '60 minutes')::int AS last_hour,
+               max(captured_at) AS last_capture_at,
+               COALESCE(sum(value_estimate), 0)::float AS value_sum
+        FROM inventory_items
+        WHERE session_id = ANY(%s)
+        GROUP BY session_id
+        """,
+        (session_ids,),
+    ) if session_ids else []
+    photo_rows = fetch_all(
+        """
+        SELECT i.session_id, count(DISTINCT i.id)::int AS with_photo
+        FROM inventory_items i
+        JOIN item_photos p ON p.item_id = i.id
+        WHERE i.session_id = ANY(%s) AND p.photo_type IN ('object', 'object_front')
+        GROUP BY i.session_id
+        """,
+        (session_ids,),
+    ) if session_ids else []
+    device_rows = fetch_all(
+        """
+        SELECT session_id, device_name, last_seen_at, pending_count
+        FROM session_devices
+        WHERE session_id = ANY(%s) AND revoked_at IS NULL
+        ORDER BY last_seen_at DESC NULLS LAST
+        """,
+        (session_ids,),
+    ) if session_ids else []
+
+    stats = {str(row["session_id"]): row for row in stats_rows}
+    photos = {str(row["session_id"]): row["with_photo"] for row in photo_rows}
+    devices: dict[str, list[dict[str, Any]]] = {}
+    for row in device_rows:
+        devices.setdefault(str(row["session_id"]), []).append(
+            {
+                "device_name": row["device_name"],
+                "last_seen_at": row["last_seen_at"],
+                "pending_count": row["pending_count"],
+            }
+        )
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    rooms: list[dict[str, Any]] = []
+    for session in sessions:
+        sid = str(session["id"])
+        stat = stats.get(sid, {})
+        items = int(stat.get("items") or 0)
+        started = session.get("started_at")
+        hours = max(((now - started).total_seconds() / 3600.0) if started else 0.25, 0.25)
+        rooms.append(
+            {
+                "session_id": sid,
+                "status": session["status"],
+                "room_name": session["room_name"],
+                "building_name": session["building_name"],
+                "location_name": session["location_name"],
+                "inventory_type": session.get("inventory_type"),
+                "started_at": session.get("started_at"),
+                "items": items,
+                "finalized": int(stat.get("finalized") or 0),
+                "rework": int(stat.get("rework") or 0),
+                "last_hour": int(stat.get("last_hour") or 0),
+                "last_capture_at": stat.get("last_capture_at"),
+                "value_sum": float(stat.get("value_sum") or 0.0),
+                "with_photo": int(photos.get(sid, 0)),
+                "per_hour": round(items / hours, 1),
+                "devices": devices.get(sid, []),
+            }
+        )
+
+    totals_row = fetch_one(
+        """
+        SELECT count(*) FILTER (WHERE captured_at::date = CURRENT_DATE)::int AS today,
+               count(*) FILTER (WHERE captured_at > now() - interval '60 minutes')::int AS last_hour,
+               COALESCE(sum(value_estimate) FILTER (WHERE captured_at::date = CURRENT_DATE), 0)::float AS value_today
+        FROM inventory_items
+        """
+    ) or {}
+    feed = fetch_all(
+        """
+        SELECT i.captured_at, i.object_type, i.sequence_number, r.name AS room_name
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        JOIN rooms r ON r.id = s.room_id
+        ORDER BY i.captured_at DESC
+        LIMIT 12
+        """
+    )
+    return {
+        "totals": {
+            "today": int(totals_row.get("today") or 0),
+            "last_hour": int(totals_row.get("last_hour") or 0),
+            "value_today": float(totals_row.get("value_today") or 0.0),
+            "open_rooms": sum(1 for room in rooms if room["status"] == "open"),
+            "devices_online": sum(
+                1
+                for room_devices in devices.values()
+                for device in room_devices
+                if device["last_seen_at"] is not None
+            ),
+        },
+        "rooms": rooms,
+        "feed": feed,
+        "generated_at": now,
+    }
+
+
+class CockpitHeartbeatIn(BaseModel):
+    pending_count: int = 0
+
+
+@app.post("/sessions/{session_id}/devices/{device_id}/heartbeat")
+def device_heartbeat(session_id: str, device_id: str, body: CockpitHeartbeatIn) -> dict[str, Any]:
+    """Handy meldet sich periodisch: speist das Geraete-Panel im Cockpit."""
+    row = execute(
+        "UPDATE session_devices SET last_seen_at = now(), pending_count = %s WHERE id = %s AND session_id = %s RETURNING id, last_seen_at, pending_count",
+        (max(0, int(body.pending_count)), device_id, session_id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Geraet nicht gefunden")
+    return row

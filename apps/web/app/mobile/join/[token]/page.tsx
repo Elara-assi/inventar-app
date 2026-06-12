@@ -1308,6 +1308,26 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     void refreshRecentItems();
   }, [refreshRecentItems, savedItem]);
 
+  // Geraete-Heartbeat: speist das Inventur-Cockpit (letzter Kontakt +
+  // lokal wartende Erfassungen dieses Handys).
+  useEffect(() => {
+    if (!joined || !deviceId) return;
+    const send = () => {
+      if (!getOnlineStatus()) return;
+      getQueueSummary(joined.session.id)
+        .then((summary) =>
+          api(`/sessions/${joined.session.id}/devices/${deviceId}/heartbeat`, {
+            method: "POST",
+            body: JSON.stringify({ pending_count: summary.open }),
+          }),
+        )
+        .catch(() => undefined);
+    };
+    send();
+    const interval = window.setInterval(send, 30000);
+    return () => window.clearInterval(interval);
+  }, [joined, deviceId]);
+
   function resumeRecent(entry: RecentItem) {
     // Nacherfassung: gespeichertes Objekt dieses Geraets wieder oeffnen,
     // Fotos/Felder ergaenzen, erneut speichern -> Server-Upsert ueber
