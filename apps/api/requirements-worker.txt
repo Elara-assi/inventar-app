@@ -1,0 +1,3 @@
+# Zusatz fuer den Worker (Transkription on-prem). Bewusst getrennt:
+# die API braucht Whisper nicht.
+faster-whisper==1.2.0

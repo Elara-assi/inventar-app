@@ -15,12 +15,16 @@ import {
   getOrCreateDeviceId,
   getQueueDetails,
   getQueueSummary,
+  enqueueAudioUpload,
   initQueue,
   listQueueItems,
   nextLocalSequenceNumber,
   queueSchemaVersion,
 } from "@/lib/offlineQueue";
 import { getOnlineStatus, retryFailed, syncNow } from "@/lib/syncClient";
+import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { PushToTalk } from "@/components/PushToTalk";
+import { BgaDictationFields, parseDictation, toBgaFields } from "@/lib/dictation";
 import { loadMobileSessionCapsule, saveMobileSessionCapsule } from "@/lib/sessionCapsule";
 
 type Joined = {
@@ -234,6 +238,7 @@ const emptySummary: QueueSummary = {
 const queueTypeLabels = {
   item_draft: "Objekt",
   photo_upload: "Foto",
+  audio_upload: "Diktat",
 };
 
 const queueStatusLabels = {
@@ -377,6 +382,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [editedFields, setEditedFields] = useState<Partial<Record<keyof BgaForm, boolean>>>({});
   const [message, setMessage] = useState("Bereit");
   const [busy, setBusy] = useState(false);
+  const [dictationAudio, setDictationAudio] = useState<{ blob: Blob; mime: string } | null>(null);
+  const [dictationChips, setDictationChips] = useState<BgaDictationFields | null>(null);
+  const [serialScannerOpen, setSerialScannerOpen] = useState(false);
   const [uploadState, setUploadState] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
@@ -1073,11 +1081,23 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         sequence_number: item.sequence_number,
         draft: buildDraft(item.id),
       });
+      if (dictationAudio) {
+        await enqueueAudioUpload({
+          session_id: joined?.session.id ?? "",
+          device_id: deviceId,
+          client_item_id: item.id,
+          audio_blob: dictationAudio.blob,
+          file_type: dictationAudio.mime,
+        });
+      }
       const savedLabel = form.object_type || item.inventory_id || item.temporary_id || "Entwurf";
       const savedPhotos = photos;
       setSavedItem({ label: savedLabel });
       setActiveItem(null);
       setForm(emptyForm);
+      setDictationAudio(null);
+      setDictationChips(null);
+      setSerialScannerOpen(false);
       setEditedFields({});
       setAiSuggestion(null);
       setAiSuggestionMessage("");
@@ -1231,6 +1251,26 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       speechRecognitionRef.current = null;
       setSpeechMessage("Spracheingabe konnte nicht gestartet werden.");
     }
+  }
+
+  function handleDictation(blob: Blob | null, mime: string, transcript: string) {
+    setDictationAudio(blob ? { blob, mime } : null);
+    if (!transcript.trim()) {
+      if (blob) setMessage("Aufnahme gespeichert. Transkription folgt nach dem Sync (Worker).");
+      return;
+    }
+    const fields = toBgaFields(parseDictation(transcript, bootstrap?.brands ?? []));
+    setDictationChips(Object.keys(fields).length ? fields : null);
+    // Nur leere Felder fuellen – Diktat ueberschreibt nie manuelle Eingaben.
+    setForm((current) => ({
+      ...current,
+      object_type: current.object_type || fields.object_type || current.object_type,
+      specification: current.specification || fields.specification || current.specification,
+      serial_number: current.serial_number || fields.serial_number || current.serial_number,
+      construction_year: current.construction_year || fields.construction_year || current.construction_year,
+      condition: current.condition === "gebraucht" && fields.condition ? fields.condition : current.condition,
+      remark: current.remark || fields.remark || current.remark,
+    }));
   }
 
   function speechButton(field: SpeechField, label: string) {
@@ -2265,6 +2305,20 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
 
             {step === 1 ? (
               <WizardCard title="Stammdaten" hint="Bezeichnung, Typ und Baujahr eintragen oder KI-Vorschlag prüfen.">
+                <div className="dictation-block">
+                  <p className="muted dictation-hint">Komplett-Diktat: Bezeichnung … Marke … Typ … Baujahr … Seriennummer … Zustand …</p>
+                  <PushToTalk onResult={handleDictation} />
+                  {dictationChips ? (
+                    <div className="dictation-chips">
+                      {dictationChips.object_type ? <span className="status-chip">Bezeichnung erkannt</span> : null}
+                      {dictationChips.specification ? <span className="status-chip">Typ: {dictationChips.specification}</span> : null}
+                      {dictationChips.serial_number ? <span className="status-chip">S/N: {dictationChips.serial_number}</span> : null}
+                      {dictationChips.construction_year ? <span className="status-chip">Baujahr: {dictationChips.construction_year}</span> : null}
+                      {dictationChips.condition ? <span className="status-chip">Zustand: {dictationChips.condition.replaceAll("_", " ")}</span> : null}
+                    </div>
+                  ) : null}
+                  {dictationAudio ? <p className="muted">Audio-Beleg wird beim Speichern mitgesichert.</p> : null}
+                </div>
                 <label className="field">
                   <span>Bezeichnung</span>
                   <div className="speech-input-row">
@@ -2283,8 +2337,18 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Seriennummer</span>
                   <div className="speech-input-row">
                     <input value={form.serial_number} onChange={(event) => update("serial_number", event.target.value)} placeholder="nur wenn eindeutig lesbar" />
+                    <button type="button" className="speech-btn" onClick={() => setSerialScannerOpen(true)} aria-label="Barcode scannen">Scan</button>
                     {speechButton("serial_number", "Seriennummer")}
                   </div>
+                  {serialScannerOpen ? (
+                    <BarcodeScanner
+                      onDetected={(code) => {
+                        update("serial_number", code);
+                        setSerialScannerOpen(false);
+                      }}
+                      onClose={() => setSerialScannerOpen(false)}
+                    />
+                  ) : null}
                 </label>
                 <label className="field">
                   <span>Baujahr</span>

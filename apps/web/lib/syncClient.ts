@@ -842,6 +842,64 @@ export async function syncPendingItems(scope?: SyncScope): Promise<SyncResult> {
   return { synced, failed, open: (await getQueueSummary(scope?.sessionId)).open };
 }
 
+function audioCandidates(items: QueueItem[]) {
+  return items.filter((entry) => entry.type === "audio_upload"
+    && (entry.status === "pending" || entry.status === "failed" || entry.status === "uploading"));
+}
+
+/** Diktat-Audios hochladen – additiv zur Foto-Pipeline, gleiche Garantien:
+ *  erst nach Server-Quittung des Objekts, idempotent (Server dedupliziert
+ *  ueber den Inhalts-Hash), Fehler bleiben sichtbar in der Queue. */
+export async function syncPendingAudio(scope?: SyncScope): Promise<SyncResult> {
+  let synced = 0;
+  let failed = 0;
+  const audios = audioCandidates(scopedItems(await listQueueItems(), scope));
+  if (!audios.length) {
+    return { synced: 0, failed: 0, open: (await getQueueSummary(scope?.sessionId)).open };
+  }
+  for (const queuedAudio of audios) {
+    const currentItems = scopedItems(await listQueueItems(), scope);
+    const audio = currentItems.find((entry) => entry.id === queuedAudio.id) ?? queuedAudio;
+    const linkedDraft = currentItems.find((entry) => entry.type === "item_draft" && entry.client_item_id === audio.client_item_id);
+    const serverItemId = audio.server_item_id ?? linkedDraft?.server_item_id;
+    if (!serverItemId) {
+      await updateQueueStatus(audio.id, "pending", {
+        skip_reason: "Objekt wird zuerst synchronisiert.",
+        last_error: "Objekt wird zuerst synchronisiert. Diktat bleibt lokal gespeichert.",
+      });
+      continue;
+    }
+    if (!audio.audio_blob || (audio.audio_blob.size ?? 0) <= 0) {
+      await updateQueueStatus(audio.id, "failed", {
+        skip_reason: "Audio-Blob fehlt.",
+        last_error: "Lokale Aufnahme ist unvollstaendig.",
+      });
+      failed += 1;
+      continue;
+    }
+    await updateQueueStatus(audio.id, "uploading", { upload_started_at: new Date().toISOString() });
+    try {
+      const type = audio.file_type || audio.audio_blob.type || "audio/webm";
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+      const form = new FormData();
+      const data = await audio.audio_blob.arrayBuffer();
+      form.append("file", new File([data], `diktat.${ext}`, { type }));
+      if (audio.transcript) form.append("transcript", audio.transcript);
+      const response = await postFormDataWithTimeout(`${API_BASE}/items/${serverItemId}/audio`, form, 60_000);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.text.slice(0, 160)}`);
+      }
+      await updateQueueStatus(audio.id, "synced", { server_item_id: serverItemId, last_error: undefined });
+      synced += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await updateQueueStatus(audio.id, "failed", { last_error: message });
+      failed += 1;
+    }
+  }
+  return { synced, failed, open: (await getQueueSummary(scope?.sessionId)).open };
+}
+
 export async function syncPendingPhotos(scope?: SyncScope): Promise<SyncResult> {
   let synced = 0;
   let failed = 0;
@@ -1113,8 +1171,12 @@ export async function syncNow(scope?: SyncScope): Promise<SyncResult> {
     if (photos.synced > 0) {
       await clearOnlySyncedItems();
     }
+    const audio = await syncPendingAudio(scope);
+    if (audio.synced > 0) {
+      await clearOnlySyncedItems();
+    }
     const summary = await getQueueSummary(scope?.sessionId);
-    const result = { synced: bundles.synced + photos.synced, failed: bundles.failed + photos.failed, open: summary.open };
+    const result = { synced: bundles.synced + photos.synced + audio.synced, failed: bundles.failed + photos.failed + audio.failed, open: summary.open };
     updateBackoff(lock, result.failed > 0);
     return result;
   } finally {

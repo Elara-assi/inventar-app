@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     ollama_ocr_model: str = "glm-ocr:latest"
     ollama_fallback_model: str = "gemma4:31b-cloud"
     ollama_timeout_seconds: float = 120.0
+    whisper_enabled: bool = True
+    whisper_model: str = "small"
+    whisper_model_dir: str = "/opt/inventar/models"
     search_provider: str = "searxng"
     searxng_base_url: str = "http://searxng-fe55-searxng-1:8080"
     search_timeout_seconds: float = 10.0

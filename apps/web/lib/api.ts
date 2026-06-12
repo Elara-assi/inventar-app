@@ -7,6 +7,7 @@ export type Bootstrap = {
   buildings: Array<{ id: string; name: string; location_id: string }>;
   rooms: Array<{ id: string; name: string; building_id: string; code?: string; room_type?: string }>;
   object_classes: Array<{ id: string; name: string; slug: string }>;
+  brands?: string[];
 };
 
 export type InventoryType = "bga" | "tires_wheels" | "special_tools";

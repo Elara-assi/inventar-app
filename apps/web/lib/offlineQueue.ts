@@ -1,5 +1,5 @@
 export type QueueStatus = "pending" | "uploading" | "unknown_ack" | "repairing" | "synced" | "failed" | "conflict" | "discard_pending" | "discarded";
-export type QueueItemType = "item_draft" | "photo_upload";
+export type QueueItemType = "item_draft" | "photo_upload" | "audio_upload";
 
 export type ItemDraftQueueData = Record<string, unknown>;
 
@@ -15,6 +15,9 @@ export type QueueItem = {
   server_photo_id?: string;
   photo_type?: string;
   photo_blob?: Blob;
+  client_audio_id?: string;
+  audio_blob?: Blob;
+  transcript?: string;
   file_name?: string;
   file_type?: string;
   file_size?: number;
@@ -272,6 +275,37 @@ export async function enqueuePhotoUpload(input: {
     file_type: input.file_type,
     file_size: input.file_size,
     sequence_number: input.sequence_number,
+    created_at: nowIso(),
+    updated_at: nowIso(),
+    retry_count: 0,
+  };
+  await withStore("readwrite", (store) => store.put(item));
+  return item;
+}
+
+export async function enqueueAudioUpload(input: {
+  session_id: string;
+  device_id: string;
+  client_item_id: string;
+  server_item_id?: string;
+  audio_blob: Blob;
+  file_type: string;
+  transcript?: string;
+  client_audio_id?: string;
+}): Promise<QueueItem> {
+  const item: QueueItem = {
+    id: createLocalId("queue-audio"),
+    type: "audio_upload",
+    status: "pending",
+    session_id: input.session_id,
+    device_id: input.device_id,
+    client_item_id: input.client_item_id,
+    client_audio_id: input.client_audio_id ?? createLocalId("client-audio"),
+    server_item_id: input.server_item_id,
+    audio_blob: input.audio_blob,
+    file_type: input.file_type,
+    file_size: input.audio_blob.size,
+    transcript: input.transcript,
     created_at: nowIso(),
     updated_at: nowIso(),
     retry_count: 0,

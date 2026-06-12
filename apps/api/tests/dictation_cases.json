@@ -1,0 +1,42 @@
+[
+  {
+    "text": "Hebebuehne Marke Nussbaum Typ Smart Lift 2.35 Baujahr 2018 Seriennummer N 4 7 3 2 2 Zustand gut",
+    "expect": {"object_class_slug": "hebebuehne", "object_type": "Hebebuehne", "brand": "Nussbaum", "model": "Smart Lift 2.35", "manufacturing_year": 2018, "serial_number": "N47322", "condition": "gut"}
+  },
+  {
+    "text": "Monitor Dell Modell U2722D Zustand sehr gut Seriennummer C N 0 4 7 J",
+    "expect": {"object_class_slug": "monitor", "brand": "Dell", "model": "U2722D", "condition": "sehr_gut", "serial_number": "CN047J"}
+  },
+  {
+    "text": "Bezeichnung Werkstattwagen rot Marke Hazet Zustand gebraucht",
+    "expect": {"object_type": "Werkstattwagen rot", "brand": "Hazet", "condition": "gebraucht"}
+  },
+  {
+    "text": "Reifensatz Michelin Baujahr zweitausendzwanzig Zustand reparaturbeduerftig",
+    "expect": {"object_class_slug": "reifen", "brand": "Michelin", "manufacturing_year": 2020, "condition": "reparaturbeduerftig"}
+  },
+  {
+    "text": "Laptop Lenovo Typ ThinkPad T14 Baujahr zweitausendzweiundzwanzig",
+    "expect": {"object_class_slug": "it_geraet", "brand": "Lenovo", "model": "ThinkPad T14", "manufacturing_year": 2022}
+  },
+  {
+    "text": "Seriennummer Anton Berta drei vier Zustand defekt",
+    "expect": {"serial_number": "AB34", "condition": "defekt"}
+  },
+  {
+    "text": "Buehne Marke MAHA Zustand kaputt",
+    "expect": {"object_class_slug": "hebebuehne", "brand": "MAHA", "condition": "defekt"}
+  },
+  {
+    "text": "Bildschirm Samsung Baujahr 21 Zustand neu",
+    "expect": {"object_class_slug": "monitor", "brand": "Samsung", "manufacturing_year": 2021, "condition": "neu"}
+  },
+  {
+    "text": "Werkzeugwagen Marke Gedore Seriennummer G-100-X Zustand gut Hinweis dritte Schublade klemmt",
+    "expect": {"object_class_slug": "werkzeugwagen", "brand": "Gedore", "serial_number": "G-100-X", "condition": "gut", "note_contains": "schublade klemmt"}
+  },
+  {
+    "text": "Drucker Brother Typ HL-L2350 Zustand aussondern",
+    "expect": {"brand": "Brother", "model": "HL-L2350", "condition": "aussondern"}
+  }
+]

@@ -16,6 +16,7 @@ services:
       - ./db/migrations/006_session_inventory_type.sql:/docker-entrypoint-initdb.d/006_session_inventory_type.sql:ro
       - ./db/migrations/007_offline_queue_ids.sql:/docker-entrypoint-initdb.d/007_offline_queue_ids.sql:ro
       - ./db/migrations/008_enterprise_foundation.sql:/docker-entrypoint-initdb.d/008_enterprise_foundation.sql:ro
+      - ./db/migrations/013_dictation.sql:/docker-entrypoint-initdb.d/013_dictation.sql:ro
       - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/999_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U inventar -d inventar"]
@@ -41,6 +42,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: api
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
@@ -97,13 +99,15 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: worker
     restart: unless-stopped
-    command: ["python", "-m", "app.worker"]
     environment:
       DATABASE_URL: postgresql://inventar:inventar@inventar-app-postgres-1:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
       AUTH_SECRET: ${AUTH_SECRET:-change-me-local}
       MIGRATIONS_PATH: /app/db/migrations
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_MODEL_DIR: /opt/inventar/models
       REDIS_URL: redis://inventar-app-redis-1:6379/0
       LITELLM_URL: http://litellm:4000
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
@@ -120,6 +124,7 @@ services:
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads
+      - whisper-models:/opt/inventar/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -148,6 +153,7 @@ services:
       - uptime-kuma-data:/app/data
 
 volumes:
+  whisper-models:
   postgres-data:
   ollama-data:
   uptime-kuma-data:
