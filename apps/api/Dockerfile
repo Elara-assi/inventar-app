@@ -10,4 +10,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY apps/api/app /app/app
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# 2 Worker: Headroom fuer viele parallele Erfasser; --reload ist ein Dev-Werkzeug
+# und gehoert nicht in den Standardbetrieb (Datei-Watching, einzelner Prozess).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
