@@ -7733,3 +7733,12 @@ body:has(.bga-wizard-page) {
 .scanner-frame { position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: #0b1215; }
 .scanner-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .scanner-reticle { position: absolute; inset: 18% 12%; border: 3px solid rgba(255, 255, 255, 0.85); border-radius: 12px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35); pointer-events: none; }
+
+/* Nacherfassung: zuletzt erfasste Objekte wieder oeffnen */
+.recent-items { display: grid; gap: 8px; margin-top: 14px; text-align: left; }
+.recent-items > strong { font-size: 13px; color: #60717d; text-transform: uppercase; letter-spacing: 0.04em; }
+.recent-item-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #d9e0e4; border-radius: 12px; background: white; padding: 12px 14px; cursor: pointer; font: inherit; min-height: 52px; }
+.recent-item-row:disabled { opacity: 0.6; cursor: wait; }
+.recent-item-label { font-weight: 800; color: #172026; text-align: left; }
+.recent-item-badge { flex-shrink: 0; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 900; background: #dcfce7; color: #166534; }
+.recent-item-badge.warn { background: #fee2e2; color: #991b1b; }

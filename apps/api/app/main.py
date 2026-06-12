@@ -2314,6 +2314,44 @@ async def save_item_photo(
     return row, False
 
 
+@app.get("/offline-sync/recent")
+def offline_sync_recent(request: Request, limit: int = 15) -> list[dict[str, Any]]:
+    """Zuletzt erfasste Objekte dieses Geraets in dieser Session.
+
+    Grundlage fuer die Nacherfassung am Handy: ein gespeichertes Objekt
+    wieder oeffnen und Fotos/Felder ergaenzen. Bewusst auf das eigene
+    Geraet begrenzt (source_device_id), damit der Bundle-Upsert beim
+    erneuten Speichern dasselbe Objekt trifft und keine Dublette entsteht.
+    """
+    auth = getattr(request.state, "auth", None) or {}
+    if auth.get("kind") != "mobile_session":
+        raise HTTPException(status_code=403, detail="Nur fuer gekoppelte Geraete")
+    session_id = str(auth.get("session_id") or "")
+    device_id = str(auth.get("device_id") or "")
+    if not session_id or not device_id:
+        raise HTTPException(status_code=403, detail="Session/Geraet unbekannt")
+    limit = max(1, min(int(limit), 30))
+    rows = fetch_all(
+        """
+        SELECT i.id, i.client_item_id, i.sequence_number, i.object_type, i.specification,
+               i.serial_number, i.construction_year, i.condition, i.condition_note,
+               i.function_ok, i.uvv_status, i.uvv_valid_until, i.inspection_book_available,
+               i.remark, i.type_plate_status, i.object_class_id, i.captured_at, i.locked_at,
+               COALESCE(p.photo_types, '{}') AS photo_types
+        FROM inventory_items i
+        LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT photo_type) AS photo_types
+          FROM item_photos WHERE item_id = i.id
+        ) p ON true
+        WHERE i.session_id = %s AND i.source_device_id = %s
+        ORDER BY i.captured_at DESC
+        LIMIT %s
+        """,
+        (session_id, device_id, limit),
+    )
+    return rows
+
+
 @app.post("/offline-sync/items")
 async def offline_sync_item_bundle(payload: str = Form(...), files: list[UploadFile] = File(default=[])) -> dict[str, Any]:
     try:

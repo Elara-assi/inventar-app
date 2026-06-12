@@ -48,6 +48,28 @@ type LocalItem = {
   sequence_number?: number;
 };
 
+type RecentItem = {
+  id: string;
+  client_item_id?: string | null;
+  sequence_number?: number | null;
+  object_type?: string | null;
+  specification?: string | null;
+  serial_number?: string | null;
+  construction_year?: string | null;
+  condition?: string | null;
+  condition_note?: string | null;
+  function_ok?: string | null;
+  uvv_status?: string | null;
+  uvv_valid_until?: string | null;
+  inspection_book_available?: string | null;
+  remark?: string | null;
+  type_plate_status?: string | null;
+  object_class_id?: string | null;
+  captured_at?: string | null;
+  locked_at?: string | null;
+  photo_types?: string[] | null;
+};
+
 type PhotoType = "object_front" | "object_back" | "type_plate" | "uvv_label" | "condition_detail" | "other";
 type CapturedPhoto = { type: PhotoType; id?: string; queueId?: string; name: string; size: number; previewUrl?: string };
 type AiProgressState = { active: boolean; label: string; progress: number };
@@ -391,6 +413,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [dictationAudio, setDictationAudio] = useState<{ blob: Blob; mime: string } | null>(null);
   const [dictationChips, setDictationChips] = useState<BgaDictationFields | null>(null);
   const [serialScannerOpen, setSerialScannerOpen] = useState(false);
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [uploadState, setUploadState] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
@@ -1271,6 +1294,57 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     focusAfterRender(() => primaryNavRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designationPromptOpen, form.object_type]);
+
+  const refreshRecentItems = useCallback(async () => {
+    if (!joined || !getOnlineStatus()) return;
+    try {
+      setRecentItems(await api<RecentItem[]>("/offline-sync/recent?limit=10"));
+    } catch {
+      /* offline oder Session beendet: Liste bleibt wie sie ist */
+    }
+  }, [joined]);
+
+  useEffect(() => {
+    void refreshRecentItems();
+  }, [refreshRecentItems, savedItem]);
+
+  function resumeRecent(entry: RecentItem) {
+    // Nacherfassung: gespeichertes Objekt dieses Geraets wieder oeffnen,
+    // Fotos/Felder ergaenzen, erneut speichern -> Server-Upsert ueber
+    // dieselbe client_item_id (keine Dublette).
+    if (entry.locked_at || !entry.client_item_id || busy) return;
+    setActiveItem({
+      id: entry.client_item_id,
+      inventory_id: "",
+      temporary_id: `Nr. ${entry.sequence_number ?? "?"}`,
+      server_item_id: entry.id,
+      sequence_number: entry.sequence_number ?? undefined,
+    });
+    setForm({
+      ...emptyForm,
+      object_type: entry.object_type ?? "",
+      specification: entry.specification ?? "",
+      serial_number: entry.serial_number ?? "",
+      construction_year: entry.construction_year ?? "",
+      condition: entry.condition ?? "gebraucht",
+      condition_note: entry.condition_note ?? "",
+      function_ok: (entry.function_ok ?? "nicht_geprueft") as FunctionOk,
+      uvv_status: (entry.uvv_status ?? "unklar") as UvvStatus,
+      uvv_valid_until: entry.uvv_valid_until ? String(entry.uvv_valid_until).slice(0, 10) : "",
+      inspection_book_available: (entry.inspection_book_available ?? "nicht_erforderlich") as InspectionBook,
+      remark: entry.remark ?? "",
+      type_plate_status: (entry.type_plate_status ?? "nicht_geprueft") as BgaForm["type_plate_status"],
+    });
+    if (entry.object_class_id) setObjectClassId(entry.object_class_id);
+    setSavedItem(null);
+    setPhotos([]);
+    setDictationAudio(null);
+    setDictationChips(null);
+    setStep(0);
+    setShowAdvancedFlow(true);
+    setMessage(`Nacherfassung: ${entry.object_type || "Objekt"} – ergaenzen und erneut speichern.`);
+    focusAfterRender(() => captureStartRef.current);
+  }
 
   function handleDictation(blob: Blob | null, mime: string, transcript: string) {
     setDictationAudio(blob ? { blob, mime } : null);
@@ -2208,6 +2282,19 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <p>{savedItem.label} ist lokal gesichert. Naechstes Objekt wird vorbereitet.</p>
             {photos.length ? <PhotoPreviewList photos={photos} labels={photoLabels} /> : null}
             <button className="btn accent" type="button" onClick={startNextObject}>Nächstes Objekt erfassen</button>
+            {recentItems.filter((entry) => entry.client_item_id && !entry.locked_at).length ? (
+              <div className="recent-items">
+                <strong>Zuletzt erfasst – antippen zum Ergänzen</strong>
+                {recentItems.filter((entry) => entry.client_item_id && !entry.locked_at).slice(0, 5).map((entry) => (
+                  <button key={entry.id} type="button" className="recent-item-row" disabled={busy} onClick={() => resumeRecent(entry)}>
+                    <span className="recent-item-label">Nr. {entry.sequence_number ?? "–"} · {entry.object_type || "Ohne Bezeichnung"}</span>
+                    <span className={`recent-item-badge${entry.photo_types?.includes("object_front") ? "" : " warn"}`}>
+                      {entry.photo_types?.includes("object_front") ? `${entry.photo_types?.length ?? 0} Foto(s)` : "Foto fehlt"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {joined ? <a className="btn secondary" href={`/session/${joined.session.id}`}>Zur Prüfliste</a> : null}
           </section>
         ) : null}
