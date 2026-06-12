@@ -1,23 +1,57 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
+import logging
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
-from .db import execute, fetch_all, fetch_one
-from .logic import audit, build_ai_suggestion, create_rework_tasks, finalization_blockers, next_inventory_id
+from . import constants as C
+from .db import close_pool, execute, fetch_all, fetch_one, get_pool, transaction
+from .logic import (
+    audit,
+    blockers_for_item,
+    build_ai_suggestion,
+    create_rework_tasks,
+    finalization_blockers,
+    json_dumps,
+    load_blocker_context,
+    next_inventory_id,
+)
 from .settings import settings
 
-app = FastAPI(title="Inventar API", version="0.1.0-phase1")
+log = logging.getLogger("inventar.api")
+logging.basicConfig(level=logging.INFO)
+
+
+def ensure_upload_dirs() -> None:
+    for sub in ["originals", "stamped", "audio", "exports", "temp"]:
+        Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_upload_dirs()
+    try:
+        get_pool()
+    except Exception:
+        log.exception("DB-Pool konnte beim Start nicht geoeffnet werden (API laeuft weiter, health zeigt database:false)")
+    yield
+    close_pool()
+
+
+app = FastAPI(title="Inventar API", version="0.2.0-phase1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,6 +59,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ---------------------------------------------------------------------------
+# Eingabemodelle (vorher teils ungetypte dicts -> beliebige Werte in der DB)
+# ---------------------------------------------------------------------------
 
 class LoginIn(BaseModel):
     email: str
@@ -57,6 +95,13 @@ class ItemIn(BaseModel):
     serial_number: str | None = None
     created_by: str | None = None
 
+    @field_validator("condition")
+    @classmethod
+    def _condition(cls, v: str) -> str:
+        if v not in C.CONDITIONS:
+            raise ValueError(f"Ungueltiger Zustand: {v}")
+        return v
+
 
 class ItemPatch(BaseModel):
     object_type: str | None = None
@@ -71,16 +116,140 @@ class ItemPatch(BaseModel):
     commercial_category: str | None = None
     accounting_status: str | None = None
 
+    @field_validator("condition")
+    @classmethod
+    def _condition(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.CONDITIONS:
+            raise ValueError(f"Ungueltiger Zustand: {v}")
+        return v
 
-def ensure_upload_dirs() -> None:
-    for sub in ["originals", "stamped", "audio", "exports", "temp"]:
-        Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.CAPTURE_STATUSES:
+            raise ValueError(f"Ungueltiger Status: {v}")
+        return v
+
+    @field_validator("review_status")
+    @classmethod
+    def _review(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.REVIEW_STATUSES:
+            raise ValueError(f"Ungueltiger Pruefstatus: {v}")
+        return v
+
+    @field_validator("commercial_category")
+    @classmethod
+    def _cc(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.COMMERCIAL_CATEGORIES:
+            raise ValueError(f"Ungueltige kaufmaennische Kategorie: {v}")
+        return v
+
+    @field_validator("accounting_status")
+    @classmethod
+    def _acc(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.ACCOUNTING_STATUSES:
+            raise ValueError(f"Ungueltiger Buchhaltungsstatus: {v}")
+        return v
 
 
-@app.on_event("startup")
-def startup() -> None:
-    ensure_upload_dirs()
+class ReworkIn(BaseModel):
+    assigned_role: str = "Pruefer"
+    task_type: str = "rework"
+    missing_field: str | None = None
+    priority: str = "normal"
+    comment: str | None = None
 
+    @field_validator("assigned_role")
+    @classmethod
+    def _role(cls, v: str) -> str:
+        if v not in C.ASSIGNED_ROLES:
+            raise ValueError(f"Ungueltige Rolle: {v}")
+        return v
+
+
+class StatusChangeIn(BaseModel):
+    status: str
+    review_status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str) -> str:
+        if v not in C.CAPTURE_STATUSES:
+            raise ValueError(f"Ungueltiger Status: {v}")
+        return v
+
+    @field_validator("review_status")
+    @classmethod
+    def _review(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.REVIEW_STATUSES:
+            raise ValueError(f"Ungueltiger Pruefstatus: {v}")
+        return v
+
+
+class AccountingPatch(BaseModel):
+    commercial_category: str | None = None
+    cost_center: str | None = None
+    asset_number: str | None = None
+    book_value: float | None = None
+    accounting_status: str | None = None
+
+    @field_validator("commercial_category")
+    @classmethod
+    def _cc(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.COMMERCIAL_CATEGORIES:
+            raise ValueError(f"Ungueltige kaufmaennische Kategorie: {v}")
+        return v
+
+    @field_validator("accounting_status")
+    @classmethod
+    def _acc(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.ACCOUNTING_STATUSES:
+            raise ValueError(f"Ungueltiger Buchhaltungsstatus: {v}")
+        return v
+
+
+class TaskPatch(BaseModel):
+    status: str | None = None
+    comment: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.TASK_STATUSES:
+            raise ValueError(f"Ungueltiger Aufgabenstatus: {v}")
+        return v
+
+
+class ObjectClassIn(BaseModel):
+    name: str
+    slug: str
+    description: str | None = None
+    default_commercial_category: str = "ungeklaert"
+    requires_accounting_review: bool = False
+
+    @field_validator("default_commercial_category")
+    @classmethod
+    def _cc(cls, v: str) -> str:
+        if v not in C.COMMERCIAL_CATEGORIES:
+            raise ValueError(f"Ungueltige kaufmaennische Kategorie: {v}")
+        return v
+
+
+class ObjectClassPatch(BaseModel):
+    description: str | None = None
+    default_commercial_category: str | None = None
+
+    @field_validator("default_commercial_category")
+    @classmethod
+    def _cc(cls, v: str | None) -> str | None:
+        if v is not None and v not in C.COMMERCIAL_CATEGORIES:
+            raise ValueError(f"Ungueltige kaufmaennische Kategorie: {v}")
+        return v
+
+
+# ---------------------------------------------------------------------------
+# Health & Auth
+# ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health() -> dict[str, Any]:
@@ -89,7 +258,7 @@ def health() -> dict[str, Any]:
         db_ok = bool(fetch_one("SELECT 1 AS ok"))
     except Exception:
         db_ok = False
-    return {"ok": True, "database": db_ok, "phase": "0+1"}
+    return {"ok": True, "database": db_ok, "phase": "0+1", "version": app.version}
 
 
 @app.post("/auth/login")
@@ -127,6 +296,10 @@ def bootstrap() -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Sessions
+# ---------------------------------------------------------------------------
+
 @app.post("/sessions")
 def create_session(body: SessionIn) -> dict[str, Any]:
     token = secrets.token_urlsafe(18)
@@ -146,7 +319,8 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 def list_sessions() -> list[dict[str, Any]]:
     return fetch_all(
         """
-        SELECT s.*, l.name AS location_name, b.name AS building_name, r.name AS room_name
+        SELECT s.*, l.name AS location_name, b.name AS building_name, r.name AS room_name,
+          (SELECT count(*) FROM inventory_items i WHERE i.session_id = s.id)::int AS item_count
         FROM inventory_sessions s
         JOIN locations l ON l.id = s.location_id
         JOIN buildings b ON b.id = s.building_id
@@ -181,6 +355,8 @@ def renew_join_token(session_id: str) -> dict[str, Any]:
         "UPDATE inventory_sessions SET join_token = %s, join_token_expires_at = now() + interval '12 hours' WHERE id = %s RETURNING *",
         (token, session_id),
     )
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
     audit("join_token_created", "inventory_session", session_id, {"join_token": token})
     return row
 
@@ -205,13 +381,53 @@ def join_session(body: JoinIn) -> dict[str, Any]:
     return {"session": session, "device": device}
 
 
+def _session_items_with_context(session_id: str) -> list[dict[str, Any]]:
+    """Items + Fotos + Blocker + offene Aufgaben in 5 Queries (vorher 6N+1)."""
+    rows = fetch_all(
+        """
+        SELECT i.*, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.session_id = %s
+        ORDER BY i.created_at DESC
+        """,
+        (session_id,),
+    )
+    ctx = load_blocker_context([str(r["id"]) for r in rows])
+    for row in rows:
+        entry = ctx[str(row["id"])]
+        row["photos"] = entry["photos"]
+        row["has_object_photo"] = "object" in entry["photo_types"]
+        row["has_nameplate_photo"] = "nameplate" in entry["photo_types"]
+        row["has_dot_photo"] = "dot" in entry["photo_types"]
+        row["open_tasks"] = entry["open_tasks"]
+        row["blockers"] = blockers_for_item(row, entry)
+    return rows
+
+
+@app.get("/sessions/{session_id}/items")
+def session_items(session_id: str) -> list[dict[str, Any]]:
+    return _session_items_with_context(session_id)
+
+
 @app.post("/sessions/{session_id}/close")
 def close_session(session_id: str) -> dict[str, Any]:
-    items = fetch_all("SELECT id FROM inventory_items WHERE session_id = %s", (session_id,))
-    blockers = {str(i["id"]): finalization_blockers(str(i["id"])) for i in items}
-    open_blockers = {k: v for k, v in blockers.items() if v}
+    session = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session["status"] == "closed":
+        raise HTTPException(status_code=409, detail="Session ist bereits abgeschlossen")
+    items = _session_items_with_context(session_id)
+    open_blockers = {
+        (item.get("inventory_id") or item.get("temporary_id") or str(item["id"])): item["blockers"]
+        for item in items
+        if item["blockers"]
+    }
     if open_blockers:
-        raise HTTPException(status_code=409, detail={"message": "Offene blockierende Pflichtpunkte", "blockers": open_blockers})
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "Offene blockierende Pflichtpunkte", "blockers": open_blockers},
+        )
     row = execute(
         "UPDATE inventory_sessions SET status = 'closed', closed_at = now() WHERE id = %s RETURNING *",
         (session_id,),
@@ -231,81 +447,75 @@ def revoke_device(session_id: str, device_id: str) -> dict[str, Any]:
         "UPDATE session_devices SET revoked_at = now() WHERE id = %s AND session_id = %s RETURNING *",
         (device_id, session_id),
     )
+    if not row:
+        raise HTTPException(status_code=404, detail="Device not found")
     audit("device_revoked", "session_device", device_id, row)
     return row
 
 
+# ---------------------------------------------------------------------------
+# Items
+# ---------------------------------------------------------------------------
+
 @app.post("/items")
 def create_item(body: ItemIn) -> dict[str, Any]:
     session = get_session(body.session_id)
-    inventory_id = body.inventory_id or next_inventory_id(session["location_code"])
+    if session["status"] != "open":
+        raise HTTPException(status_code=409, detail="Session ist abgeschlossen, keine Erfassung mehr moeglich")
+    oc = None
+    if body.object_class_id:
+        oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (body.object_class_id,))
+        if not oc:
+            raise HTTPException(status_code=422, detail="Unbekannte Objektklasse")
     temporary_id = body.temporary_id or f"TEMP-{secrets.token_hex(4).upper()}"
-    oc = fetch_one("SELECT * FROM object_classes WHERE id = %s", (body.object_class_id,)) if body.object_class_id else None
-    row = execute(
-        """
-        INSERT INTO inventory_items (
-          inventory_id, temporary_id, session_id, location_id, building_id, room_id,
-          object_type, object_class_id, brand, model, serial_number, condition,
-          condition_note, commercial_category, requires_accounting_review,
-          accounting_relevance, created_by
+    # Atomar: ID-Vergabe + Item + Buchhaltungsdatensatz in EINER Transaktion.
+    # Vorher: Einzel-Commits -> halbfertige Items bei Fehlern, doppelte IDs
+    # bei parallelen Erfassern.
+    with transaction() as conn:
+        inventory_id = body.inventory_id or next_inventory_id(session["location_code"], conn)
+        row = execute(
+            """
+            INSERT INTO inventory_items (
+              inventory_id, temporary_id, session_id, location_id, building_id, room_id,
+              object_type, object_class_id, brand, model, serial_number, condition,
+              condition_note, commercial_category, requires_accounting_review,
+              accounting_relevance, created_by
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING *
+            """,
+            (
+                inventory_id,
+                temporary_id,
+                body.session_id,
+                session["location_id"],
+                session["building_id"],
+                session["room_id"],
+                body.object_type,
+                body.object_class_id,
+                body.brand,
+                body.model,
+                body.serial_number,
+                body.condition,
+                body.condition_note,
+                oc["default_commercial_category"] if oc else "ungeklaert",
+                oc["requires_accounting_review"] if oc else False,
+                oc["requires_accounting_review"] if oc else False,
+                body.created_by,
+            ),
+            conn=conn,
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        RETURNING *
-        """,
-        (
-            inventory_id,
-            temporary_id,
-            body.session_id,
-            session["location_id"],
-            session["building_id"],
-            session["room_id"],
-            body.object_type,
-            body.object_class_id,
-            body.brand,
-            body.model,
-            body.serial_number,
-            body.condition,
-            body.condition_note,
-            oc["default_commercial_category"] if oc else "ungeklaert",
-            oc["requires_accounting_review"] if oc else False,
-            oc["requires_accounting_review"] if oc else False,
-            body.created_by,
-        ),
-    )
-    execute(
-        """
-        INSERT INTO item_accounting_data (item_id, commercial_category, accounting_status)
-        VALUES (%s, %s, %s)
-        RETURNING id
-        """,
-        (row["id"], row["commercial_category"], row["accounting_status"]),
-    )
+        execute(
+            """
+            INSERT INTO item_accounting_data (item_id, commercial_category, accounting_status)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (row["id"], row["commercial_category"], row["accounting_status"]),
+            conn=conn,
+        )
     audit("item_created", "inventory_item", str(row["id"]), row)
     return row
-
-
-@app.get("/sessions/{session_id}/items")
-def session_items(session_id: str) -> list[dict[str, Any]]:
-    rows = fetch_all(
-        """
-        SELECT i.*, oc.name AS object_class_name,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'object') AS has_object_photo,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'nameplate') AS has_nameplate_photo,
-          EXISTS(SELECT 1 FROM item_photos p WHERE p.item_id = i.id AND p.photo_type = 'dot') AS has_dot_photo
-        FROM inventory_items i
-        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
-        WHERE i.session_id = %s
-        ORDER BY i.created_at DESC
-        """,
-        (session_id,),
-    )
-    for row in rows:
-        row["blockers"] = finalization_blockers(str(row["id"]))
-        row["open_tasks"] = fetch_all(
-            "SELECT * FROM accounting_tasks WHERE item_id = %s AND status = 'open' ORDER BY created_at",
-            (row["id"],),
-        )
-    return rows
 
 
 @app.get("/items/{item_id}")
@@ -325,19 +535,31 @@ def get_item(item_id: str) -> dict[str, Any]:
     return row
 
 
+# Whitelist der per PATCH aenderbaren Spalten. Die Spaltennamen stammen aus
+# dem Pydantic-Modell (nie aus dem Request), die Werte sind parametrisiert.
+_PATCHABLE_COLUMNS = (
+    "object_type", "object_class_id", "brand", "model", "serial_number",
+    "condition", "condition_note", "status", "review_status",
+    "commercial_category", "accounting_status",
+)
+
+
 @app.patch("/items/{item_id}")
 def patch_item(item_id: str, body: ItemPatch) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if not data:
         return get_item(item_id)
-    allowed = list(data.keys())
-    sql = ", ".join([f"{key} = %s" for key in allowed])
+    if data.get("object_class_id"):
+        if not fetch_one("SELECT id FROM object_classes WHERE id = %s", (data["object_class_id"],)):
+            raise HTTPException(status_code=422, detail="Unbekannte Objektklasse")
+    columns = [key for key in _PATCHABLE_COLUMNS if key in data]
+    sql = ", ".join([f"{key} = %s" for key in columns])
     row = execute(
         f"UPDATE inventory_items SET {sql}, updated_at = now() WHERE id = %s AND locked_at IS NULL RETURNING *",
-        tuple(data[key] for key in allowed) + (item_id,),
+        tuple(data[key] for key in columns) + (item_id,),
     )
     if not row:
-        raise HTTPException(status_code=409, detail="Item locked or not found")
+        raise HTTPException(status_code=409, detail="Objekt ist finalisiert/gesperrt oder existiert nicht")
     audit("item_changed", "inventory_item", item_id, data)
     return row
 
@@ -353,60 +575,85 @@ def finalize_item(item_id: str) -> dict[str, Any]:
         SET review_status = 'finalisiert', status = 'finalisiert',
             lifecycle_status = COALESCE(lifecycle_status, 'aktiv'),
             finalized_at = now(), locked_at = now(), updated_at = now()
-        WHERE id = %s RETURNING *
+        WHERE id = %s AND locked_at IS NULL RETURNING *
         """,
         (item_id,),
     )
+    if not row:
+        raise HTTPException(status_code=409, detail="Objekt ist bereits finalisiert oder existiert nicht")
     audit("item_finalized", "inventory_item", item_id, row)
     return row
 
 
 @app.post("/items/{item_id}/request-rework")
-def request_rework(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
-    assigned_role = body.get("assigned_role", "Pruefer")
+def request_rework(item_id: str, body: ReworkIn) -> dict[str, Any]:
+    if not fetch_one("SELECT id FROM inventory_items WHERE id = %s", (item_id,)):
+        raise HTTPException(status_code=404, detail="Item not found")
     row = execute(
         """
         INSERT INTO accounting_tasks (item_id, task_type, assigned_role, missing_field, priority, comment)
         VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
-        (
-            item_id,
-            body.get("task_type", "rework"),
-            assigned_role,
-            body.get("missing_field"),
-            body.get("priority", "normal"),
-            body.get("comment"),
-        ),
+        (item_id, body.task_type, body.assigned_role, body.missing_field, body.priority, body.comment),
     )
     review_status = {
         "Buchhaltung": "nacharbeit_buchhaltung",
         "Erfasser": "nacharbeit_erfasser",
         "Technik": "nacharbeit_technik",
-    }.get(assigned_role, "nacharbeit_pruefer")
-    execute("UPDATE inventory_items SET review_status = %s WHERE id = %s RETURNING id", (review_status, item_id))
+    }.get(body.assigned_role, "nacharbeit_pruefer")
+    execute(
+        "UPDATE inventory_items SET review_status = %s, updated_at = now() WHERE id = %s AND locked_at IS NULL RETURNING id",
+        (review_status, item_id),
+    )
     audit("rework_requested", "inventory_item", item_id, row)
     return row
 
 
 @app.post("/items/{item_id}/change-status")
-def change_status(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def change_status(item_id: str, body: StatusChangeIn) -> dict[str, Any]:
     row = execute(
-        "UPDATE inventory_items SET status = %s, review_status = COALESCE(%s, review_status), updated_at = now() WHERE id = %s RETURNING *",
-        (body.get("status"), body.get("review_status"), item_id),
+        "UPDATE inventory_items SET status = %s, review_status = COALESCE(%s, review_status), updated_at = now() WHERE id = %s AND locked_at IS NULL RETURNING *",
+        (body.status, body.review_status, item_id),
     )
-    audit("status_changed", "inventory_item", item_id, body)
+    if not row:
+        raise HTTPException(status_code=409, detail="Objekt ist finalisiert/gesperrt oder existiert nicht")
+    audit("status_changed", "inventory_item", item_id, body.model_dump(exclude_unset=True))
     return row
+
+
+# ---------------------------------------------------------------------------
+# Uploads & Dateiauslieferung
+# ---------------------------------------------------------------------------
+
+def _validated_suffix(file: UploadFile, allowed_suffixes: set[str]) -> str:
+    """Prueft die Dateiendung; der Client-Dateiname selbst wird nie verwendet."""
+    suffix = Path(file.filename or "upload.bin").suffix.lower()
+    if suffix not in allowed_suffixes:
+        raise HTTPException(status_code=422, detail=f"Dateityp {suffix or 'unbekannt'} nicht erlaubt")
+    return suffix
+
+
+async def _read_limited(file: UploadFile) -> bytes:
+    limit = settings.max_upload_mb * 1024 * 1024
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"Datei groesser als {settings.max_upload_mb} MB")
+    if not data:
+        raise HTTPException(status_code=422, detail="Leere Datei")
+    return data
 
 
 @app.post("/items/{item_id}/photos")
 async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFile = File(...)) -> dict[str, Any]:
     ensure_upload_dirs()
+    if photo_type not in C.PHOTO_TYPES:
+        raise HTTPException(status_code=422, detail=f"Ungueltiger Fototyp: {photo_type}")
     if not fetch_one("SELECT id FROM inventory_items WHERE id = %s", (item_id,)):
         raise HTTPException(status_code=404, detail="Item not found")
-    data = await file.read()
+    suffix = _validated_suffix(file, C.ALLOWED_IMAGE_SUFFIXES)
+    data = await _read_limited(file)
     digest = hashlib.sha256(data).hexdigest()
-    suffix = Path(file.filename or "upload.bin").suffix or ".bin"
     filename = f"{item_id}-{photo_type}-{digest[:12]}{suffix}"
     path = Path(settings.upload_root, "originals", filename)
     path.write_bytes(data)
@@ -420,75 +667,141 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
         """,
         (item_id, photo_type, str(path), str(stamped), digest, '{"phase":"1","stamp":"pending-worker"}'),
     )
-    audit("photo_uploaded", "inventory_item", item_id, row)
+    audit("photo_uploaded", "inventory_item", item_id, {"photo_id": str(row["id"]), "photo_type": photo_type})
     return row
 
 
 @app.post("/items/{item_id}/audio")
-async def upload_audio(item_id: str, transcript: str | None = None, file: UploadFile | None = File(None)) -> dict[str, Any]:
+async def upload_audio(
+    item_id: str,
+    transcript: str | None = None,
+    file: UploadFile | None = File(None),
+    transcript_form: str | None = Form(None, alias="transcript"),
+) -> dict[str, Any]:
     ensure_upload_dirs()
-    path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
+    if not fetch_one("SELECT id FROM inventory_items WHERE id = %s", (item_id,)):
+        raise HTTPException(status_code=404, detail="Item not found")
+    text = transcript_form if transcript_form is not None else transcript
     if file:
-        data = await file.read()
-        path = Path(settings.upload_root, "audio", f"{item_id}-{file.filename}")
+        # Nur die gepruefte Endung uebernehmen, nie den Client-Dateinamen
+        # (Path-Traversal-Schutz).
+        suffix = _validated_suffix(file, C.ALLOWED_AUDIO_SUFFIXES)
+        data = await _read_limited(file)
+        path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}{suffix}")
         path.write_bytes(data)
+        transcript_status = "completed" if text else "pending"
     else:
-        path.write_text(transcript or "", encoding="utf-8")
+        if not text:
+            raise HTTPException(status_code=422, detail="Weder Audiodatei noch Transkript uebergeben")
+        path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
+        path.write_text(text, encoding="utf-8")
+        transcript_status = "completed"
     row = execute(
         """
         INSERT INTO item_audio_notes (item_id, audio_path, transcript, transcript_status)
-        VALUES (%s, %s, %s, 'completed')
+        VALUES (%s, %s, %s, %s)
         RETURNING *
         """,
-        (item_id, str(path), transcript),
+        (item_id, str(path), text, transcript_status),
     )
-    audit("audio_saved", "inventory_item", item_id, row)
+    audit("audio_saved", "inventory_item", item_id, {"note_id": str(row["id"])})
     return row
 
+
+def _safe_file_response(stored_path: str, subdirs: tuple[str, ...]) -> FileResponse:
+    """Liefert Dateien nur aus dem Upload-Root aus (Containment-Check)."""
+    upload_root = Path(settings.upload_root).resolve()
+    target = Path(stored_path).resolve()
+    if not any(target.is_relative_to(upload_root / sub) for sub in subdirs):
+        raise HTTPException(status_code=404, detail="Datei nicht verfuegbar")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    return FileResponse(target, filename=target.name)
+
+
+@app.get("/files/photo/{photo_id}")
+def serve_photo(photo_id: str, variant: str = "original") -> FileResponse:
+    row = fetch_one("SELECT * FROM item_photos WHERE id = %s", (photo_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Foto nicht gefunden")
+    path = row["stamped_path"] if variant == "stamped" and row.get("stamped_path") else row["original_path"]
+    return _safe_file_response(path, ("originals", "stamped"))
+
+
+@app.get("/files/audio/{note_id}")
+def serve_audio(note_id: str) -> FileResponse:
+    row = fetch_one("SELECT * FROM item_audio_notes WHERE id = %s", (note_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Audionotiz nicht gefunden")
+    return _safe_file_response(row["audio_path"], ("audio",))
+
+
+# ---------------------------------------------------------------------------
+# KI
+# ---------------------------------------------------------------------------
 
 @app.post("/items/{item_id}/ai/run")
 def run_ai(item_id: str) -> dict[str, Any]:
-    execute("UPDATE inventory_items SET status = 'ki_laeuft' WHERE id = %s RETURNING id", (item_id,))
-    suggestion = build_ai_suggestion(item_id)
-    row = execute(
-        """
-        INSERT INTO ai_results (item_id, ai_type, model_used, input_sources, result_json, confidence)
-        VALUES (%s, 'phase1_stub', 'litellm-placeholder', %s::jsonb, %s::jsonb, %s)
-        RETURNING *
-        """,
-        (item_id, '["photos","audio"]', json_string(suggestion), suggestion["confidence"]),
-    )
-    create_rework_tasks(item_id, suggestion)
-    execute(
-        """
-        UPDATE item_accounting_data
-        SET commercial_category = %s,
-            accounting_status = CASE WHEN %s THEN 'buchhaltung_pruefen' ELSE 'nicht_relevant' END
-        WHERE item_id = %s
-        RETURNING id
-        """,
-        (suggestion["commercial_category"], suggestion["requires_accounting_review"], item_id),
-    )
+    item = fetch_one("SELECT id, status FROM inventory_items WHERE id = %s", (item_id,))
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    previous_status = item["status"]
+    execute("UPDATE inventory_items SET status = 'ki_laeuft', updated_at = now() WHERE id = %s RETURNING id", (item_id,))
+    try:
+        suggestion = build_ai_suggestion(item_id)
+        row = execute(
+            """
+            INSERT INTO ai_results (item_id, ai_type, model_used, input_sources, result_json, confidence)
+            VALUES (%s, 'phase1_stub', 'litellm-placeholder', %s::jsonb, %s::jsonb, %s)
+            RETURNING *
+            """,
+            (item_id, '["photos","audio"]', json_dumps(suggestion), suggestion["confidence"]),
+        )
+        create_rework_tasks(item_id, suggestion)
+        execute(
+            """
+            UPDATE item_accounting_data
+            SET commercial_category = %s,
+                accounting_status = CASE WHEN %s THEN 'buchhaltung_pruefen' ELSE 'nicht_relevant' END
+            WHERE item_id = %s
+            RETURNING id
+            """,
+            (suggestion["commercial_category"], suggestion["requires_accounting_review"], item_id),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Vorher blieb das Item bei jedem Fehler dauerhaft in 'ki_laeuft' haengen.
+        log.exception("KI-Lauf fehlgeschlagen fuer Item %s", item_id)
+        execute(
+            "UPDATE inventory_items SET status = 'ki_fehler', updated_at = now() WHERE id = %s AND status = 'ki_laeuft' RETURNING id",
+            (item_id,),
+        )
+        try:
+            execute(
+                """
+                INSERT INTO ai_results (item_id, ai_type, model_used, result_json, status, error_message)
+                VALUES (%s, 'phase1_stub', 'litellm-placeholder', '{}'::jsonb, 'failed', %s)
+                RETURNING id
+                """,
+                (item_id, str(exc)[:500]),
+            )
+        except Exception:
+            log.exception("Fehlerprotokoll fuer KI-Lauf konnte nicht gespeichert werden")
+        raise HTTPException(status_code=502, detail="KI-Lauf fehlgeschlagen, Status auf ki_fehler gesetzt") from exc
     audit("ai_result_created", "inventory_item", item_id, suggestion)
+    _ = previous_status  # bewusst: bei Erfolg setzt der Stub 'ki_fertig'
     return row
-
-
-def json_string(value: Any) -> str:
-    import json
-
-    return json.dumps(value, default=str)
-
-
-def excel_value(value: Any) -> Any:
-    if isinstance(value, datetime) and value.tzinfo is not None:
-        return value.replace(tzinfo=None)
-    return value
 
 
 @app.get("/items/{item_id}/ai-results")
 def ai_results(item_id: str) -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM ai_results WHERE item_id = %s ORDER BY created_at DESC", (item_id,))
 
+
+# ---------------------------------------------------------------------------
+# Objektklassen & Pflichtfelder
+# ---------------------------------------------------------------------------
 
 @app.get("/object-classes")
 def object_classes() -> list[dict[str, Any]]:
@@ -501,26 +814,20 @@ def requirements(class_id: str) -> list[dict[str, Any]]:
 
 
 @app.post("/object-classes")
-def create_object_class(body: dict[str, Any]) -> dict[str, Any]:
+def create_object_class(body: ObjectClassIn) -> dict[str, Any]:
     row = execute(
         """
         INSERT INTO object_classes (name, slug, description, default_commercial_category, requires_accounting_review)
         VALUES (%s, %s, %s, %s, %s) RETURNING *
         """,
-        (
-            body["name"],
-            body["slug"],
-            body.get("description"),
-            body.get("default_commercial_category", "ungeklaert"),
-            body.get("requires_accounting_review", False),
-        ),
+        (body.name, body.slug, body.description, body.default_commercial_category, body.requires_accounting_review),
     )
     audit("object_class_created", "object_class", str(row["id"]), row)
     return row
 
 
 @app.patch("/object-classes/{class_id}")
-def update_object_class(class_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def update_object_class(class_id: str, body: ObjectClassPatch) -> dict[str, Any]:
     row = execute(
         """
         UPDATE object_classes
@@ -529,10 +836,16 @@ def update_object_class(class_id: str, body: dict[str, Any]) -> dict[str, Any]:
             updated_at = now()
         WHERE id = %s RETURNING *
         """,
-        (body.get("description"), body.get("default_commercial_category"), class_id),
+        (body.description, body.default_commercial_category, class_id),
     )
+    if not row:
+        raise HTTPException(status_code=404, detail="Objektklasse nicht gefunden")
     return row
 
+
+# ---------------------------------------------------------------------------
+# Buchhaltung
+# ---------------------------------------------------------------------------
 
 @app.get("/accounting/tasks")
 def accounting_tasks() -> list[dict[str, Any]]:
@@ -540,7 +853,7 @@ def accounting_tasks() -> list[dict[str, Any]]:
 
 
 @app.patch("/accounting/tasks/{task_id}")
-def patch_accounting_task(task_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def patch_accounting_task(task_id: str, body: TaskPatch) -> dict[str, Any]:
     row = execute(
         """
         UPDATE accounting_tasks
@@ -548,19 +861,24 @@ def patch_accounting_task(task_id: str, body: dict[str, Any]) -> dict[str, Any]:
             completed_at = CASE WHEN %s = 'completed' THEN now() ELSE completed_at END
         WHERE id = %s RETURNING *
         """,
-        (body.get("status"), body.get("comment"), body.get("status"), task_id),
+        (body.status, body.comment, body.status, task_id),
     )
+    if not row:
+        raise HTTPException(status_code=404, detail="Aufgabe nicht gefunden")
     audit("accounting_task_changed", "accounting_task", task_id, row)
     return row
 
 
 @app.get("/items/{item_id}/accounting")
 def item_accounting(item_id: str) -> dict[str, Any]:
-    return fetch_one("SELECT * FROM item_accounting_data WHERE item_id = %s", (item_id,))
+    row = fetch_one("SELECT * FROM item_accounting_data WHERE item_id = %s", (item_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Buchhaltungsdaten nicht gefunden")
+    return row
 
 
 @app.patch("/items/{item_id}/accounting")
-def patch_item_accounting(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+def patch_item_accounting(item_id: str, body: AccountingPatch) -> dict[str, Any]:
     row = execute(
         """
         UPDATE item_accounting_data
@@ -571,23 +889,29 @@ def patch_item_accounting(item_id: str, body: dict[str, Any]) -> dict[str, Any]:
             accounting_status = COALESCE(%s, accounting_status)
         WHERE item_id = %s RETURNING *
         """,
-        (
-            body.get("commercial_category"),
-            body.get("cost_center"),
-            body.get("asset_number"),
-            body.get("book_value"),
-            body.get("accounting_status"),
-            item_id,
-        ),
+        (body.commercial_category, body.cost_center, body.asset_number, body.book_value, body.accounting_status, item_id),
     )
+    if not row:
+        raise HTTPException(status_code=404, detail="Buchhaltungsdaten nicht gefunden")
     audit("accounting_changed", "inventory_item", item_id, row)
     return row
+
+
+# ---------------------------------------------------------------------------
+# Export & Audit
+# ---------------------------------------------------------------------------
+
+def excel_value(value: Any) -> Any:
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
 
 
 @app.post("/sessions/{session_id}/export/excel")
 def export_excel(session_id: str) -> dict[str, Any]:
     ensure_upload_dirs()
-    rows = session_items(session_id)
+    session = get_session(session_id)
+    rows = _session_items_with_context(session_id)
     wb = Workbook()
     ws = wb.active
     ws.title = "Inventur"
@@ -601,7 +925,6 @@ def export_excel(session_id: str) -> dict[str, Any]:
         "Erfasst von", "Geprueft von", "Finalisiert am", "Bemerkung",
     ]
     ws.append(headers)
-    session = get_session(session_id)
     for row in rows:
         ws.append([excel_value(value) for value in [
             row.get("inventory_id"), row.get("temporary_id"), row.get("object_type"),
@@ -615,7 +938,10 @@ def export_excel(session_id: str) -> dict[str, Any]:
             row.get("has_nameplate_photo"), row.get("has_dot_photo"), row.get("created_by"),
             row.get("reviewed_by"), row.get("finalized_at"), row.get("condition_note"),
         ]])
-    path = Path(settings.upload_root, "exports", f"session-{session_id}.xlsx")
+    # Zeitstempel im Namen: Exporte sind Belege und duerfen sich nicht
+    # gegenseitig ueberschreiben.
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = Path(settings.upload_root, "exports", f"session-{session_id}-{stamp}.xlsx")
     wb.save(path)
     export = execute(
         "INSERT INTO exports (session_id, file_path) VALUES (%s, %s) RETURNING *",
@@ -640,26 +966,36 @@ def item_audit(item_id: str) -> list[dict[str, Any]]:
 
 @app.get("/sessions/{session_id}/audit-log")
 def session_audit(session_id: str) -> list[dict[str, Any]]:
-    return fetch_all("SELECT * FROM audit_log WHERE entity_id = %s OR entity_type = 'inventory_item' ORDER BY created_at DESC LIMIT 200", (session_id,))
+    return fetch_all(
+        "SELECT * FROM audit_log WHERE entity_id = %s OR entity_type = 'inventory_item' ORDER BY created_at DESC LIMIT 200",
+        (session_id,),
+    )
 
+
+# ---------------------------------------------------------------------------
+# Live-Events (SSE)
+# ---------------------------------------------------------------------------
 
 @app.get("/sessions/{session_id}/events")
-async def session_events(session_id: str):
-    async def stream():
-        import asyncio
-        import json
+async def session_events(session_id: str, request: Request):
+    """SSE-Stream. Haertung: DB-Arbeit laeuft im Threadpool (vorher
+    blockierte der synchrone Code den gesamten Event-Loop), Stream endet
+    sauber bei Client-Disconnect und meldet Fehler statt still zu sterben."""
 
+    async def stream():
         last_payload = ""
         while True:
-            payload = json.dumps({"items": session_items(session_id)}, default=str)
-            if payload != last_payload:
-                yield f"data: {payload}\n\n"
-                last_payload = payload
+            if await request.is_disconnected():
+                return
+            try:
+                items = await asyncio.to_thread(_session_items_with_context, session_id)
+                payload = json.dumps({"items": items}, default=str)
+                if payload != last_payload:
+                    yield f"data: {payload}\n\n"
+                    last_payload = payload
+            except Exception:
+                log.exception("SSE-Aktualisierung fehlgeschlagen")
+                yield 'data: {"error": "refresh_failed"}\n\n'
             await asyncio.sleep(2)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
-
-
-@app.get("/uploads/{file_id}")
-def upload_placeholder(file_id: str) -> dict[str, str]:
-    return {"message": "Phase 1 stores file paths internally. Signed file lookup is reserved for hardening.", "file_id": file_id}

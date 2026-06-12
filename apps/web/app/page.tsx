@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { API_BASE, Bootstrap, api, joinUrl } from "@/lib/api";
+import { Bootstrap, api, joinUrl } from "@/lib/api";
 
 type Session = {
   id: string;
@@ -11,6 +11,7 @@ type Session = {
   building_name?: string;
   room_name?: string;
   status: string;
+  item_count?: number;
 };
 
 export default function DashboardPage() {
@@ -19,6 +20,7 @@ export default function DashboardPage() {
   const [selectedRoom, setSelectedRoom] = useState("");
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState(false);
 
   async function load() {
     try {
@@ -26,7 +28,10 @@ export default function DashboardPage() {
       const list = await api<Session[]>("/sessions");
       setBootstrap(boot);
       setSessions(list);
-      setSelectedRoom(boot.rooms[0]?.id ?? "");
+      // Fix F5: Raumauswahl nur initial setzen, nicht bei jedem Reload
+      // zuruecksetzen (vorher sprang die Auswahl immer auf Raum 1).
+      setSelectedRoom((current) => current || (boot.rooms[0]?.id ?? ""));
+      setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "API nicht erreichbar");
     }
@@ -37,20 +42,31 @@ export default function DashboardPage() {
   }, []);
 
   async function startSession() {
-    if (!bootstrap || !selectedRoom) return;
+    if (!bootstrap || !selectedRoom || starting) return;
     const room = bootstrap.rooms.find((entry) => entry.id === selectedRoom);
     const building = bootstrap.buildings.find((entry) => entry.id === room?.building_id);
     const location = bootstrap.locations.find((entry) => entry.id === building?.location_id);
-    const session = await api<Session>("/sessions", {
-      method: "POST",
-      body: JSON.stringify({
-        location_id: location?.id,
-        building_id: building?.id,
-        room_id: room?.id,
-      }),
-    });
-    setActiveSession(session);
-    await load();
+    if (!room || !building || !location) {
+      setError("Raumzuordnung unvollstaendig – Stammdaten pruefen");
+      return;
+    }
+    setStarting(true);
+    try {
+      const session = await api<Session>("/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          location_id: location.id,
+          building_id: building.id,
+          room_id: room.id,
+        }),
+      });
+      setActiveSession(session);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Session konnte nicht gestartet werden");
+    } finally {
+      setStarting(false);
+    }
   }
 
   return (
@@ -68,7 +84,9 @@ export default function DashboardPage() {
               ))}
             </select>
           </label>
-          <button className="btn accent" onClick={startSession}>Session starten</button>
+          <button className="btn accent" onClick={startSession} disabled={starting}>
+            {starting ? "Startet…" : "Session starten"}
+          </button>
         </div>
         <div className="grid">
           <div className="qr-box">
@@ -88,19 +106,17 @@ export default function DashboardPage() {
         {sessions.map((session) => (
           <article className="card" key={session.id}>
             <div className="card-body grid">
-              <StatusBadgeShim value={session.status} />
+              <span className={`status ${session.status === "closed" ? "finalisiert" : "pruefen"}`}>
+                {session.status === "closed" ? "abgeschlossen" : "offen"}
+              </span>
               <strong>{session.room_name || "Raum"}</strong>
               <span className="muted">{session.location_name} / {session.building_name}</span>
+              <span className="muted">{session.item_count ?? 0} Objekte</span>
               <a className="btn secondary" href={`/session/${session.id}`}>Pruefen</a>
-              <a className="btn secondary" href={`${API_BASE}/sessions/${session.id}/events`}>Live-Feed</a>
             </div>
           </article>
         ))}
       </section>
     </main>
   );
-}
-
-function StatusBadgeShim({ value }: { value: string }) {
-  return <span className={`status ${value === "closed" ? "finalisiert" : "pruefen"}`}>{value}</span>;
 }

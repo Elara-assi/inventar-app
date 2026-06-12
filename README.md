@@ -32,6 +32,15 @@ Phase 0:
 - Uploadordner: `originals`, `stamped`, `audio`, `exports`, `temp`.
 - README und Smoke-Check.
 
+Phase 1.5 (Haertung, 2026-06):
+
+- Stabilitaet: DB-Connection-Pool, Transaktionen, atomare Inventar-ID-Vergabe (race-sicher bei parallelen Erfassern), Eingabevalidierung mit Status-Whitelists, defensives Audit-Log, gebatchte Pruef-Abfragen statt N+1.
+- Mobile Erfassung als gefuehrter Wizard: ein Schritt pro Bildschirm (Klasse, Objektfoto, Code, Pflicht-Nachweise, Zustand/Sprache, Bestaetigen) statt einer Scroll-Seite. Pflicht-Nachweise kommen dynamisch aus `field_requirements`.
+- Echter Live-Barcode-/QR-Scanner (BarcodeDetector-API, ZXing-Fallback) und echte Sprachaufnahme (MediaRecorder).
+- Upload-Pipeline mit Retry; ein Abbruch hinterlaesst keine halbfertigen Objekte.
+- Pruefansicht: Bearbeitungen ueberleben das Live-Polling (Dirty-State-Schutz), Nachweisfotos werden angezeigt (`/files/photo/{id}`), Suche und Statusfilter.
+- Review-Findings und Details: [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md).
+
 Phase 1:
 
 - Demo-Login API.
@@ -191,6 +200,8 @@ Die Weboberflaeche verwendet aktuell noch keinen echten Token-Schutz. Die API st
 - `POST /sessions/{id}/close`
 - `POST /sessions/{id}/export/excel`
 - `GET /sessions/{id}/events`
+- `GET /files/photo/{photo_id}` (Nachweisbild)
+- `GET /files/audio/{note_id}` (Sprachnotiz)
 
 ## Checks
 
@@ -198,8 +209,23 @@ Die Weboberflaeche verwendet aktuell noch keinen echten Token-Schutz. Die API st
 npm run smoke
 npm run build
 npm run db:reset
-python -m py_compile apps/api/app/main.py apps/api/app/db.py apps/api/app/logic.py apps/api/app/settings.py
+python -m py_compile apps/api/app/main.py apps/api/app/db.py apps/api/app/logic.py apps/api/app/settings.py apps/api/app/constants.py
 ```
+
+End-to-End-Integrationstest (DB + API muessen laufen, 30 Checks inkl. Race-Test mit 12 parallelen Erfassern):
+
+```powershell
+python apps/api/tests/integration_test.py
+```
+
+## Handy-Test mit Kamera und Mikrofon (HTTPS)
+
+Browser geben Kamera (Live-Scanner) und Mikrofon (Sprachaufnahme) nur in einem Secure Context frei: `https://...` oder `http://localhost`. Beim Test vom Handy ueber die LAN-IP (`http://192.168.x.x:3000`) gilt:
+
+- Objektfoto/Nachweisfotos funktionieren immer (native Kamera-App ueber Datei-Dialog).
+- Live-Barcode-Scanner und Sprachaufnahme brauchen HTTPS. Der Wizard faengt das ab: Code manuell eintippen, Notiz als Text.
+
+Fuer den vollen Funktionsumfang im LAN: Reverse-Proxy mit Zertifikat (z. B. Nginx Proxy Manager, lokal auch `mkcert`) vor Web und API schalten und `NEXT_PUBLIC_API_URL` auf die HTTPS-Adresse setzen.
 
 ## Naechste technische Schritte
 

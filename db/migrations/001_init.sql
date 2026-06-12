@@ -1,4 +1,4 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- gen_random_uuid() ist seit PostgreSQL 13 nativ verfuegbar; pgcrypto wird nicht mehr benoetigt.
 
 CREATE TABLE roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

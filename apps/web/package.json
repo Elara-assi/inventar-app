@@ -1,13 +1,14 @@
 {
   "name": "@inventar/web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "next build",
     "lint": "next lint"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
     "next": "16.2.4",
     "qrcode.react": "4.2.0",
     "react": "19.2.3",
