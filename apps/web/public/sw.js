@@ -1,4 +1,4 @@
-const CACHE_VERSION = "inventar-mobile-shell-v7-wake-sync";
+const CACHE_VERSION = "inventar-mobile-shell-v8-premium";
 const STATIC_ASSETS = ["/manifest.json", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -26,7 +26,9 @@ self.addEventListener("message", (event) => {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE_VERSION);
   try {
-    const response = await fetch(request);
+    // no-store: frisches HTML vom Server, nie aus dem HTTP-Cache des
+    // Browsers (Edge-/Proxy-Caches muessen serverseitig ausgenommen sein).
+    const response = await fetch(request, { cache: "no-store" });
     if (response.ok) {
       cache.put(request, response.clone());
     }
