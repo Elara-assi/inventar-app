@@ -424,6 +424,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     other: useRef<HTMLInputElement>(null),
   };
   const captureStartRef = useRef<HTMLDivElement>(null);
+  const primaryNavRef = useRef<HTMLDivElement>(null);
   const activeStepRef = useRef<HTMLDivElement>(null);
   const uvvStatusRef = useRef<HTMLLabelElement>(null);
   const uvvDateRef = useRef<HTMLLabelElement>(null);
@@ -1259,6 +1260,18 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     }
   }
 
+  useEffect(() => {
+    if (!designationPromptOpen || !form.object_type.trim()) return;
+    // Bezeichnung wurde nachgeholt: zurueck zur Zusammenfassung und den
+    // Blick auf den Speichern-Button lenken (vorher sprang die Ansicht
+    // an den Schritt-Anfang).
+    setDesignationPromptOpen(false);
+    setStep(3);
+    setMessage("Bezeichnung erfasst – jetzt speichern.");
+    focusAfterRender(() => primaryNavRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designationPromptOpen, form.object_type]);
+
   function handleDictation(blob: Blob | null, mime: string, transcript: string) {
     setDictationAudio(blob ? { blob, mime } : null);
     if (!transcript.trim()) {
@@ -2026,7 +2039,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                 onChange={(event) => update("object_type", event.target.value)}
                 placeholder="z. B. Computermaus, Kaffeemaschine"
               />
-              {speechButton("object_type", "Bezeichnung")}
             </div>
             {speechMessage ? <small>{speechMessage}</small> : null}
             <div className="designation-prompt-actions">
@@ -2099,7 +2111,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     onChange={(event) => update("object_type", event.target.value)}
                     placeholder="z. B. Computermaus"
                   />
-                  {speechButton("object_type", "Bezeichnung")}
                 </div>
                 <small>{form.object_type ? "Kann geaendert werden." : hasObjectPhoto ? "KI kann dieses Feld fuellen." : "Kurz eingeben oder nach Foto von KI fuellen lassen."}</small>
               </label>
@@ -2128,7 +2139,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                       onChange={(event) => update("condition_note", event.target.value)}
                       placeholder="z. B. gut, leichte Kratzer"
                     />
-                    {speechButton("condition_note", "Zustand")}
                   </div>
                 </label>
 
@@ -2158,7 +2168,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     onChange={(event) => update("remark", event.target.value)}
                     placeholder="z. B. Zubehör, Standort, Schaden, Nutzerhinweis"
                   />
-                  {speechButton("remark", "Bemerkung")}
                 </div>
               </label>
                 </>
@@ -2332,14 +2341,12 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Bezeichnung</span>
                   <div className="speech-input-row">
                     <input ref={designationInputRef} value={form.object_type} onChange={(event) => update("object_type", event.target.value)} placeholder="z. B. Computermaus" />
-                    {speechButton("object_type", "Bezeichnung")}
                   </div>
                 </label>
                 <label className="field">
                   <span>Typ / Spezifikation</span>
                   <div className="speech-input-row is-textarea">
                     <textarea rows={4} value={form.specification} onChange={(event) => update("specification", event.target.value)} placeholder="z. B. Hersteller, Modell, Größe, Traglast, technische Daten" />
-                    {speechButton("specification", "Typ / Spezifikation")}
                   </div>
                 </label>
                 <label className="field">
@@ -2347,7 +2354,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <div className="speech-input-row">
                     <input value={form.serial_number} onChange={(event) => update("serial_number", event.target.value)} placeholder="nur wenn eindeutig lesbar" />
                     <button type="button" className="speech-btn" onClick={() => setSerialScannerOpen(true)} aria-label="Barcode scannen">Scan</button>
-                    {speechButton("serial_number", "Seriennummer")}
                   </div>
                   {serialScannerOpen ? (
                     <BarcodeScanner
@@ -2363,7 +2369,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Baujahr</span>
                   <div className="speech-input-row">
                     <input inputMode="numeric" value={form.construction_year} onChange={(event) => update("construction_year", event.target.value)} placeholder="z. B. 2018 oder unbekannt" />
-                    {speechButton("construction_year", "Baujahr")}
                   </div>
                 </label>
                 {aiSuggestion?.estimated_age_years ? <p className="muted">KI-Schätzung: ca. {aiSuggestion.estimated_age_years} Jahre. Bitte nicht als gesichertes Baujahr übernehmen, wenn keine Quelle erkennbar ist.</p> : null}
@@ -2388,7 +2393,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Zustandsbemerkung</span>
                   <div className="speech-input-row is-textarea">
                     <textarea rows={3} value={form.condition_note} onChange={(event) => update("condition_note", event.target.value)} placeholder="z. B. stark verschmutzt, beschädigt, funktionsfähig laut Nutzer" />
-                    {speechButton("condition_note", "Zustandsbemerkung")}
                   </div>
                 </label>
                 <div className="summary-box">
@@ -2419,7 +2423,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                       <span>UVV gültig bis</span>
                       <div className="speech-input-row">
                         <input type="date" value={form.uvv_valid_until} onChange={(event) => update("uvv_valid_until", event.target.value)} />
-                        {speechButton("uvv_valid_until", "UVV gueltig bis")}
                       </div>
                     </label>
                     <label className={`btn secondary ${busy ? "is-disabled" : ""}`} htmlFor={photoInputId("uvv_label")} onClick={(event) => busy && event.preventDefault()}>UVV-Siegel fotografieren</label>
@@ -2434,7 +2437,6 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                   <span>Bemerkung</span>
                   <div className="speech-input-row is-textarea">
                     <textarea rows={5} value={form.remark} onChange={(event) => update("remark", event.target.value)} placeholder="z. B. Standortdetail, Zubehör, auffällige Schäden, Nutzerhinweis" />
-                    {speechButton("remark", "Bemerkung")}
                   </div>
                 </label>
                 {speechMessage ? <p className="speech-live-status" aria-live="polite">{speechMessage}</p> : null}
@@ -2480,7 +2482,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
           </div>
         ) : null}
 
-        {canCaptureInThisSession && !savedItem && showAdvancedFlow ? <div className="wizard-nav">
+        {canCaptureInThisSession && !savedItem && showAdvancedFlow ? <div className="wizard-nav" ref={primaryNavRef}>
           <button className="btn secondary" type="button" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>Zurück</button>
           <button className="btn accent" type="button" disabled={mobilePrimaryDisabled} onClick={runMobilePrimaryAction}>{mobilePrimaryLabel}</button>
         </div> : null}
