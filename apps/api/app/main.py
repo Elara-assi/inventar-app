@@ -2542,6 +2542,2148 @@ async def upload_audio(
     return row
 
 
+async def upload_audio(item_id: str, transcript: str | None = None, file: UploadFile | None = File(None)) -> dict[str, Any]:
+    ensure_upload_dirs()
+    require_item_session_open(item_id)
+    path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
+    if file:
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Audio-Datei ist leer")
+        if len(data) > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="Audio-Datei ist zu groÃŸ")
+        suffix = safe_audio_suffix(file.filename, file.content_type)
+        path = safe_upload_path(str(Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(16)}{suffix}")))
+        path.write_bytes(data)
+    else:
+        path.write_text(transcript or "", encoding="utf-8")
+    row = execute(
+        """
+        INSERT INTO item_audio_notes (item_id, audio_path, transcript, transcript_status)
+        VALUES (%s, %s, %s, 'completed')
+        RETURNING *
+        """,
+        (item_id, str(path), transcript),
+    )
+    audit("audio_saved", "inventory_item", item_id, row)
+    return row
+
+
+def ai_status_for_mode(mode: str, step: str) -> str:
+    normalized = "review" if mode == "review" else "fast"
+    matrix = {
+        "fast": {
+            "queued": "ki_schnell_wartet",
+            "running": "ki_schnell_laeuft",
+            "done": "ki_schnell_fertig",
+            "open": "ki_pruefung_offen",
+        },
+        "review": {
+            "queued": "ki_pruefung_wartet",
+            "running": "ki_pruefung_laeuft",
+            "done": "ki_pruefung_fertig",
+            "open": "ki_pruefung_offen",
+        },
+    }
+    return matrix[normalized][step]
+
+
+def repair_stale_ai_statuses(session_id: str | None = None, item_id: str | None = None) -> list[dict[str, Any]]:
+    conditions = [
+        f"status IN ({AI_ACTIVE_STATUS_SQL})",
+        f"updated_at < now() - interval '{AI_STALE_INTERVAL_SQL}'",
+    ]
+    params: list[Any] = []
+    if session_id:
+        conditions.append("session_id = %s")
+        params.append(session_id)
+    if item_id:
+        conditions.append("id = %s")
+        params.append(item_id)
+    rows = fetch_all(
+        f"""
+        SELECT id, object_type, status, updated_at
+        FROM inventory_items
+        WHERE {" AND ".join(conditions)}
+        ORDER BY updated_at ASC
+        """,
+        tuple(params),
+    )
+    repaired: list[dict[str, Any]] = []
+    for row in rows:
+        updated = execute(
+            """
+            UPDATE inventory_items
+            SET status = 'ki_pruefung_offen',
+                updated_at = now()
+            WHERE id = %s
+              AND status <> 'finalisiert'
+            RETURNING id, object_type, status, updated_at
+            """,
+            (row["id"],),
+        )
+        if updated:
+            repaired.append(updated)
+            audit("ai_job_repaired", "inventory_item", str(row["id"]), {
+                "previous_status": row.get("status"),
+                "previous_updated_at": row.get("updated_at"),
+                "reason": f"active longer than {AI_STALE_INTERVAL_SQL}",
+            })
+    return repaired
+
+
+def current_active_ai_job(item_id: str) -> dict[str, Any] | None:
+    repair_stale_ai_statuses(item_id=item_id)
+    return fetch_one(
+        f"""
+        SELECT id, object_type, status, updated_at
+        FROM inventory_items
+        WHERE id = %s
+          AND status IN ({AI_ACTIVE_STATUS_SQL})
+          AND updated_at >= now() - interval '{AI_STALE_INTERVAL_SQL}'
+        """,
+        (item_id,),
+    )
+
+
+def ai_session_generation_for_item(item_id: str) -> int:
+    row = fetch_one(
+        """
+        SELECT COALESCE(s.ai_cancel_generation, 0) AS ai_cancel_generation
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    return int((row or {}).get("ai_cancel_generation") or 0)
+
+
+def ai_job_generation_for_item(item_id: str) -> dict[str, int]:
+    row = fetch_one(
+        """
+        SELECT COALESCE(s.ai_cancel_generation, 0) AS session_generation,
+               COALESCE(i.ai_cancel_generation, 0) AS item_generation
+        FROM inventory_items i
+        JOIN inventory_sessions s ON s.id = i.session_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    return {
+        "session": int((row or {}).get("session_generation") or 0),
+        "item": int((row or {}).get("item_generation") or 0),
+    }
+
+
+def expected_session_generation(expected_generation: Any) -> int | None:
+    if expected_generation is None:
+        return None
+    if isinstance(expected_generation, dict):
+        return int(expected_generation.get("session") or 0)
+    return int(expected_generation)
+
+
+def expected_item_generation(expected_generation: Any) -> int | None:
+    if isinstance(expected_generation, dict):
+        return int(expected_generation.get("item") or 0)
+    return None
+
+
+def ai_session_generation(session_id: str) -> int:
+    row = fetch_one(
+        "SELECT COALESCE(ai_cancel_generation, 0) AS ai_cancel_generation FROM inventory_sessions WHERE id = %s",
+        (session_id,),
+    )
+    return int((row or {}).get("ai_cancel_generation") or 0)
+
+
+def ai_job_cancelled(item_id: str, expected_generation: Any = None) -> bool:
+    expected_session = expected_session_generation(expected_generation)
+    if expected_session is None:
+        return False
+    current = ai_job_generation_for_item(item_id)
+    if current["session"] != expected_session:
+        return True
+    expected_item = expected_item_generation(expected_generation)
+    return expected_item is not None and current["item"] != expected_item
+
+
+def latest_ai_context(item_id: str) -> str:
+    row = fetch_one(
+        """
+        SELECT result_json
+        FROM ai_results
+        WHERE item_id = %s AND ai_type <> 'deep_dive'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (item_id,),
+    )
+    if not row:
+        return ""
+    result = row.get("result_json") or {}
+    parts = [
+        result.get("notes"),
+        result.get("brand"),
+        result.get("model"),
+        result.get("object_type"),
+        " ".join(str(value) for value in result.get("missing_fields") or []),
+    ]
+    return " ".join(str(part) for part in parts if part)
+
+
+GENERIC_DEEP_DIVE_TERMS = {
+    "betriebs",
+    "geschaeftsausstattung",
+    "geschäftsausstattung",
+    "betriebsausstattung",
+    "inventar",
+    "inventur",
+    "anlagevermoegen",
+    "anlagevermögen",
+    "gwg",
+    "buchhaltung",
+    "abschreibung",
+}
+
+GENERIC_SOURCE_DOMAINS = (
+    "haufe.de",
+    "lexware.de",
+    "bwl-lexikon.de",
+    "buchhaltungsbutler.de",
+    "dasfinanzen.de",
+    "rechnungswesenforum.de",
+)
+
+SHOP_SOURCE_HINTS = (
+    "ebay.",
+    "kleinanzeigen.",
+    "amazon.",
+    "idealo.",
+    "geizhals.",
+    "backmarket.",
+    "rebuy.",
+    "asgoodasnew.",
+    "refurbed.",
+    "picclick.",
+    "pccomponentes.",
+    "notebooksbilliger.",
+)
+
+
+def normalize_deep_dive_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = (
+        text.replace("Ã¤", "ä")
+        .replace("Ã¶", "ö")
+        .replace("Ã¼", "ü")
+        .replace("ÃŸ", "ß")
+        .replace("â‚¬", "€")
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def search_tokens(value: str) -> list[str]:
+    text = normalize_deep_dive_text(value).lower()
+    text = text.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    tokens = re.findall(r"[a-z0-9]{3,}", text)
+    return [token for token in tokens if token not in GENERIC_DEEP_DIVE_TERMS]
+
+
+def deep_dive_product_terms(item: dict[str, Any], ai_context: str = "") -> list[str]:
+    raw_parts = [
+        item.get("brand"),
+        item.get("model"),
+        item.get("object_type"),
+        item.get("specification"),
+        item.get("object_class_name"),
+        item.get("serial_number"),
+    ]
+    context = normalize_deep_dive_text(ai_context)
+    # Nur kurze, produktnahe Kontext-Hinweise übernehmen. Lange KI-Sätze
+    # verwässern SearXNG sonst mit Steuer-/BGA-Artikeln statt Produktquellen.
+    context_terms = []
+    for term in re.findall(r"\b[A-ZÄÖÜa-zäöüß0-9][A-ZÄÖÜa-zäöüß0-9+./-]{2,}\b", context):
+        if len(term) <= 28 and term.lower() not in GENERIC_DEEP_DIVE_TERMS:
+            context_terms.append(term)
+        if len(context_terms) >= 4:
+            break
+    parts: list[str] = []
+    seen: set[str] = set()
+    for part in raw_parts + context_terms:
+        text = normalize_deep_dive_text(part)
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen or key in GENERIC_DEEP_DIVE_TERMS:
+            continue
+        seen.add(key)
+        parts.append(text)
+    return parts or ["Betriebs- und Geschäftsausstattung"]
+
+
+def deep_dive_research_basis(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "designation": normalize_deep_dive_text(item.get("object_type")),
+        "specification": normalize_deep_dive_text(item.get("specification")),
+        "brand": normalize_deep_dive_text(item.get("brand")),
+        "model": normalize_deep_dive_text(item.get("model")),
+        "serial_number": normalize_deep_dive_text(item.get("serial_number")),
+        "construction_year": normalize_deep_dive_text(item.get("construction_year")),
+        "condition": normalize_deep_dive_text(item.get("condition")),
+        "object_class": normalize_deep_dive_text(item.get("object_class_name")),
+    }
+
+
+def deep_dive_queries(item: dict[str, Any], ai_context: str = "") -> list[str]:
+    terms = deep_dive_product_terms(item, ai_context)
+    product = " ".join(terms[:5]).strip()
+    object_type = normalize_deep_dive_text(item.get("object_type") or item.get("object_class_name") or "")
+    brand_model = " ".join(term for term in [item.get("brand"), item.get("model")] if term).strip()
+    specification = normalize_deep_dive_text(item.get("specification"))
+    construction_year = normalize_deep_dive_text(item.get("construction_year"))
+    if brand_model and object_type and object_type.lower() not in brand_model.lower():
+        base = f"{brand_model} {object_type}"
+    else:
+        base = brand_model or product or object_type
+    exact_base = base
+    if specification and specification.lower() not in exact_base.lower():
+        exact_base = f"{exact_base} {specification[:80]}".strip()
+    queries = []
+    if construction_year:
+        queries.append(f"{exact_base} {construction_year} gebraucht Preis")
+    queries.extend([
+        f"{exact_base} gebraucht Preis",
+        f"{base} Gebrauchtpreis",
+        f"{base} Datenblatt Erscheinungsjahr",
+    ])
+    if object_type and object_type.lower() not in base.lower():
+        queries.append(f"{base} {object_type} Preis gebraucht")
+    compact: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        query = normalize_deep_dive_text(query)
+        key = query.lower()
+        if query and key not in seen:
+            seen.add(key)
+            compact.append(query)
+    return compact[:4]
+
+
+def deep_dive_query(item: dict[str, Any], ai_context: str = "") -> str:
+    return deep_dive_queries(item, ai_context)[0]
+
+
+def source_host(url: str) -> str:
+    try:
+        return (urlparse(url).netloc or "").lower()
+    except Exception:
+        return ""
+
+
+def is_relevant_source(source: dict[str, Any], item: dict[str, Any], ai_context: str = "") -> bool:
+    text = " ".join(
+        normalize_deep_dive_text(source.get(key))
+        for key in ["title", "snippet", "url"]
+    ).lower()
+    host = source_host(str(source.get("url") or ""))
+    product_terms = [
+        token for token in search_tokens(" ".join(deep_dive_product_terms(item, ai_context)))
+        if token not in {"modell", "model", "objekt", "geraet", "gerät"}
+    ]
+    if any(domain in host for domain in GENERIC_SOURCE_DOMAINS) and not any(term in text for term in product_terms[:4]):
+        return False
+    if not product_terms:
+        return True
+    strong_terms = [term for term in product_terms if any(ch.isdigit() for ch in term) or len(term) >= 5]
+    matches = sum(1 for term in strong_terms[:8] if term in text)
+    required_matches = 2 if len(strong_terms) >= 2 else 1
+    if matches >= required_matches:
+        return True
+    category_terms = search_tokens(f"{item.get('object_type') or ''} {item.get('object_class_name') or ''}")
+    if (
+        any(hint in host for hint in SHOP_SOURCE_HINTS)
+        and any(term in text for term in product_terms[:8])
+        and (not category_terms or any(term in text for term in category_terms[:5]))
+    ):
+        return True
+    return False
+
+
+def collect_search_sources(item: dict[str, Any], ai_context: str = "", limit: int = 6) -> tuple[list[dict[str, Any]], str, str | None, list[str]]:
+    collected: list[dict[str, Any]] = []
+    errors: list[str] = []
+    provider_used = settings.search_provider or "searxng"
+    seen: set[str] = set()
+    queries = deep_dive_queries(item, ai_context)
+    for query in queries:
+        sources, provider, error = search_sources(query, limit=limit)
+        provider_used = provider
+        if error:
+            errors.append(error)
+        for source in sources:
+            url = str(source.get("url") or "")
+            if not url or url in seen:
+                continue
+            if not is_relevant_source(source, item, ai_context):
+                continue
+            seen.add(url)
+            source["query"] = query
+            source["rank"] = len(collected) + 1
+            collected.append(source)
+            if len(collected) >= limit:
+                return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
+    return collected, provider_used, "; ".join(dict.fromkeys(errors)) or None, queries
+
+
+def classify_deep_dive_source(source: dict[str, Any]) -> str:
+    host = source_host(str(source.get("url") or ""))
+    text = " ".join(str(source.get(key) or "") for key in ["title", "snippet", "url"]).lower()
+    if any(hint in host for hint in ("ebay.", "kleinanzeigen.", "willhaben.", "ricardo.", "rebuy.", "backmarket.", "refurbed.")):
+        return "gebrauchtmarkt"
+    if any(hint in host for hint in ("amazon.", "idealo.", "geizhals.", "notebooksbilliger.", "conrad.", "reichelt.")):
+        return "haendler"
+    if any(hint in text for hint in ("datenblatt", "data sheet", "datasheet", "manual", "bedienungsanleitung", ".pdf")):
+        return "datenblatt"
+    if any(hint in host for hint in ("forum", "reddit", "motor-talk", "gutefrage")):
+        return "forum"
+    if any(hint in host for hint in ("bosch", "siemens", "hp.", "dell.", "lenovo", "apple.", "nussbaum", "maha", "beissbarth")):
+        return "hersteller"
+    return "generisch"
+
+
+def deep_dive_source_evidence(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    product_terms = [
+        term
+        for term in search_tokens(" ".join(deep_dive_product_terms(item, ai_context)))
+        if len(term) >= 3 and term not in {"modell", "model", "objekt", "geraet", "gerät"}
+    ]
+    evidence: list[dict[str, Any]] = []
+    for source in sources:
+        text = " ".join(normalize_deep_dive_text(source.get(key)).lower() for key in ["title", "snippet", "url"])
+        matched_terms = [term for term in product_terms[:10] if term in text]
+        kind = classify_deep_dive_source(source)
+        score = min(
+            1.0,
+            (0.16 * len(matched_terms))
+            + (0.25 if kind in {"hersteller", "datenblatt"} else 0)
+            + (0.18 if kind in {"gebrauchtmarkt", "haendler"} else 0)
+            + (0.12 if source.get("rank") in {1, 2} else 0),
+        )
+        evidence.append(
+            {
+                "title": source.get("title"),
+                "url": source.get("url"),
+                "host": source_host(str(source.get("url") or "")),
+                "kind": kind,
+                "query": source.get("query"),
+                "rank": source.get("rank"),
+                "snippet": source.get("snippet"),
+                "matched_terms": matched_terms,
+                "relevance_score": round(score, 2),
+                "review_required": True,
+            }
+        )
+    return evidence
+
+
+def deep_dive_dossier(
+    item: dict[str, Any],
+    ai_context: str,
+    sources: list[dict[str, Any]],
+    estimated_value: Any = None,
+    estimated_value_range: dict[str, Any] | None = None,
+    estimated_value_confidence: float | None = None,
+    value_source: str | None = None,
+    price_candidates: list[dict[str, Any]] | None = None,
+    valuation_state: str | None = None,
+    reference_price_available: bool = False,
+    reference_price_label: str | None = None,
+    estimated_age_years: Any = None,
+    age_candidates: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    basis = deep_dive_research_basis(item)
+    confidence = 0.35
+    if basis.get("model"):
+        confidence += 0.2
+    if basis.get("brand"):
+        confidence += 0.12
+    if basis.get("serial_number"):
+        confidence += 0.08
+    if sources:
+        confidence += min(0.25, 0.06 * len(sources))
+    return {
+        "identified_product": {
+            "designation": basis.get("designation") or basis.get("object_class"),
+            "manufacturer": basis.get("brand"),
+            "model": basis.get("model"),
+            "serial_number": basis.get("serial_number"),
+            "construction_year": basis.get("construction_year"),
+            "specification": basis.get("specification"),
+            "confidence": round(min(confidence, 0.92), 2),
+            "review_required": True,
+        },
+        "technical_facts": {
+            "object_class": basis.get("object_class"),
+            "condition": basis.get("condition"),
+            "specification": basis.get("specification"),
+            "typeplate_context": ai_context,
+            "review_required": True,
+        },
+        "source_evidence": deep_dive_source_evidence(item, ai_context, sources),
+        "price_candidates": price_candidates or [],
+        "age_candidates": age_candidates or [],
+        "suggested_value": {
+            "amount": estimated_value,
+            "range": estimated_value_range or {"min": None, "max": None},
+            "source": value_source or "offen",
+            "confidence": estimated_value_confidence or 0.0,
+            "review_required": True,
+            "reference_price_available": reference_price_available,
+            "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+        },
+        "valuation_state": valuation_state or ("reference_available" if reference_price_available else "no_reference"),
+        "reference_price_available": reference_price_available,
+        "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+        "suggested_age_years": estimated_age_years,
+        "confidence": round(min(confidence, 0.92), 2),
+        "review_required": True,
+    }
+
+
+def decode_search_url(value: str) -> str:
+    parsed = urlparse(value)
+    query = parse_qs(parsed.query)
+    if "uddg" in query and query["uddg"]:
+        return unquote(query["uddg"][0])
+    return value
+
+
+def normalize_search_source(
+    title: str | None,
+    url: str | None,
+    snippet: str | None,
+    provider: str,
+    rank: int,
+) -> dict[str, Any] | None:
+    clean_title = html.unescape(re.sub(r"\s+", " ", str(title or ""))).strip()
+    clean_url = str(url or "").strip()
+    clean_snippet = html.unescape(re.sub(r"\s+", " ", str(snippet or ""))).strip()
+    if not clean_title or not clean_url:
+        return None
+    return {
+        "title": clean_title[:220],
+        "url": clean_url,
+        "snippet": clean_snippet[:500],
+        "source_provider": provider,
+        "rank": rank,
+    }
+
+
+def parse_searxng_html_sources(text: str, limit: int) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for article in re.finditer(
+        r'<article\b[^>]*class="[^"]*\bresult\b[^"]*"[^>]*>(.*?)</article>',
+        text or "",
+        re.IGNORECASE | re.DOTALL,
+    ):
+        body = article.group(1)
+        link_match = re.search(r"<h3>\s*<a[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>\s*</h3>", body, re.IGNORECASE | re.DOTALL)
+        if not link_match:
+            link_match = re.search(r'<a[^>]+class="url_header"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', body, re.IGNORECASE | re.DOTALL)
+        if not link_match:
+            continue
+        raw_url, raw_title = link_match.groups()
+        url = html.unescape(raw_url).strip()
+        if not url or url in seen:
+            continue
+        title = re.sub(r"<[^>]+>", "", raw_title)
+        snippet = ""
+        snippet_match = re.search(r'<p[^>]+class="content"[^>]*>(.*?)</p>', body, re.IGNORECASE | re.DOTALL)
+        if snippet_match:
+            snippet = re.sub(r"<[^>]+>", "", snippet_match.group(1))
+        source = normalize_search_source(title, url, snippet, "searxng", len(sources) + 1)
+        if not source:
+            continue
+        source["source_format"] = "html"
+        seen.add(url)
+        sources.append(source)
+        if len(sources) >= limit:
+            break
+    return sources
+
+
+def search_sources_searxng(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str | None]:
+    base_url = (settings.searxng_base_url or "").rstrip("/")
+    if not base_url:
+        return [], "SEARXNG_BASE_URL ist nicht gesetzt."
+    errors: list[str] = []
+    try:
+        response = httpx.get(
+            f"{base_url}/search",
+            params={
+                "q": query,
+                "format": "json",
+                "language": language,
+                "categories": "general",
+                "safesearch": "0",
+            },
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=settings.search_timeout_seconds,
+        )
+        if response.status_code == 403:
+            errors.append("JSON-Format nicht freigeschaltet (HTTP 403).")
+            payload = {"results": []}
+        else:
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        errors.append(f"JSON: {type(exc).__name__}: {str(exc)[:220]}")
+        payload = {"results": []}
+
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in payload.get("results") or []:
+        url = str(result.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        source = normalize_search_source(
+            result.get("title"),
+            url,
+            result.get("content") or result.get("snippet"),
+            "searxng",
+            len(sources) + 1,
+        )
+        if not source:
+            continue
+        seen.add(url)
+        sources.append(source)
+        if len(sources) >= limit:
+            break
+    if sources:
+        return sources, "; ".join(errors) or None
+
+    try:
+        html_response = httpx.get(
+            f"{base_url}/search",
+            params={
+                "q": query,
+                "language": language,
+                "categories": "general",
+                "safesearch": "0",
+            },
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=settings.search_timeout_seconds,
+        )
+        html_response.raise_for_status()
+        sources = parse_searxng_html_sources(html_response.text, limit)
+    except Exception as exc:
+        errors.append(f"HTML: {type(exc).__name__}: {str(exc)[:220]}")
+    if not sources:
+        errors.append("SearXNG hat keine verwertbaren Quellen geliefert.")
+        return [], "; ".join(errors)
+    # JSON ist bei manchen SearXNG-Instanzen deaktiviert. Wenn HTML-Treffer
+    # sauber gelesen wurden, gilt die Websuche trotzdem als erfolgreich.
+    non_json_errors = [error for error in errors if "JSON-Format" not in error]
+    return sources, "; ".join(non_json_errors) or None
+
+
+def search_sources_duckduckgo_fallback(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str | None]:
+    try:
+        response = httpx.get(
+            "https://duckduckgo.com/html/",
+            params={"q": query, "kl": f"{language.lower()}-{country.lower()}"},
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=settings.search_timeout_seconds,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        return [], f"{type(exc).__name__}: {str(exc)[:220]}"
+
+    sources: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+        response.text,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        raw_url, raw_title = match.groups()
+        url = decode_search_url(html.unescape(raw_url))
+        title = re.sub(r"<[^>]+>", "", raw_title)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        snippet = ""
+        tail = response.text[match.end() : match.end() + 1800]
+        snippet_match = re.search(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>',
+            tail,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if snippet_match:
+            snippet = re.sub(r"<[^>]+>", "", snippet_match.group(1) or snippet_match.group(2) or "")
+        source = normalize_search_source(title, url, snippet, "duckduckgo_html", len(sources) + 1)
+        if not source:
+            continue
+        sources.append(source)
+        if len(sources) >= limit:
+            break
+    if not sources:
+        return [], "DuckDuckGo-Fallback hat keine verwertbaren Quellen geliefert."
+    return sources, None
+
+
+def search_sources(
+    query: str,
+    limit: int = 5,
+    language: str = "de",
+    country: str = "DE",
+) -> tuple[list[dict[str, Any]], str, str | None]:
+    preferred = (settings.search_provider or "searxng").strip().lower()
+    errors: list[str] = []
+
+    if preferred == "searxng":
+        sources, error = search_sources_searxng(query, limit, language, country)
+        if sources:
+            return sources, "searxng", error
+        if error:
+            errors.append(f"SearXNG: {error}")
+    elif preferred in {"duckduckgo", "duckduckgo_html"}:
+        sources, error = search_sources_duckduckgo_fallback(query, limit, language, country)
+        if sources:
+            return sources, "duckduckgo_html", error
+        if error:
+            errors.append(f"DuckDuckGo: {error}")
+    else:
+        errors.append(f"Unbekannter SEARCH_PROVIDER '{preferred}'.")
+
+    if preferred not in {"duckduckgo", "duckduckgo_html"}:
+        fallback_sources, fallback_error = search_sources_duckduckgo_fallback(query, limit, language, country)
+        if fallback_sources:
+            error_text = "; ".join(errors) if errors else None
+            return fallback_sources, "duckduckgo_html", error_text
+        if fallback_error:
+            errors.append(f"DuckDuckGo: {fallback_error}")
+
+    return [], preferred or "searxng", "; ".join(errors) or "Keine Webquellen gefunden."
+
+
+def estimate_value_range(item: dict[str, Any], ai_context: str = "") -> tuple[int, int]:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    ) + " " + ai_context.lower()
+    ranges = [
+        (("hebebuehne", "hebebühne", "lift"), (1500, 12000)),
+        (("wuchtmaschine", "reifenmontiermaschine"), (800, 8000)),
+        (("kompressor",), (300, 4000)),
+        (("werkzeugwagen",), (100, 1500)),
+        (("rtx 4070", "14700hx"), (1600, 2600)),
+        (("rtx 4060", "13700hx", "13620h"), (1100, 2100)),
+        (("rtx 3060", "rtx 3070", "12700h"), (700, 1600)),
+        (("omen", "rog", "legion", "alienware", "gaming laptop"), (800, 1800)),
+        (("notebook", "laptop", "thinkpad"), (120, 900)),
+        (("iphone", "smartphone"), (300, 1200)),
+        (("monitor", "display"), (40, 300)),
+        (("nespresso", "kaffeemaschine", "kapselmaschine", "espresso"), (10, 90)),
+        (("maus", "mouse", "tastatur", "keyboard"), (10, 80)),
+        (("telefon", "dect"), (20, 300)),
+        (("reifen", "radsatz"), (80, 700)),
+    ]
+    base_min, base_max = 50, 500
+    for needles, price_range in ranges:
+        if any(needle in text for needle in needles):
+            base_min, base_max = price_range
+            break
+
+    multiplier = {
+        "neu": 1.0,
+        "sehr_gut": 0.8,
+        "gut": 0.65,
+        "gebraucht": 0.45,
+        "reparaturbeduerftig": 0.2,
+        "defekt": 0.08,
+        "aussondern": 0.03,
+    }.get(str(item.get("condition") or "gebraucht"), 0.45)
+    return max(1, round(base_min * multiplier)), max(1, round(base_max * multiplier))
+
+
+def parse_euro_amount(raw: str) -> float | None:
+    text = raw.strip().replace("\u00a0", " ")
+    text = text.replace(".", "").replace(",", ".") if "," in text else text.replace(",", "")
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if value < 1 or value > 50000:
+        return None
+    return value
+
+
+def extract_price_candidates(text: str) -> list[float]:
+    normalized = normalize_deep_dive_text(text)
+    patterns = [
+        r"(?:€|eur|euro)\s*(\d{1,5}(?:[.,]\d{2})?)",
+        r"(\d{1,5}(?:[.,]\d{2})?)\s*(?:€|eur|euro)",
+    ]
+    values: list[float] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, normalized, flags=re.IGNORECASE):
+            value = parse_euro_amount(match.group(1))
+            if value is not None:
+                values.append(value)
+    return values
+
+
+USED_MARKET_TERMS = (
+    "gebraucht",
+    "used",
+    "second hand",
+    "second-hand",
+    "kleinanzeigen",
+    "ebay",
+    "willhaben",
+    "refurbished",
+    "generalüberholt",
+    "generaluberholt",
+)
+
+NEW_PRICE_TERMS = (
+    "neu",
+    "neupreis",
+    "uvp",
+    "shop",
+    "warenkorb",
+    "lieferzeit",
+    "zzgl",
+)
+
+
+def price_market_kind(source: dict[str, Any], text: str) -> str:
+    haystack = f"{text} {source_host(str(source.get('url') or ''))}".lower()
+    if any(term in haystack for term in USED_MARKET_TERMS):
+        return "gebraucht"
+    if any(term in haystack for term in NEW_PRICE_TERMS):
+        return "neupreis"
+    return "unbekannt"
+
+
+def unique_tokens(tokens: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        normalized = token.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def source_match_text(source: dict[str, Any]) -> str:
+    return normalize_deep_dive_text(
+        " ".join(
+            str(source.get(key) or "")
+            for key in ["title", "snippet", "url", "excerpt"]
+        )
+    ).lower()
+
+
+def is_machine_like_item(item: dict[str, Any], ai_context: str = "") -> bool:
+    text = normalize_deep_dive_text(
+        " ".join(str(item.get(key) or "") for key in ["object_type", "object_class_name", "specification", "brand", "model"])
+        + " "
+        + ai_context
+    ).lower()
+    return any(
+        term in text
+        for term in [
+            "hebeb",
+            "lift",
+            "montiermaschine",
+            "reifenmontiermaschine",
+            "wuchtmaschine",
+            "kompressor",
+            "maschine",
+            "werkstatt",
+            "buehne",
+            "bÃ¼hne",
+        ]
+    )
+
+
+def source_reference_match(source: dict[str, Any], item: dict[str, Any], ai_context: str = "") -> dict[str, Any]:
+    text = source_match_text(source)
+    brand_tokens = search_tokens(str(item.get("brand") or ""))
+    model_tokens = search_tokens(" ".join(str(item.get(key) or "") for key in ["model", "serial_number"]))
+    spec_tokens = [
+        token
+        for token in search_tokens(str(item.get("specification") or "") + " " + ai_context)
+        if any(ch.isdigit() for ch in token) or len(token) >= 5
+    ]
+    object_tokens = search_tokens(" ".join(str(item.get(key) or "") for key in ["object_type", "object_class_name"]))
+    exact_terms = unique_tokens(model_tokens + brand_tokens + spec_tokens[:6] + object_tokens[:4])
+    matched_terms = [token for token in exact_terms if token in text]
+    missing_terms = [token for token in exact_terms if token not in text]
+    source_kind = classify_deep_dive_source(source)
+    market_kind = price_market_kind(source, text)
+    used_market = source_kind == "gebrauchtmarkt" or market_kind == "gebraucht"
+    brand_match = not brand_tokens or any(token in text for token in brand_tokens)
+    model_match_count = sum(1 for token in model_tokens if token in text)
+    spec_match_count = sum(1 for token in spec_tokens if token in text)
+    object_match = any(token in text for token in object_tokens)
+    machine_like = is_machine_like_item(item, ai_context)
+    has_strong_model = bool(model_tokens)
+    exact = False
+    reason = "Kein belastbarer Produktabgleich."
+    if used_market and has_strong_model and model_match_count >= max(1, min(len(model_tokens), 2)) and brand_match:
+        exact = True
+        reason = "Eindeutig: Modell/Typ und Hersteller passen zur Gebrauchtquelle."
+    elif used_market and has_strong_model and model_match_count == len(model_tokens) and not brand_tokens:
+        exact = True
+        reason = "Eindeutig: Modell/Typ passt zur Gebrauchtquelle."
+    elif used_market and machine_like and has_strong_model and object_match and model_match_count >= 1 and spec_match_count >= 1:
+        exact = True
+        reason = "Eindeutig genug: Maschinenklasse, Typenschild-/Modellhinweis und technische Daten passen."
+    if exact:
+        return {
+            "reference_match": "exact",
+            "reference_status": "referenzpreis_verfuegbar",
+            "match_score": min(1.0, 0.55 + 0.12 * len(matched_terms)),
+            "match_reason": reason,
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    if used_market and (object_match or model_match_count or spec_match_count) and not (machine_like and not has_strong_model):
+        return {
+            "reference_match": "similar",
+            "reference_status": "preisspanne_pruefen",
+            "match_score": min(0.74, 0.28 + 0.1 * len(matched_terms)),
+            "match_reason": "Aehnlicher Gebrauchtmarkt-Treffer, aber Hersteller/Modell/Typ sind nicht eindeutig genug.",
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    if used_market and object_match:
+        return {
+            "reference_match": "similar",
+            "reference_status": "preisspanne_pruefen",
+            "match_score": min(0.62, 0.22 + 0.08 * len(matched_terms)),
+            "match_reason": "Nur die Objektart passt. Kein Referenzpreis ohne passenden Modell-/Typnachweis.",
+            "matched_terms": matched_terms,
+            "missing_terms": missing_terms[:6],
+            "source_kind": source_kind,
+        }
+    return {
+        "reference_match": "weak",
+        "reference_status": "keine_referenz",
+        "match_score": min(0.35, 0.08 * len(matched_terms)),
+        "match_reason": reason,
+        "matched_terms": matched_terms,
+        "missing_terms": missing_terms[:6],
+        "source_kind": source_kind,
+    }
+
+
+def fetch_source_excerpt(url: str) -> str:
+    try:
+        response = httpx.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 Inventar-App-Raumtest/0.1"},
+            timeout=5.0,
+            follow_redirects=True,
+        )
+        content_type = response.headers.get("content-type", "").lower()
+        if response.status_code >= 400 or ("text/html" not in content_type and "text/plain" not in content_type):
+            return ""
+        text = response.text[:240_000]
+        meta_parts = re.findall(
+            r'<meta[^>]+(?:property|name)=["\'](?:og:price:amount|product:price:amount|twitter:data1|description)["\'][^>]+content=["\']([^"\']+)["\']',
+            text,
+            flags=re.IGNORECASE,
+        )
+        clean_text = re.sub(r"<script\b.*?</script>|<style\b.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+        clean_text = re.sub(r"<[^>]+>", " ", clean_text)
+        return " ".join(meta_parts + [clean_text[:40_000]])
+    except Exception:
+        return ""
+
+
+def source_price_candidates(sources: list[dict[str, Any]], item: dict[str, Any], ai_context: str = "") -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for source in sources[:5]:
+        text = " ".join([str(source.get("title") or ""), str(source.get("snippet") or "")])
+        market_kind = price_market_kind(source, text)
+        prices = extract_price_candidates(text)
+        source_for_match = source
+        if not prices and any(hint in source_host(str(source.get("url") or "")) for hint in SHOP_SOURCE_HINTS):
+            excerpt = fetch_source_excerpt(str(source.get("url") or ""))
+            if excerpt:
+                market_kind = price_market_kind(source, f"{text} {excerpt[:2000]}")
+                source_for_match = {**source, "excerpt": excerpt[:2000]}
+            prices = extract_price_candidates(excerpt)
+        match = source_reference_match(source_for_match, item, ai_context)
+        for price in prices[:4]:
+            candidates.append({
+                "value": price,
+                "source": source.get("url"),
+                "title": source.get("title"),
+                "market_kind": market_kind,
+                **match,
+            })
+    object_class = normalize_bga_object_class(item.get("object_class_name"), item.get("object_type"))
+    if object_class in {"Computermaus", "Tastatur", "Kaffeemaschine"}:
+        candidates = [candidate for candidate in candidates if candidate.get("market_kind") == "gebraucht"]
+    limit = plausible_value_limit(object_class)
+    if limit:
+        candidates = [candidate for candidate in candidates if float(candidate["value"]) <= max(limit * 1.5, limit + 40)]
+    baseline_min, _ = estimate_value_range(item, ai_context)
+    class_floor = {
+        "Computermaus": 10,
+        "Tastatur": 15,
+        "Monitor": 25,
+        "Telefon": 80,
+        "Drucker": 25,
+        "Scanner": 25,
+        "Kaffeemaschine": 10,
+    }.get(object_class, 1)
+    if any(term in (" ".join(str(item.get(key) or "").lower() for key in ["object_type", "brand", "model"]) + " " + ai_context.lower()) for term in ["iphone", "smartphone"]):
+        class_floor = 150
+    low_outlier_floor = max(class_floor, baseline_min * 0.45)
+    candidates = [candidate for candidate in candidates if float(candidate["value"]) >= low_outlier_floor]
+    return candidates[:12]
+
+
+def numeric_or_none(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def select_value_references(item: dict[str, Any], ai_context: str = "", limit: int = 3) -> list[dict[str, Any]]:
+    query_text = " ".join(
+        normalize_deep_dive_text(item.get(key))
+        for key in ["object_type", "object_class_name", "brand", "model", "serial_number", "specification", "construction_year", "condition"]
+    )
+    query_tokens = set(tokenize_reference_text(f"{query_text} {ai_context}"))
+    rows = fetch_all(
+        """
+        SELECT id, item_id, object_class_name, object_type, brand, model, serial_number,
+               condition, corrected_json, notes, created_at
+        FROM ai_learning_examples
+        WHERE approved = true
+        ORDER BY created_at DESC
+        LIMIT 300
+        """
+    )
+    scored: list[tuple[int, dict[str, Any]]] = []
+    current = {key: normalize_deep_dive_text(item.get(key)).lower() for key in ["object_type", "object_class_name", "brand", "model", "specification", "construction_year", "condition"]}
+    for row in rows:
+        corrected = row.get("corrected_json") or {}
+        value_estimate = numeric_or_none(corrected.get("value_estimate"))
+        estimated_age = numeric_or_none(corrected.get("estimated_age_years"))
+        if value_estimate is None and estimated_age is None:
+            continue
+        reference_text = " ".join(
+            normalize_deep_dive_text(value)
+            for value in [
+                row.get("object_class_name"),
+                row.get("object_type"),
+                row.get("brand"),
+                row.get("model"),
+                row.get("serial_number"),
+                row.get("condition"),
+                corrected.get("specification"),
+                corrected.get("construction_year"),
+                corrected.get("object_type"),
+                corrected.get("brand"),
+                corrected.get("model"),
+            ]
+        )
+        reference_tokens = set(tokenize_reference_text(reference_text))
+        score = len(query_tokens & reference_tokens)
+        reasons: list[str] = []
+
+        def add_exact(field: str, label: str, weight: int) -> None:
+            nonlocal score
+            current_value = current.get(field) or ""
+            reference_value = normalize_deep_dive_text(corrected.get(field) or row.get(field)).lower()
+            if current_value and reference_value and current_value == reference_value:
+                score += weight
+                reasons.append(label)
+
+        add_exact("object_type", "gleiche Bezeichnung", 5)
+        add_exact("brand", "gleiche Marke", 5)
+        add_exact("model", "gleiches Modell", 7)
+        add_exact("construction_year", "gleiches Baujahr", 3)
+        add_exact("condition", "gleicher Zustand", 2)
+        if current.get("object_class_name") and normalize_deep_dive_text(row.get("object_class_name")).lower() == current["object_class_name"]:
+            score += 2
+            reasons.append("gleiche Klasse")
+        specification_overlap = query_tokens & set(tokenize_reference_text(str(corrected.get("specification") or "")))
+        if specification_overlap:
+            score += min(4, len(specification_overlap))
+            reasons.append("ähnliche Spezifikation")
+        if score < 7:
+            continue
+        scored.append((
+            score,
+            {
+                "id": str(row.get("id")),
+                "item_id": str(row.get("item_id")) if row.get("item_id") else None,
+                "object_class": row.get("object_class_name"),
+                "object_type": row.get("object_type"),
+                "brand": row.get("brand"),
+                "model": row.get("model"),
+                "specification": corrected.get("specification"),
+                "construction_year": corrected.get("construction_year"),
+                "condition": row.get("condition") or corrected.get("condition"),
+                "value_estimate": value_estimate,
+                "estimated_age_years": estimated_age,
+                "match_score": score,
+                "match_reason": ", ".join(dict.fromkeys(reasons)) or "ähnliche geprüfte Eingaben",
+                "notes": row.get("notes"),
+                "created_at": row.get("created_at").isoformat() if hasattr(row.get("created_at"), "isoformat") else str(row.get("created_at") or ""),
+                "source": "gepruefte_wertreferenz",
+            },
+        ))
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+    return [row for _, row in scored[:limit]]
+
+
+def estimate_value_from_web_legacy(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
+    price_candidates = source_price_candidates(sources, item, ai_context)
+    object_class = normalize_bga_object_class(item.get("object_class_name"), item.get("object_type"))
+    condition = str(item.get("condition") or "gebraucht")
+    condition_factor = {
+        "neu": 1.0,
+        "sehr_gut": 0.95,
+        "gut": 0.90,
+        "gebraucht": 0.85,
+        "reparaturbeduerftig": 0.25,
+        "defekt": 0.10,
+        "aussondern": 0.04,
+    }.get(condition, 0.85)
+    if price_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in price_candidates)
+        basis = sorted_values[min(len(sorted_values) - 1, max(0, len(sorted_values) // 3))]
+        estimate = max(1, round(basis * condition_factor))
+        return {
+            "estimated_value": estimate,
+            "estimated_value_range": {"min": max(1, round(estimate * 0.75)), "max": max(1, round(estimate * 1.25))},
+            "estimated_value_confidence": 0.72,
+            "estimated_value_reason": f"Aus {len(price_candidates)} Web-Preisfund(en) konservativ abgeleitet; Zustand berücksichtigt.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:5],
+        }
+    if object_class in {"Computermaus", "Tastatur", "Kaffeemaschine"}:
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": "Kein belastbarer Gebrauchtmarktpreis gefunden; Wert bleibt offen.",
+            "value_requires_review": True,
+            "price_candidates": [],
+        }
+    value_min, value_max = estimate_value_range(item, ai_context)
+    estimate = conservative_value_estimate(value_min, value_max)
+    text = " ".join(str(item.get(key) or "").lower() for key in ["object_type", "object_class_name", "brand", "model"]) + " " + ai_context.lower()
+    if sources and any(term in text for term in ["iphone", "smartphone"]):
+        estimate = max(300, estimate)
+    return bga_value_guardrail(item, ai_context, estimate)
+
+
+def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list[dict[str, Any]]) -> dict[str, Any]:
+    price_candidates = source_price_candidates(sources, item, ai_context)
+    condition = str(item.get("condition") or "gebraucht")
+    condition_factor = {
+        "neu": 1.0,
+        "sehr_gut": 1.0,
+        "gut": 1.0,
+        "gebraucht": 1.0,
+        "reparaturbeduerftig": 0.35,
+        "defekt": 0.15,
+        "aussondern": 0.05,
+    }.get(condition, 1.0)
+    trusted_candidates = [
+        candidate for candidate in price_candidates
+        if candidate.get("market_kind") == "gebraucht" and candidate.get("reference_match") == "exact"
+    ]
+    similar_candidates = [
+        candidate for candidate in price_candidates
+        if candidate.get("market_kind") == "gebraucht" and candidate.get("reference_match") == "similar"
+    ]
+    if trusted_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in trusted_candidates)
+        basis = sorted_values[min(len(sorted_values) - 1, max(0, len(sorted_values) // 3))]
+        estimate = max(1, round(basis * condition_factor))
+        return {
+            "estimated_value": estimate,
+            "estimated_value_range": {"min": max(1, round(estimate * 0.75)), "max": max(1, round(estimate * 1.25))},
+            "estimated_value_confidence": 0.82,
+            "estimated_value_reason": f"Referenzpreis aus {len(trusted_candidates)} eindeutig passendem Gebrauchtmarkt-Treffer(n). Zustand bleibt fachlich zu pruefen.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:8],
+            "value_source": "gebrauchtmarkt_referenz",
+            "valuation_state": "reference_available",
+            "reference_price_available": True,
+            "reference_price_label": "Referenzpreis verfuegbar",
+            "selected_price_reference": trusted_candidates[0],
+        }
+    if similar_candidates:
+        sorted_values = sorted(float(candidate["value"]) for candidate in similar_candidates)
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": max(1, round(sorted_values[0] * 0.8)), "max": max(1, round(sorted_values[-1] * 1.2))},
+            "estimated_value_confidence": 0.35,
+            "estimated_value_reason": "Aehnliche Gebrauchtmarkt-Treffer gefunden, aber kein eindeutiger Hersteller-/Modell-/Typ-Match. Kein Referenzpreis.",
+            "value_requires_review": True,
+            "price_candidates": price_candidates[:8],
+            "value_source": "preisspanne_pruefen",
+            "valuation_state": "range_review",
+            "reference_price_available": False,
+            "reference_price_label": "Preisspanne pruefen",
+        }
+    return {
+        "estimated_value": None,
+        "estimated_value_range": {"min": None, "max": None},
+        "estimated_value_confidence": 0.0,
+        "estimated_value_reason": "Kein eindeutiger Gebrauchtmarkt-Referenzpreis gefunden; Wert bleibt offen.",
+        "value_requires_review": True,
+        "price_candidates": price_candidates[:8],
+        "value_source": "keine_referenz",
+        "valuation_state": "no_reference",
+        "reference_price_available": False,
+        "reference_price_label": "Kein Referenzpreis verfuegbar",
+    }
+
+
+def bga_value_guardrail(item: dict[str, Any], ai_context: str, estimated_value: int) -> dict[str, Any]:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    ) + " " + ai_context.lower()
+    rules = [
+        (("nespresso", "kaffeemaschine", "kapselmaschine", "espresso"), 80, "Kaffeemaschine: Wert nur mit belastbarer Gebrauchtmarktquelle übernehmen."),
+        (("computermaus", " maus", "mouse"), 100, "Computermaus: vierstellige Werte sind unplausibel."),
+        (("tastatur", "keyboard"), 250, "Tastatur: nur niedriger bis mittlerer Gebrauchtwert plausibel."),
+        (("monitor", "display"), 600, "Standardmonitor: vierstellige Werte nur mit sehr belastbarer Spezialbegründung."),
+        (("drucker",), 800, "Drucker: Ausreißer ohne Modell-/Marktbeleg nicht übernehmen."),
+        (("bürostuhl", "buerostuhl", "stuhl"), 800, "Bürostuhl: Wert stark markenabhängig und prüfpflichtig."),
+        (("schreibtisch", "regal"), 800, "Büroausstattung: ohne belastbare Marke kein hoher KI-Wert."),
+        (("iphone", "smartphone"), 1400, "Smartphone: Wert stark modell- und zustandsabhängig."),
+        (("ladegerät", "ladegeraet"), 250, "Ladegerät: hoher Wert ohne Typenschild/Modell nicht plausibel."),
+    ]
+    for needles, max_value, reason in rules:
+        if any(needle in text for needle in needles):
+            if any(term in text for term in ["nespresso", "kaffeemaschine", "kapselmaschine", "espresso", "computermaus", " maus", "mouse", "tastatur", "keyboard"]):
+                return {
+                    "estimated_value": None,
+                    "estimated_value_range": {"min": None, "max": None},
+                    "estimated_value_confidence": 0.0,
+                    "estimated_value_reason": f"{reason} Ohne geprüfte Gebrauchtquelle bleibt der Wert offen.",
+                    "value_requires_review": True,
+                }
+            if estimated_value > max_value:
+                return {
+                    "estimated_value": None,
+                    "estimated_value_range": {"min": None, "max": None},
+                    "estimated_value_confidence": 0.0,
+                    "estimated_value_reason": f"{reason} KI-Wert {estimated_value} EUR wurde verworfen.",
+                    "value_requires_review": True,
+                }
+            return {
+                "estimated_value": estimated_value,
+                "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+                "estimated_value_confidence": 0.55,
+                "estimated_value_reason": f"Konservative Heuristik für {reason.split(':', 1)[0]}; manuell prüfen.",
+                "value_requires_review": True,
+            }
+    if estimated_value >= 1000 and not any(
+        term in text
+        for term in ["hebeb", "wuchtmaschine", "reifenmontiermaschine", "kompressor", "maschine", "werkzeugwagen", "rtx", "gaming laptop"]
+    ):
+        return {
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": f"Hoher KI-Wert {estimated_value} EUR ohne passende Objektklasse/Beleg verworfen.",
+            "value_requires_review": True,
+        }
+    return {
+        "estimated_value": estimated_value,
+        "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+        "estimated_value_confidence": 0.45 if estimated_value >= 1000 else 0.6,
+        "estimated_value_reason": "Konservative Heuristik aus Objektart, Zustand und Referenzhinweisen; fachlich prüfen.",
+        "value_requires_review": True,
+    }
+
+
+def is_tire_item(item: dict[str, Any], ai_context: str = "") -> bool:
+    text = " ".join(
+        str(item.get(key) or "").lower()
+        for key in ["object_type", "object_class_name", "brand", "model"]
+    ) + " " + ai_context.lower()
+    return any(term in text for term in ["reifen", "radsatz", "sommerreifen", "winterreifen", "ganzjahresreifen", "dot "])
+
+
+def tire_dot_age_years(item: dict[str, Any], ai_context: str = "") -> float | None:
+    text = " ".join(
+        [str(item.get(key) or "") for key in ["object_type", "brand", "model", "serial_number"]]
+        + [ai_context]
+    )
+    match = re.search(r"\bDOT\D{0,8}(\d{2})(\d{2})\b", text, flags=re.IGNORECASE)
+    if not match and re.search(r"\bdot\b", text, flags=re.IGNORECASE):
+        match = re.search(r"\b(\d{2})(\d{2})\b", text)
+    if not match:
+        if item.get("estimated_age_years") is not None and item.get("age_source") == "dot":
+            try:
+                return max(0.0, float(item["estimated_age_years"]))
+            except (TypeError, ValueError):
+                return None
+        return None
+    week = int(match.group(1))
+    year_suffix = int(match.group(2))
+    if week < 1 or week > 53:
+        return None
+    production_year = 2000 + year_suffix if year_suffix < 80 else 1900 + year_suffix
+    current_year = datetime.utcnow().year
+    current_week = int(datetime.utcnow().strftime("%V"))
+    age = (current_year - production_year) + ((current_week - week) / 52)
+    return round(max(0.0, age), 1)
+
+
+def tire_profile_depth_mm(ai_context: str = "") -> float | None:
+    patterns = [
+        r"profil(?:tiefe)?\D{0,12}(\d{1,2}(?:[,.]\d)?)\s*mm",
+        r"(\d{1,2}(?:[,.]\d)?)\s*mm\D{0,12}profil",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, ai_context, flags=re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1).replace(",", "."))
+            except ValueError:
+                return None
+    return None
+
+
+def tire_season(item: dict[str, Any], ai_context: str = "") -> str:
+    text = " ".join(str(part or "").lower() for part in [item.get("object_type"), item.get("model"), ai_context])
+    if any(term in text for term in ["winter", "m+s", "m+s", "alpin", "snow"]):
+        return "winter"
+    if any(term in text for term in ["ganzjahr", "allseason", "all season"]):
+        return "ganzjahr"
+    return "sommer"
+
+
+def tire_age_factor(age_years: float) -> float:
+    if age_years <= 0:
+        return 1.0
+    factor = 0.75
+    additional_years = max(0, int(age_years))
+    if age_years > 1:
+        additional_years = int(age_years - 1)
+        factor *= 0.85 ** additional_years
+    return max(0.12, factor)
+
+
+def tire_profile_factor(profile_mm: float | None, season: str) -> tuple[float, str]:
+    if profile_mm is None:
+        return 0.85, "Profiltiefe fehlt: konservativer Zusatzabschlag 15%."
+    if profile_mm >= 7:
+        return 1.0, "Volles/gutes Profil: kein Profilabschlag; DOT-Alter bleibt wertmindernd."
+    if profile_mm >= 5:
+        return 0.85, "Profil 5-6,9 mm: Zusatzabschlag 15%."
+    if profile_mm >= 4:
+        return 0.70, "Profil 4-4,9 mm: Zusatzabschlag 30%."
+    if profile_mm >= 3:
+        factor = 0.55 if season == "sommer" else 0.35
+        return factor, "Profil kritisch: deutlicher Zusatzabschlag."
+    return 0.15, "Profil unter Praxisgrenze: nur sehr geringer Restwert."
+
+
+def tire_condition_factor(condition: str | None) -> float:
+    return {
+        "neu": 1.0,
+        "sehr_gut": 0.95,
+        "gut": 0.9,
+        "gebraucht": 0.8,
+        "reparaturbeduerftig": 0.45,
+        "defekt": 0.10,
+        "aussondern": 0.03,
+    }.get(str(condition or "gebraucht"), 0.8)
+
+
+def conservative_tire_estimate(item: dict[str, Any], ai_context: str, sources: list[dict[str, str]]) -> dict[str, Any]:
+    value_min, value_max = estimate_value_range({**item, "condition": "neu"}, ai_context)
+    # Annäherung an günstigsten heutigen Neupreis: unteres Ende aus Web-/Referenzheuristik, dann konservativ.
+    lowest_new_price = max(1, round(value_min * 0.9))
+    dot_age = tire_dot_age_years(item, ai_context)
+    estimated_age = dot_age if dot_age is not None else conservative_age_estimate(estimate_age_years(item, sources, ai_context))
+    age_factor = tire_age_factor(float(estimated_age or 0))
+    season = tire_season(item, ai_context)
+    profile_mm = tire_profile_depth_mm(ai_context)
+    profile_factor, profile_note = tire_profile_factor(profile_mm, season)
+    condition_factor = tire_condition_factor(item.get("condition"))
+    safety_factor = 0.90
+    estimated_value = max(1, round(lowest_new_price * age_factor * profile_factor * condition_factor * safety_factor))
+    return {
+        "estimated_value": estimated_value,
+        "estimated_age_years": round(float(estimated_age or 0), 1) if estimated_age is not None else None,
+        "estimated_value_range": {"min": max(1, round(estimated_value * 0.8)), "max": max(1, round(estimated_value * 1.2))},
+        "tire_valuation": {
+            "lowest_new_price_basis": lowest_new_price,
+            "dot_age_years": round(dot_age, 1) if dot_age is not None else None,
+            "profile_depth_mm": profile_mm,
+            "season": season,
+            "age_factor": round(age_factor, 3),
+            "profile_factor": round(profile_factor, 3),
+            "condition_factor": round(condition_factor, 3),
+            "safety_factor": safety_factor,
+            "policy": "Günstigster plausibler Neupreis minus DOT-Alter, Profil, Zustand und Sicherheitsabschlag.",
+        },
+        "notes": (
+            "Konservative Reifenbewertung: volles Profil hebt DOT-Alter nicht auf. "
+            f"{profile_note} Lagerreifen werden nach DOT-Alter bewertet, auch wenn sie ungefahren wirken."
+        ),
+    }
+
+
+def conservative_value_estimate(value_min: int, value_max: int) -> int:
+    # Kaufprüfung: realistisch bleiben, aber bei Unsicherheit nicht zu hoch bewerten.
+    lower_quartile = value_min + ((value_max - value_min) * 0.25)
+    return max(1, round(lower_quartile * 0.9))
+
+
+def parse_construction_year(item: dict[str, Any]) -> int | None:
+    value = normalize_deep_dive_text(item.get("construction_year"))
+    if not value:
+        return None
+    match = re.search(r"\b(19[8-9][0-9]|20[0-3][0-9])\b", value)
+    if not match:
+        return None
+    year = int(match.group(1))
+    current_year = datetime.utcnow().year
+    if year > current_year + 1:
+        return None
+    return year
+
+
+def construction_year_age(item: dict[str, Any]) -> float | None:
+    year = parse_construction_year(item)
+    if year is None:
+        return None
+    return round(max(0.0, datetime.utcnow().year - year), 1)
+
+
+def estimate_age_years(item: dict[str, Any], sources: list[dict[str, str]], ai_context: str = "") -> float | None:
+    construction_age = construction_year_age(item)
+    if construction_age is not None:
+        return construction_age
+    if item.get("estimated_age_years") is not None and item.get("age_source") != "schaetzung":
+        try:
+            return round(float(item["estimated_age_years"]), 1)
+        except (TypeError, ValueError):
+            pass
+    text = " ".join(
+        [str(item.get(key) or "") for key in ["object_type", "brand", "model", "serial_number"]]
+        + [source.get("title", "") for source in sources]
+        + [ai_context]
+    )
+    lower_text = text.lower()
+    if "14700hx" in lower_text or "rtx 4070" in lower_text:
+        return 2.0
+    if "13700hx" in lower_text or "13620h" in lower_text or "rtx 4060" in lower_text:
+        return 3.0
+    if "12700h" in lower_text or "rtx 3060" in lower_text or "rtx 3070" in lower_text:
+        return 4.0
+    iphone_years = {
+        "iphone 16": 2024,
+        "iphone 15": 2023,
+        "iphone 14": 2022,
+        "iphone 13": 2021,
+        "iphone 12": 2020,
+        "iphone 11": 2019,
+    }
+    for marker, release_year in iphone_years.items():
+        if marker in lower_text:
+            return max(0.0, round(datetime.utcnow().year - release_year, 1))
+    if "redragon" in lower_text and "m908" in lower_text:
+        return max(0.0, round(datetime.utcnow().year - 2018, 1))
+    if "agile-splendor" in lower_text or ("ips" in lower_text and "monitor" in lower_text):
+        return 2.0
+    years = [int(value) for value in re.findall(r"\b(20[0-2][0-9]|19[8-9][0-9])\b", text)]
+    if years:
+        return max(0.0, round(datetime.utcnow().year - max(years), 1))
+    return None
+
+
+def conservative_age_estimate(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(max(0.0, value + 1.0), 1)
+
+
+def build_deep_dive_result(item_id: str) -> dict[str, Any]:
+    item = fetch_one(
+        """
+        SELECT i.*, oc.name AS object_class_name
+        FROM inventory_items i
+        LEFT JOIN object_classes oc ON oc.id = i.object_class_id
+        WHERE i.id = %s
+        """,
+        (item_id,),
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    ai_context = latest_ai_context(item_id)
+    value_references = select_value_references(item, ai_context)
+    best_value_reference = value_references[0] if value_references else None
+    sources, search_provider, web_search_error, search_queries = collect_search_sources(item, ai_context)
+    query = search_queries[0] if search_queries else deep_dive_query(item, ai_context)
+    if not sources:
+        reference_value = numeric_or_none(best_value_reference.get("value_estimate")) if best_value_reference else None
+        reference_age = numeric_or_none(best_value_reference.get("estimated_age_years")) if best_value_reference else None
+        construction_age = construction_year_age(item)
+        if best_value_reference and (reference_value is not None or reference_age is not None):
+            reference_value_range = {
+                "min": max(1, round(reference_value * 0.9)) if reference_value is not None else None,
+                "max": max(1, round(reference_value * 1.1)) if reference_value is not None else None,
+            }
+            reference_age_value = construction_age if construction_age is not None else reference_age
+            return {
+                "ai_stage": "deep_dive",
+                "estimated_by_ai": True,
+                "estimation_policy": "verified_reference",
+                "web_search_performed": False,
+                "search_provider": search_provider,
+                "search_queries": search_queries,
+                "query": query,
+                "research_basis": deep_dive_research_basis(item),
+                "technical_context": ai_context,
+                "sources": [],
+                "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden; geprüfte Referenz genutzt.",
+                "estimated_age_years": reference_age_value,
+                "age_source": "gepruefte_wertreferenz" if construction_age is None and reference_age is not None else "baujahr",
+                "age_verification_status": "geschaetzt",
+                "age_confidence": 0.78 if construction_age is None and reference_age is not None else 0.9,
+                "age_reason": "Aus geprüfter Wertreferenz übernommen." if construction_age is None and reference_age is not None else "Aus eingegebenem Baujahr abgeleitet.",
+                "age_requires_review": True,
+                "estimated_value": round(reference_value) if reference_value is not None else None,
+                "estimated_value_range": reference_value_range,
+                "estimated_value_confidence": 0.82 if reference_value is not None else 0.0,
+                "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}.",
+                "value_requires_review": True,
+                "value_source": "gepruefte_wertreferenz",
+                "valuation_state": "reference_available",
+                "reference_price_available": reference_value is not None,
+                "reference_price_label": "Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
+                "value_reference_used": best_value_reference,
+                "matching_value_references": value_references,
+                "notes": "Geprüfte interne Referenz genutzt. Wert und Alter bleiben prüfpflichtige Vorschläge.",
+                "manual_review_required": True,
+                **deep_dive_dossier(
+                    item,
+                    ai_context,
+                    [],
+                    estimated_value=round(reference_value) if reference_value is not None else None,
+                    estimated_value_range=reference_value_range,
+                    estimated_value_confidence=0.82 if reference_value is not None else 0.0,
+                    value_source="gepruefte_wertreferenz",
+                    valuation_state="reference_available" if reference_value is not None else "no_reference",
+                    reference_price_available=reference_value is not None,
+                    reference_price_label="Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
+                    estimated_age_years=reference_age_value,
+                ),
+            }
+        return {
+            "ai_stage": "deep_dive",
+            "estimated_by_ai": True,
+            "estimation_policy": "source_required",
+            "web_search_performed": False,
+            "search_provider": search_provider,
+            "search_queries": search_queries,
+            "query": query,
+            "research_basis": deep_dive_research_basis(item),
+            "technical_context": ai_context,
+            "sources": [],
+            "web_search_error": web_search_error or "Keine belastbare Webquelle gefunden.",
+            "estimated_age_years": None,
+            "age_source": "unbekannt",
+            "age_verification_status": "offen",
+            "age_confidence": 0.0,
+            "age_reason": "Keine belastbare Webquelle oder sichtbare Altersgrundlage gefunden.",
+            "age_requires_review": True,
+            "estimated_value": None,
+            "estimated_value_range": {"min": None, "max": None},
+            "estimated_value_confidence": 0.0,
+            "estimated_value_reason": "Keine belastbare Webquelle gefunden; Wert bleibt offen.",
+            "value_requires_review": True,
+            "value_source": "keine_webquelle",
+            "valuation_state": "no_reference",
+            "reference_price_available": False,
+            "reference_price_label": "Kein Referenzpreis verfuegbar",
+            "value_reference_used": None,
+            "matching_value_references": value_references,
+            "notes": "Websuche ohne verwertbare Quelle. Preis und Alter werden nicht geraten und müssen manuell geprüft werden.",
+            "manual_review_required": True,
+            **deep_dive_dossier(
+                item,
+                ai_context,
+                [],
+                value_source="keine_webquelle",
+                valuation_state="no_reference",
+                reference_price_available=False,
+                reference_price_label="Kein Referenzpreis verfuegbar",
+            ),
+        }
+    if is_tire_item(item, ai_context):
+        tire_result = conservative_tire_estimate(item, ai_context, sources)
+        value_min = tire_result["estimated_value_range"]["min"]
+        value_max = tire_result["estimated_value_range"]["max"]
+        estimated_value = tire_result["estimated_value"]
+        estimated_age = tire_result["estimated_age_years"]
+        notes = tire_result["notes"]
+        extra_result = {
+            "tire_valuation": tire_result["tire_valuation"],
+            "valuation_state": "range_review",
+            "reference_price_available": False,
+            "reference_price_label": "Preisspanne pruefen",
+            "value_source": "reifen_heuristik",
+        }
+    else:
+        guarded_value = estimate_value_from_web(item, ai_context, sources)
+        value_range = guarded_value.get("estimated_value_range") or {}
+        estimated_value = guarded_value.get("estimated_value")
+        value_min = value_range.get("min")
+        value_max = value_range.get("max")
+        value_source = str(guarded_value.get("value_source") or "keine_referenz")
+        estimated_value_confidence = float(guarded_value.get("estimated_value_confidence") or 0)
+        estimated_value_reason = "KI-Webpreise werden nicht automatisch als Gebrauchtmarktwert übernommen. Ohne geprüfte Referenz bleibt der Wert offen."
+        estimated_value_reason = str(guarded_value.get("estimated_value_reason") or "Kein eindeutiger Referenzpreis gefunden.")
+        value_reference_used = None
+        reference_value = numeric_or_none(best_value_reference.get("value_estimate")) if best_value_reference else None
+        if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
+            estimated_value = round(reference_value)
+            value_min = max(1, round(reference_value * 0.9))
+            value_max = max(1, round(reference_value * 1.1))
+            guarded_value = {
+                **guarded_value,
+                "estimated_value": estimated_value,
+                "estimated_value_range": {"min": value_min, "max": value_max},
+                "estimated_value_confidence": max(float(guarded_value.get("estimated_value_confidence") or 0), 0.82),
+                "estimated_value_reason": f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}. Webquellen wurden zusätzlich geprüft.",
+                "value_requires_review": True,
+                "value_source": "gepruefte_wertreferenz",
+                "valuation_state": "reference_available",
+                "reference_price_available": True,
+                "reference_price_label": "Referenzpreis verfuegbar",
+            }
+        if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
+            value_source = "gepruefte_wertreferenz"
+            estimated_value_confidence = 0.82
+            estimated_value_reason = f"Aus gepruefter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}."
+            value_reference_used = best_value_reference
+        elif guarded_value.get("reference_price_available") and guarded_value.get("estimated_value") is not None:
+            value_source = str(guarded_value.get("value_source") or "gebrauchtmarkt_referenz")
+            estimated_value_confidence = float(guarded_value.get("estimated_value_confidence") or 0.82)
+            estimated_value_reason = str(guarded_value.get("estimated_value_reason") or "Eindeutige Gebrauchtmarkt-Referenz gefunden.")
+            value_reference_used = guarded_value.get("selected_price_reference")
+        else:
+            estimated_value = None
+        raw_age = estimate_age_years(item, sources, ai_context)
+        age_from_construction_year = construction_year_age(item)
+        manual_age = item.get("estimated_age_years") is not None and item.get("age_source") not in {None, "", "schaetzung", "unbekannt"}
+        reference_age = numeric_or_none(best_value_reference.get("estimated_age_years")) if best_value_reference else None
+        estimated_age = raw_age if (age_from_construction_year is not None or manual_age) else reference_age if reference_age is not None else conservative_age_estimate(raw_age)
+        age_reason = (
+            "Aus eingegebenem Baujahr abgeleitet."
+            if age_from_construction_year is not None
+            else "Aus manuell geprüftem Alter übernommen."
+            if manual_age and estimated_age is not None
+            else "Aus geprüfter Wertreferenz übernommen."
+            if reference_age is not None and estimated_age is not None
+            else "Aus sichtbarem Modellhinweis abgeleitet."
+            if estimated_age is not None
+            else "Keine belastbare Altersgrundlage erkannt."
+        )
+        notes = "Vorsichtige KI-Schätzung aus Objektangaben, Zustand und Referenzhinweisen. Unsichere oder unplausible Alter-/Wertangaben bleiben leer und müssen manuell geprüft werden."
+        extra_result = {
+            "estimated_value_confidence": estimated_value_confidence,
+            "estimated_value_reason": estimated_value_reason,
+            "value_requires_review": True,
+            "value_reference_used": value_reference_used,
+            "matching_value_references": value_references,
+            "price_candidates": guarded_value.get("price_candidates") or [],
+            "valuation_state": guarded_value.get("valuation_state") or "no_reference",
+            "reference_price_available": bool(guarded_value.get("reference_price_available")),
+            "reference_price_label": guarded_value.get("reference_price_label") or "Kein Referenzpreis verfuegbar",
+            "selected_price_reference": guarded_value.get("selected_price_reference"),
+            "age_confidence": 0.8 if reference_age is not None and age_from_construction_year is None else 0.55 if estimated_age is not None else 0.0,
+            "age_reason": age_reason,
+            "age_requires_review": True,
+            "value_source": value_source,
+        }
+    return {
+        "ai_stage": "deep_dive",
+        "estimated_by_ai": True,
+        "estimation_policy": "konservativ",
+        "web_search_performed": bool(sources),
+        "search_provider": search_provider,
+        "search_queries": search_queries,
+        "query": query,
+        "research_basis": deep_dive_research_basis(item),
+        "technical_context": ai_context,
+        "sources": sources,
+        "web_search_error": web_search_error,
+        "estimated_age_years": estimated_age,
+        "age_source": "schaetzung",
+        "age_verification_status": "geschaetzt",
+        "estimated_value": estimated_value,
+        "estimated_value_range": {"min": value_min, "max": value_max},
+        "value_source": "ki_web_schaetzung",
+        "notes": notes,
+        "manual_review_required": True,
+        **deep_dive_dossier(
+            item,
+            ai_context,
+            sources,
+            estimated_value=estimated_value,
+            estimated_value_range={"min": value_min, "max": value_max},
+            estimated_value_confidence=float(extra_result.get("estimated_value_confidence") or 0),
+            value_source=str(extra_result.get("value_source") or "ki_web_schaetzung"),
+            price_candidates=extra_result.get("price_candidates") or [],
+            valuation_state=str(extra_result.get("valuation_state") or "no_reference"),
+            reference_price_available=bool(extra_result.get("reference_price_available")),
+            reference_price_label=str(extra_result.get("reference_price_label") or "Kein Referenzpreis verfuegbar"),
+            estimated_age_years=estimated_age,
+        ),
+        **extra_result,
+    }
+
+
+def process_deep_dive_item(item_id: str, expected_generation: Any = None) -> None:
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_start", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, ai_status_for_mode("review", "running"), expected_generation, final_only_guard=True):
+        audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_running_status", "expected_generation": expected_generation})
+        return
+    try:
+        result = build_deep_dive_result(item_id)
+        if ai_job_cancelled(item_id, expected_generation):
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_write", "expected_generation": expected_generation})
+            return
+        if expected_generation is None:
+            row = execute(
+                """
+                INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
+                VALUES (%s, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed')
+                RETURNING *
+                """,
+                (
+                    item_id,
+                    "web-search+heuristic",
+                    '["item_fields","web_search","reference_heuristic"]',
+                    json_string(result),
+                    0.55,
+                ),
+            )
+        else:
+            expected_session = expected_session_generation(expected_generation)
+            expected_item = expected_item_generation(expected_generation)
+            row = execute(
+                """
+                INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence, status)
+                SELECT i.id, 'deep_dive', %s, 'phase1-deep-dive-v1', %s::jsonb, %s::jsonb, %s, 'completed'
+                FROM inventory_items i
+                JOIN inventory_sessions s ON s.id = i.session_id
+                WHERE i.id = %s
+                  AND COALESCE(s.ai_cancel_generation, 0) = %s
+                  AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
+                RETURNING *
+                """,
+                (
+                    "web-search+heuristic",
+                    '["item_fields","web_search","reference_heuristic"]',
+                    json_string(result),
+                    0.55,
+                    item_id,
+                    expected_session,
+                    expected_item,
+                    expected_item,
+                ),
+            )
+        if not row:
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_write_race", "expected_generation": expected_generation})
+            return
+        if not update_ai_item_status(item_id, ai_status_for_mode("review", "done"), expected_generation, final_only_guard=True):
+            audit("ai_deep_dive_cancelled", "inventory_item", item_id, {"stage": "deep_dive", "position": "before_status", "expected_generation": expected_generation})
+            return
+        audit("ai_deep_dive_created", "inventory_item", item_id, result)
+    except Exception as exc:
+        update_ai_item_status(item_id, ai_status_for_mode("review", "open"), expected_generation, final_only_guard=True)
+        audit("ai_deep_dive_failed", "inventory_item", item_id, {"error": type(exc).__name__, "message": str(exc)[:240]})
+        raise
+
+
+FAST_AI_BLOCKED_FIELDS = {
+    "estimated_age_years",
+    "estimated_value",
+    "estimated_value_eur",
+    "estimated_value_confidence",
+    "estimated_value_reason",
+    "value_estimate",
+    "value_source",
+    "value_requires_review",
+    "age_confidence",
+    "age_reason",
+    "age_requires_review",
+    "age_source",
+    "age_verification_status",
+}
+
+
+def strip_fast_ai_estimates(suggestion: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(suggestion)
+    for key in FAST_AI_BLOCKED_FIELDS:
+        cleaned.pop(key, None)
+
+    suggested_fields = cleaned.get("suggested_fields")
+    if isinstance(suggested_fields, dict):
+        cleaned["suggested_fields"] = {
+            key: value
+            for key, value in suggested_fields.items()
+            if key not in FAST_AI_BLOCKED_FIELDS and key not in {"estimated_value", "estimated_age_years", "value_estimate"}
+        }
+
+    bga_detection = cleaned.get("bga_detection")
+    if isinstance(bga_detection, dict):
+        cleaned_bga = dict(bga_detection)
+        for key in FAST_AI_BLOCKED_FIELDS:
+            cleaned_bga.pop(key, None)
+        cleaned["bga_detection"] = cleaned_bga
+
+    cleaned["ai_latency_profile"] = "mobile_fast"
+    cleaned["estimation_policy"] = "no_age_or_value_in_mobile_fast"
+    return cleaned
+
+
+def status_state_for_item_status(scope: str, status: str | None) -> str:
+    if scope == "deep_dive":
+        if status == "ki_pruefung_wartet":
+            return "queued"
+        if status == "ki_pruefung_laeuft":
+            return "running"
+        return "idle"
+    if scope == "review":
+        if status == "ki_pruefung_wartet":
+            return "queued"
+        if status == "ki_pruefung_laeuft":
+            return "running"
+        if status == "ki_pruefung_fertig":
+            return "completed"
+        return "idle"
+    if status == "ki_schnell_wartet":
+        return "queued"
+    if status == "ki_schnell_laeuft":
+        return "running"
+    if status == "ki_schnell_fertig":
+        return "completed"
+    return "idle"
+
+
+def ai_result_type_for_scope(scope: str) -> str:
+    if scope == "deep_dive":
+        return "deep_dive"
+    if scope == "review":
+        return "review_vision"
+    return "quick_vision"
+
+
+def ai_updated_fields(result: dict[str, Any] | None) -> list[str]:
+    if not isinstance(result, dict):
+        return []
+    fields: set[str] = set()
+    suggested_fields = result.get("suggested_fields")
+    if isinstance(suggested_fields, dict):
+        fields.update(str(key) for key, value in suggested_fields.items() if value)
+    for key in ("object_type", "object_name", "specification", "serial_number", "construction_year", "condition", "suggested_remark"):
+        if result.get(key):
+            fields.add("object_type" if key == "object_name" else "remark" if key == "suggested_remark" else key)
+    nameplate = result.get("nameplate_extraction")
+    if isinstance(nameplate, dict):
+        for key, mapped in {
+            "suggested_object_type": "object_type",
+            "suggested_specification": "specification",
+            "serial_number": "serial_number",
+            "construction_year": "construction_year",
+            "suggested_remark": "remark",
+        }.items():
+            if nameplate.get(key):
+                fields.add(mapped)
+    return sorted(fields)
+
+
+def first_ai_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def normalize_ai_condition(value: Any) -> str | None:
+    text = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    mapping = {
+        "neu": "neu",
+        "sehr_gut": "sehr_gut",
+        "sehrgut": "sehr_gut",
+        "gut": "gut",
+        "gebraucht": "gebraucht",
+        "normal": "gebraucht",
+        "reparaturbeduerftig": "reparaturbeduerftig",
+        "reparaturbedürftig": "reparaturbeduerftig",
+        "defekt": "defekt",
+        "aussondern": "aussondern",
+        "unklar": "unklar",
+    }
+    return mapping.get(text)
+
+
+def bga_uvv_status_from_ai(object_type: str, object_class: str, specification: str) -> str | None:
+    text = f"{object_type} {object_class} {specification}".lower()
+    uvv_required_tokens = (
+        "hebebühne", "hebebuehne", "kompressor", "kran", "winde", "hubwagen", "stapler",
+        "maschine", "reifenmontier", "wuchtmaschine", "werkstatt", "druckbehälter", "druckbehaelter",
+    )
+    uvv_not_required_tokens = (
+        "smartphone", "iphone", "telefon", "computermaus", "maus", "tastatur", "keyboard",
+        "monitor", "drucker", "scanner", "laptop", "notebook", "pc", "schreibtisch",
+        "bürostuhl", "buerostuhl", "stuhl", "regal", "schrank", "kaffeemaschine",
+    )
+    if any(token in text for token in uvv_required_tokens):
+        return None
+    if any(token in text for token in uvv_not_required_tokens):
+        return "nicht_uvv_pflichtig"
+    return None
+
+
+def object_class_id_for_ai(object_class: str, object_type: str) -> str | None:
+    for value in (object_class, object_type):
+        normalized = normalize_bga_object_class(value)
+        if not normalized or normalized == "Unklar":
+            continue
+        row = fetch_one(
+            """
+            SELECT id
+            FROM object_classes
+            WHERE lower(name) = lower(%s) OR lower(slug) = lower(%s)
+            LIMIT 1
+            """,
+            (normalized, normalized),
+        )
+        if row:
+            return str(row["id"])
+    return None
+
+
+def apply_ai_suggestion_to_empty_item_fields(item_id: str, suggestion: dict[str, Any]) -> dict[str, Any]:
+    item = fetch_one("SELECT * FROM inventory_items WHERE id = %s", (item_id,))
+    if not item:
+        return {}
+    fields = suggestion.get("suggested_fields") if isinstance(suggestion.get("suggested_fields"), dict) else {}
+    detection = suggestion.get("bga_detection") if isinstance(suggestion.get("bga_detection"), dict) else {}
+    if isinstance(detection.get("suggested_fields"), dict):
+        fields = {**detection["suggested_fields"], **fields}
+    nameplate = (
+        detection.get("nameplate_extraction")
+        if isinstance(detection.get("nameplate_extraction"), dict)
+        else suggestion.get("nameplate_extraction") if isinstance(suggestion.get("nameplate_extraction"), dict) else {}
+    )
+    object_type = first_ai_text(fields.get("object_type"), suggestion.get("object_type"), suggestion.get("object_name"), detection.get("object_name"), nameplate.get("suggested_object_type"))
+    specification = first_ai_text(fields.get("specification"), suggestion.get("specification"), detection.get("specification"), nameplate.get("suggested_specification"))
+    serial_number = first_ai_text(fields.get("serial_number"), suggestion.get("serial_number"), detection.get("serial_number"), nameplate.get("serial_number"))
+    construction_year = first_ai_text(fields.get("construction_year"), suggestion.get("construction_year"), nameplate.get("construction_year"))
+    brand = first_ai_text(suggestion.get("brand"), suggestion.get("manufacturer"), detection.get("brand"), detection.get("manufacturer"), nameplate.get("manufacturer"))
+    model = first_ai_text(suggestion.get("model"), detection.get("model"), nameplate.get("model"), nameplate.get("type_designation"))
+    remark = first_ai_text(fields.get("remark"), suggestion.get("suggested_remark"), detection.get("suggested_remark"), nameplate.get("suggested_remark"))
+    condition = normalize_ai_condition(first_ai_text(fields.get("condition"), suggestion.get("condition"), suggestion.get("condition_guess"), detection.get("condition_guess")))
+    object_class = first_ai_text(suggestion.get("object_class"), detection.get("object_class"))
+
+    updates: dict[str, Any] = {}
+    for key, value in {
+        "object_type": object_type,
+        "specification": specification,
+        "serial_number": serial_number,
+        "construction_year": construction_year,
+        "brand": brand,
+        "model": model,
+        "remark": remark,
+    }.items():
+        if value and not str(item.get(key) or "").strip():
+            updates[key] = value
+    if condition and item.get("condition") in {None, "", "unklar", "gebraucht"}:
+        updates["condition"] = condition
+    if item.get("uvv_status") in {None, "", "unklar"}:
+        uvv_status = bga_uvv_status_from_ai(object_type, object_class, specification)
+        if uvv_status:
+            updates["uvv_status"] = uvv_status
+    if not item.get("object_class_id"):
+        object_class_id = object_class_id_for_ai(object_class, object_type)
+        if object_class_id:
+            updates["object_class_id"] = object_class_id
+    if not updates:
+        return {}
+    fields_sql = ", ".join(f"{key} = %s" for key in updates)
+    execute(
+        f"UPDATE inventory_items SET {fields_sql}, updated_at = now() WHERE id = %s RETURNING id",
+        tuple(updates.values()) + (item_id,),
+    )
+    run_inventory_rework_check(item_id)
+    return updates
+
+
+def update_ai_item_status(item_id: str, status: str, expected_generation: Any = None, final_only_guard: bool = False) -> dict[str, Any] | None:
+    expected_session = expected_session_generation(expected_generation)
+    if expected_session is None:
+        final_guard = "AND status <> 'finalisiert'" if final_only_guard else ""
+        return execute(
+            f"UPDATE inventory_items SET status = %s, updated_at = now() WHERE id = %s {final_guard} RETURNING id",
+            (status, item_id),
+        )
+    expected_item = expected_item_generation(expected_generation)
+    final_guard = "AND i.status <> 'finalisiert'" if final_only_guard else ""
+    return execute(
+        f"""
+        UPDATE inventory_items i
+        SET status = %s,
+            updated_at = now()
+        FROM inventory_sessions s
+        WHERE i.id = %s
+          AND s.id = i.session_id
+          AND COALESCE(s.ai_cancel_generation, 0) = %s
+          AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
+          {final_guard}
+        RETURNING i.id
+        """,
+        (status, item_id, expected_session, expected_item, expected_item),
+    )
+
+
+def process_ai_item(item_id: str, mode: str = "fast", expected_generation: Any = None) -> None:
+    normalized_mode = "review" if mode == "review" else "fast"
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_start", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, ai_status_for_mode(normalized_mode, "running"), expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_running_status", "expected_generation": expected_generation})
+        return
+    suggestion = build_ai_suggestion(item_id, normalized_mode)
+    if normalized_mode == "fast":
+        suggestion = strip_fast_ai_estimates(suggestion)
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_write", "expected_generation": expected_generation})
+        return
+    model_used = suggestion.pop("_model_used", "phase1-stub")
+    confidence = float(suggestion.get("confidence") or 0)
+    needs_review_ai = normalized_mode == "fast" and (
+        confidence < 0.78
+        or bool(suggestion.get("missing_fields"))
+        or bool(suggestion.get("required_evidence_missing"))
+    )
+    suggestion["ai_stage"] = normalized_mode
+    suggestion["needs_review_ai"] = needs_review_ai
+    if expected_generation is None:
+        row = execute(
+            """
+            INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
+            RETURNING *
+            """,
+            (
+                item_id,
+                "quick_vision" if normalized_mode == "fast" else "review_vision",
+                model_used,
+                "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
+                '["photos","audio"]',
+                json_string(suggestion),
+                confidence,
+            ),
+        )
+    else:
+        expected_session = expected_session_generation(expected_generation)
+        expected_item = expected_item_generation(expected_generation)
+        row = execute(
+            """
+            INSERT INTO ai_results (item_id, ai_type, model_used, prompt_version, input_sources, result_json, confidence)
+            SELECT i.id, %s, %s, %s, %s::jsonb, %s::jsonb, %s
+            FROM inventory_items i
+            JOIN inventory_sessions s ON s.id = i.session_id
+            WHERE i.id = %s
+              AND COALESCE(s.ai_cancel_generation, 0) = %s
+              AND (%s IS NULL OR COALESCE(i.ai_cancel_generation, 0) = %s)
+            RETURNING *
+            """,
+            (
+                "quick_vision" if normalized_mode == "fast" else "review_vision",
+                model_used,
+                "phase1-fast-v2" if normalized_mode == "fast" else "phase1-review-v2",
+                '["photos","audio"]',
+                json_string(suggestion),
+                confidence,
+                item_id,
+                expected_session,
+                expected_item,
+                expected_item,
+            ),
+        )
+    if not row:
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_write_race", "expected_generation": expected_generation})
+        return
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_tasks", "expected_generation": expected_generation})
+        return
+    applied_fields = apply_ai_suggestion_to_empty_item_fields(item_id, suggestion)
+    create_rework_tasks(item_id, suggestion)
+    execute(
+        """
+        UPDATE item_accounting_data
+        SET accounting_status = CASE WHEN %s THEN 'buchhaltung_pruefen' ELSE accounting_status END
+        WHERE item_id = %s
+        RETURNING id
+        """,
+        (suggestion["requires_accounting_review"], item_id),
+    )
+    final_status = ai_status_for_mode(normalized_mode, "open" if needs_review_ai else "done")
+    if ai_job_cancelled(item_id, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_status", "expected_generation": expected_generation})
+        return
+    if not update_ai_item_status(item_id, final_status, expected_generation):
+        audit("ai_result_cancelled", "inventory_item", item_id, {"stage": normalized_mode, "position": "before_final_status", "expected_generation": expected_generation})
+        return
+    audit("ai_result_created", "inventory_item", item_id, {"stage": normalized_mode, "status": final_status, "applied_fields": applied_fields, **suggestion})
+
+
+
 
 @app.post("/items/{item_id}/ai/run")
 def run_ai(item_id: str, background_tasks: BackgroundTasks, mode: str = "fast") -> dict[str, Any]:
