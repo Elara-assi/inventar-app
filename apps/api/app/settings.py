@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     ollama_ocr_model: str = "glm-ocr:latest"
     ollama_fallback_model: str = "gemma4:31b-cloud"
     ollama_timeout_seconds: float = 120.0
+    # GWG-/Aktivierungsgrenzen fuer die Export-Empfehlung (EUR, konfigurierbar)
+    gwg_minor_limit_eur: float = 250.0
+    gwg_limit_eur: float = 800.0
+    gwg_pool_limit_eur: float = 1000.0
     whisper_enabled: bool = True
     whisper_model: str = "small"
     whisper_model_dir: str = "/opt/inventar/models"

@@ -29,8 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="rail-nav" aria-label="Hauptbereiche">
               <a className="is-active" href="/" aria-label="Dashboard">⌂</a>
               <a href="/review" aria-label="Prüfung">▤</a>
-              <a href="/design-preview" aria-label="Design">◇</a>
-              <a href="/design-preview-premium" aria-label="Premium Design">▥</a>
+              <a href="/cockpit" aria-label="Cockpit">▥</a>
             </nav>
             <div className="rail-bottom" aria-hidden="true">◌</div>
           </aside>

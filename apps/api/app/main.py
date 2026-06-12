@@ -5614,6 +5614,7 @@ def build_excel_workbook(
     for index, width in enumerate([22, 28, 22, 24, 80], start=1):
         protocol_ws.column_dimensions[get_column_letter(index)].width = width
 
+    append_accounting_sheet(wb, rows)
     return wb
 
 
@@ -5801,45 +5802,6 @@ def export_excel(session_id: str) -> dict[str, Any]:
             "Offene Nacharbeiten": sum(int(row.get("open_task_count") or 0) for row in rows),
         },
     )
-    ensure_upload_dirs()
-    rows = session_items(session_id)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Inventur"
-    headers = [
-        "Inventar-ID", "temporäre ID", "Objektart", "Objektklasse", "Kategorie", "Marke",
-        "Modell", "Seriennummer", "Zustand", "Altersquelle", "geschätztes Alter",
-        "Herstellungsdatum", "Anschaffungsdatum", "Betrieb", "Gebäude", "Raum",
-        "Verantwortlicher", "Kostenstelle", "kaufmännische Kategorie",
-        "Buchhaltungsstatus", "Buchhaltung prüfen", "Status", "Prüfstatus",
-        "KI-Konfidenz", "Foto vorhanden", "Typenschildfoto vorhanden", "DOT-Foto vorhanden",
-        "Erfasst von", "Geprüft von", "Finalisiert am", "Bemerkung",
-    ]
-    ws.append(headers)
-    session = get_session(session_id)
-    for row in rows:
-        ws.append([excel_value(value) for value in [
-            row.get("inventory_id"), row.get("temporary_id"), row.get("object_type"),
-            row.get("object_class_name"), row.get("category"), row.get("brand"),
-            row.get("model"), row.get("serial_number"), row.get("condition"),
-            row.get("age_source"), row.get("estimated_age_years"), row.get("manufacturing_date"),
-            row.get("acquisition_date"), session.get("location_name"), session.get("building_name"),
-            session.get("room_name"), None, row.get("cost_center"), row.get("commercial_category"),
-            row.get("accounting_status"), row.get("requires_accounting_review"), row.get("status"),
-            row.get("review_status"), row.get("confidence_score"), row.get("has_object_photo"),
-            row.get("has_nameplate_photo"), row.get("has_dot_photo"), row.get("created_by"),
-            row.get("reviewed_by"), row.get("finalized_at"), row.get("condition_note"),
-        ]])
-    path = Path(settings.upload_root, "exports", f"session-{session_id}.xlsx")
-    wb.save(path)
-    export = execute(
-        "INSERT INTO exports (tenant_id, session_id, file_path) VALUES ((SELECT tenant_id FROM inventory_sessions WHERE id = %s), %s, %s) RETURNING *",
-        (session_id, session_id, str(path)),
-    )
-    audit("export_created", "inventory_session", session_id, export)
-    return export
-
-
 @app.post("/items/{item_id}/export/excel")
 def export_item_excel(item_id: str) -> dict[str, Any]:
     item = get_item(item_id)
@@ -6103,4 +6065,150 @@ def device_heartbeat(session_id: str, device_id: str, body: CockpitHeartbeatIn) 
     )
     if not row:
         raise HTTPException(status_code=404, detail="Geraet nicht gefunden")
+    return row
+
+
+# ---------------------------------------------------------------------------
+# Buchhaltungs-Blatt (SKR51) im Excel-Export + Pflege-Endpoints.
+# Empfehlungen basieren auf konfigurierbaren Grenzen (settings.gwg_*) und
+# ersetzen keine steuerliche Beratung.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_USEFUL_LIFE = {
+    "hebebuehne": 8, "monitor": 3, "notebook": 3, "eingabegeraet": 3,
+    "it_geraet": 3, "werkzeugwagen": 13,
+}
+
+
+def append_accounting_sheet(wb: "Workbook", rows: list[dict[str, Any]]) -> None:
+    profiles = {
+        str(row["object_class_id"]): row
+        for row in fetch_all(
+            """
+            SELECT ap.*, oc.slug AS object_class_slug
+            FROM accounting_profiles ap
+            JOIN object_classes oc ON oc.id = ap.object_class_id
+            """
+        )
+    }
+    ws = wb.create_sheet("Buchhaltung (SKR51)")
+    minor = settings.gwg_minor_limit_eur
+    gwg = settings.gwg_limit_eur
+    pool = settings.gwg_pool_limit_eur
+
+    ws.merge_cells("A1:K1")
+    ws["A1"] = "Buchhaltung – SKR51-Vorbereitung"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.merge_cells("A2:K2")
+    ws["A2"] = (
+        f"Einordnung automatisch aus Zeitwert (Grenzen: {minor:.0f} / {gwg:.0f} / {pool:.0f} EUR, "
+        "in den Servereinstellungen anpassbar). Konto & Nutzungsdauer je Objektklasse pflegt die "
+        "Buchhaltung (accounting_profiles). Keine steuerliche Beratung."
+    )
+    ws["A2"].font = Font(italic=True, size=9, color="555555")
+
+    headers = [
+        "Inventar-Nr", "Bezeichnung", "Typ / Spezifikation", "Objektklasse",
+        "SKR51-Konto", "Kostenstelle", "Baujahr", "ND (Jahre)", "Zeitwert EUR",
+        "Einordnung (Empfehlung)", "Belegfotos",
+    ]
+    header_row = 4
+    header_fill = PatternFill("solid", fgColor="0D1A2E")
+    for column_index, header in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row, column=column_index, value=header)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    first_data = header_row + 1
+    current_year = datetime.now().year
+    for offset, row in enumerate(rows):
+        row_index = first_data + offset
+        profile = profiles.get(str(row.get("object_class_id") or ""), {})
+        account = profile.get("default_skr51_account") or ""
+        life = profile.get("useful_life_years")
+        if life is None:
+            life = _DEFAULT_USEFUL_LIFE.get(str(profile.get("object_class_slug") or ""), 13)
+        photo_count = int(row.get("photo_count") or 0) or (1 if row.get("object_photo_id") else 0)
+        value = row.get("value_estimate")
+        ws.cell(row=row_index, column=1, value=excel_value(row.get("inventory_id") or row.get("temporary_id")))
+        ws.cell(row=row_index, column=2, value=excel_value(row.get("object_type")))
+        ws.cell(row=row_index, column=3, value=excel_value(row.get("specification")))
+        ws.cell(row=row_index, column=4, value=excel_value(row.get("object_class_name")))
+        account_cell = ws.cell(row=row_index, column=5, value=account or "KONTO PFLEGEN")
+        if not account:
+            account_cell.font = Font(color="B45309", bold=True)
+        ws.cell(row=row_index, column=6, value=excel_value(row.get("cost_center")))
+        ws.cell(row=row_index, column=7, value=excel_value(row.get("construction_year")))
+        ws.cell(row=row_index, column=8, value=float(life) if life is not None else None)
+        value_cell = ws.cell(row=row_index, column=9, value=float(value) if value is not None else None)
+        value_cell.number_format = '#,##0.00 "EUR"'
+        # Lebende Formel: Buchhaltung kann den Zeitwert aendern, die
+        # Einordnung rechnet in Excel sofort mit.
+        ws.cell(
+            row=row_index,
+            column=10,
+            value=(
+                f'=IF(I{row_index}="","Wert fehlt – pruefen",'
+                f'IF(I{row_index}<={minor:.0f},"Sofortaufwand (<= {minor:.0f})",'
+                f'IF(I{row_index}<={gwg:.0f},"GWG Sofortabschreibung",'
+                f'IF(I{row_index}<={pool:.0f},"Sammelposten moeglich","Aktivieren + AfA"))))'
+            ),
+        )
+        ws.cell(row=row_index, column=11, value=photo_count)
+
+    last_data = first_data + max(len(rows) - 1, 0)
+    summary_row = last_data + 2
+    ws.cell(row=summary_row, column=8, value="Summe Zeitwert:").font = Font(bold=True)
+    total_cell = ws.cell(row=summary_row, column=9, value=f"=SUM(I{first_data}:I{last_data})" if rows else 0)
+    total_cell.font = Font(bold=True)
+    total_cell.number_format = '#,##0.00 "EUR"'
+    ws.cell(row=summary_row + 1, column=8, value="Aktivieren (> Pool):").font = Font(bold=True)
+    ws.cell(
+        row=summary_row + 1,
+        column=9,
+        value=f'=SUMIF(I{first_data}:I{last_data},">{pool:.0f}")' if rows else 0,
+    ).number_format = '#,##0.00 "EUR"'
+
+    ws.freeze_panes = f"A{first_data}"
+    if rows:
+        ws.auto_filter.ref = f"A{header_row}:K{last_data}"
+    for index, width in enumerate([20, 26, 30, 18, 14, 12, 10, 10, 14, 26, 10], start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+
+@app.get("/accounting/profiles")
+def list_accounting_profiles() -> list[dict[str, Any]]:
+    return fetch_all(
+        """
+        SELECT ap.*, oc.name AS object_class_name, oc.slug AS object_class_slug
+        FROM accounting_profiles ap
+        JOIN object_classes oc ON oc.id = ap.object_class_id
+        ORDER BY oc.name
+        """
+    )
+
+
+class AccountingProfilePatch(BaseModel):
+    default_skr51_account: str | None = None
+    default_cost_center: str | None = None
+    useful_life_years: float | None = None
+
+
+@app.patch("/accounting/profiles/{profile_id}")
+def patch_accounting_profile(profile_id: str, body: AccountingProfilePatch) -> dict[str, Any]:
+    row = execute(
+        """
+        UPDATE accounting_profiles
+        SET default_skr51_account = COALESCE(%s, default_skr51_account),
+            default_cost_center = COALESCE(%s, default_cost_center),
+            useful_life_years = COALESCE(%s, useful_life_years),
+            updated_at = now()
+        WHERE id = %s RETURNING *
+        """,
+        (body.default_skr51_account, body.default_cost_center, body.useful_life_years, profile_id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Profil nicht gefunden")
+    audit("accounting_profile_changed", "accounting_profile", profile_id, row)
     return row
