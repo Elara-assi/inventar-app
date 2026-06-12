@@ -1,35 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AudioRecorder } from "@/components/AudioRecorder";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
-import { Bootstrap, FieldRequirement, api, apiWithRetry } from "@/lib/api";
+import { PushToTalk } from "@/components/PushToTalk";
+import { Bootstrap, FieldRequirement, api } from "@/lib/api";
+import { parseDictation } from "@/lib/dictation";
+import { compressImage } from "@/lib/image";
+import {
+  CachedSession,
+  CaptureRecord,
+  ensurePersistentStorage,
+  getCachedSession,
+  kvGet,
+  kvSet,
+  onOfflineChange,
+  outboxAll,
+  outboxAdd,
+  outboxCount,
+  storageUsageRatio,
+} from "@/lib/offline";
+import { processOutbox, retryQuarantined, startSyncLoop } from "@/lib/sync";
 
 /**
- * Gefuehrte Mobile-Erfassung (Phase-1-Haertung).
+ * Gefuehrte Mobile-Erfassung – Offline-First (O1/O2) + Diktat (D1/D2).
  *
- * Vorher: eine lange Scroll-Seite, Aktionen in beliebiger Reihenfolge,
- * Code-Scan und Sprachaufnahme nur simuliert.
- *
- * Jetzt: ein Schritt pro Bildschirm – Klasse, Foto, Code, Nachweise,
- * Zustand/Sprache, Bestaetigen. Pflicht-Nachweise kommen dynamisch aus
- * field_requirements der gewaehlten Objektklasse. Gespeichert wird erst
- * am Ende in einer Upload-Pipeline mit Retry; ein Abbruch hinterlaesst
- * keine halbfertigen Objekte.
+ * Lokal zuerst: "Speichern" schreibt die komplette Erfassung in < 100 ms in
+ * die IndexedDB-Outbox – mit und ohne Netz identisch. Die Sync-Engine
+ * uebertraegt im Hintergrund (idempotent, fortsetzbar, Quarantaene statt
+ * Datenverlust). Der fruehere KI-Aufruf im Erfassungspfad ist entfernt;
+ * Felder kommen sofort aus dem Diktat-Parser (offline) und spaeter, falls
+ * noetig, vom Transkriptions-Worker.
  */
 
-type Joined = {
-  session: { id: string; location_id: string; building_id: string; room_id: string };
-  device: { id: string };
-};
-
-type Item = { id: string; inventory_id: string; temporary_id: string };
+type Joined = { sessionId: string; deviceId: string; roomName: string };
 
 type StepId = "klasse" | "foto" | "code" | "nachweise" | "details" | "pruefen";
-
-type UploadState = "wartet" | "laeuft" | "fertig" | "fehler";
-
-type UploadStep = { key: string; label: string; state: UploadState; detail?: string };
 
 const CONDITIONS = [
   { value: "neu", label: "Neu" },
@@ -56,6 +61,7 @@ type Capture = {
   code: string;
   codeTarget: "serial" | "inventory";
   condition: string;
+  manufacturingYear: string;
   transcript: string;
   audioBlob: Blob | null;
   audioMime: string;
@@ -70,12 +76,29 @@ const emptyCapture: Capture = {
   code: "",
   codeTarget: "serial",
   condition: "gebraucht",
+  manufacturingYear: "",
   transcript: "",
   audioBlob: null,
   audioMime: "",
   brand: "",
   model: "",
 };
+
+function useOnline(): boolean {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  return online;
+}
 
 function PhotoInput({
   label,
@@ -111,14 +134,50 @@ function PhotoInput({
           type="file"
           accept="image/*"
           capture="environment"
-          onChange={(event) => onFile(event.target.files?.[0] ?? null)}
+          onChange={async (event) => {
+            const selected = event.target.files?.[0] ?? null;
+            onFile(selected ? await compressImage(selected) : null);
+          }}
         />
       </label>
     </div>
   );
 }
 
+function OutboxRow({ record, onRetry }: { record: CaptureRecord; onRetry: () => void }) {
+  const [thumb, setThumb] = useState("");
+  useEffect(() => {
+    const photo = record.photos.find((entry) => entry.type === "object");
+    if (!photo) return;
+    const url = URL.createObjectURL(photo.blob);
+    setThumb(url);
+    return () => URL.revokeObjectURL(url);
+  }, [record]);
+  return (
+    <div className={`outbox-row ${record.state}`}>
+      {thumb ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={thumb} alt="" />
+      ) : (
+        <div className="outbox-thumb-empty" />
+      )}
+      <div className="outbox-info">
+        <strong>{record.label}</strong>
+        <span className="muted">
+          {record.state === "wartet" ? "Wartet auf Uebertragung"
+            : record.state === "sync" ? "Wird uebertragen…"
+            : `Abgelehnt: ${record.error ?? "unbekannt"}`}
+        </span>
+      </div>
+      {record.state === "quarantaene" ? (
+        <button className="btn secondary" onClick={onRetry}>Erneut</button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
+  const online = useOnline();
   const [token, setToken] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
   const [joinError, setJoinError] = useState("");
@@ -126,50 +185,121 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   const [requirements, setRequirements] = useState<FieldRequirement[]>([]);
   const [capture, setCapture] = useState<Capture>(emptyCapture);
   const [stepIndex, setStepIndex] = useState(0);
-  const [doneCount, setDoneCount] = useState(0);
+  const [syncedCount, setSyncedCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
   const [lastInventoryId, setLastInventoryId] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [uploadSteps, setUploadSteps] = useState<UploadStep[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const createdItemRef = useRef<Item | null>(null);
-  const uploadedRef = useRef<Set<string>>(new Set());
+  const [outboxOpen, setOutboxOpen] = useState(false);
+  const [outboxRecords, setOutboxRecords] = useState<CaptureRecord[]>([]);
+  const [storageWarning, setStorageWarning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const manualEdits = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     params.then((value) => setToken(value.token));
   }, [params]);
 
+  // ---- Join: erst Cache (offline-faehig), sonst online koppeln ------------
   useEffect(() => {
-    api<Bootstrap>("/meta/bootstrap").then(setBootstrap).catch(() => setBootstrap(null));
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      const cached = await getCachedSession(token);
+      if (cached && !cancelled) {
+        setJoined({ sessionId: cached.sessionId, deviceId: cached.deviceId, roomName: cached.roomName });
+      }
+      if (!navigator.onLine) {
+        if (!cached && !cancelled) setJoinError("Offline und noch nie gekoppelt – einmal mit Netz oeffnen.");
+        return;
+      }
+      try {
+        const result = await api<{ session: { id: string; room_id: string }; device: { id: string } }>(
+          "/sessions/join",
+          { method: "POST", body: JSON.stringify({ token, device_name: "Handy-Erfassung" }) },
+        );
+        const boot = await api<Bootstrap>("/meta/bootstrap");
+        const reqs = await api<FieldRequirement[]>("/meta/field-requirements");
+        const roomName = boot.rooms.find((room) => room.id === result.session.room_id)?.name ?? "Raum";
+        const session: CachedSession = {
+          token,
+          sessionId: result.session.id,
+          deviceId: result.device.id,
+          roomName,
+          joinedAt: Date.now(),
+        };
+        await Promise.all([kvSet("session", session), kvSet("bootstrap", boot), kvSet("requirements", reqs)]);
+        if (!cancelled) {
+          setJoined({ sessionId: session.sessionId, deviceId: session.deviceId, roomName });
+          setBootstrap(boot);
+          setRequirements(reqs);
+          setJoinError("");
+        }
+      } catch (err) {
+        if (!cached && !cancelled) {
+          setJoinError(err instanceof Error ? err.message : "Join fehlgeschlagen");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // ---- Stammdaten aus dem Cache (offline) ----------------------------------
+  useEffect(() => {
+    (async () => {
+      if (!bootstrap) {
+        const cachedBoot = await kvGet<Bootstrap>("bootstrap");
+        if (cachedBoot) setBootstrap(cachedBoot);
+      }
+      if (!requirements.length) {
+        const cachedReqs = await kvGet<FieldRequirement[]>("requirements");
+        if (cachedReqs) setRequirements(cachedReqs);
+      }
+      setSyncedCount((await kvGet<number>("syncedCount")) ?? 0);
+    })();
+    ensurePersistentStorage();
+  }, [bootstrap, requirements.length]);
+
+  // ---- Outbox-Status + Sync-Engine -----------------------------------------
+  const refreshOutbox = useCallback(async () => {
+    setPendingCount(await outboxCount());
+    setOutboxRecords(await outboxAll());
+    setSyncedCount((await kvGet<number>("syncedCount")) ?? 0);
+    const ratio = await storageUsageRatio();
+    setStorageWarning(ratio !== null && ratio > 0.8);
   }, []);
 
   useEffect(() => {
-    if (!token) return;
-    api<Joined>("/sessions/join", {
-      method: "POST",
-      body: JSON.stringify({ token, device_name: "Handy-Erfassung" }),
-    })
-      .then((value) => {
-        setJoined(value);
-        setJoinError("");
-      })
-      .catch((err) => setJoinError(err instanceof Error ? err.message : "Join fehlgeschlagen"));
-  }, [token]);
+    refreshOutbox();
+    const unsubscribe = onOfflineChange(refreshOutbox);
+    return unsubscribe;
+  }, [refreshOutbox]);
 
-  // Pflicht-Nachweise der gewaehlten Klasse laden (steuert den Wizard).
   useEffect(() => {
-    if (!capture.objectClassId) {
-      setRequirements([]);
-      return;
-    }
-    api<FieldRequirement[]>(`/object-classes/${capture.objectClassId}/requirements`)
-      .then(setRequirements)
-      .catch(() => setRequirements([]));
-  }, [capture.objectClassId]);
+    if (!joined) return;
+    const stopSync = startSyncLoop({
+      onRecordSynced: (_record, inventoryId) => setLastInventoryId(inventoryId),
+    });
+    return stopSync;
+  }, [joined]);
 
-  const roomName = useMemo(() => {
-    const room = bootstrap?.rooms.find((entry) => entry.id === joined?.session.room_id);
-    return room?.name ?? "Raum";
-  }, [bootstrap, joined]);
+  // ---- Geraete-Heartbeat (Vertrauens-UI beim Pruefer) -----------------------
+  useEffect(() => {
+    if (!joined) return;
+    const send = () => {
+      if (!navigator.onLine) return;
+      outboxCount().then((pending) =>
+        api(`/sessions/${joined.sessionId}/devices/${joined.deviceId}/heartbeat`, {
+          method: "POST",
+          body: JSON.stringify({ pending_count: pending }),
+        }).catch(() => undefined),
+      );
+    };
+    send();
+    const interval = setInterval(send, 30000);
+    return () => clearInterval(interval);
+  }, [joined]);
 
   const selectedClass = useMemo(
     () => bootstrap?.object_classes.find((entry) => entry.id === capture.objectClassId) ?? null,
@@ -177,11 +307,13 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   );
 
   const evidenceTypes = useMemo(() => {
+    if (!capture.objectClassId) return [];
     const types = requirements
+      .filter((req) => req.object_class_id === capture.objectClassId)
       .filter((req) => req.evidence_photo_type && req.evidence_photo_type !== "object")
       .map((req) => req.evidence_photo_type as string);
     return [...new Set(types)];
-  }, [requirements]);
+  }, [requirements, capture.objectClassId]);
 
   const steps: StepId[] = useMemo(() => {
     const base: StepId[] = ["klasse", "foto", "code"];
@@ -191,125 +323,92 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }, [evidenceTypes]);
 
   const step = steps[Math.min(stepIndex, steps.length - 1)];
-
   const goNext = useCallback(() => setStepIndex((value) => Math.min(value + 1, steps.length - 1)), [steps.length]);
   const goBack = useCallback(() => setStepIndex((value) => Math.max(value - 1, 0)), []);
 
-  function update<K extends keyof Capture>(key: K, value: Capture[K]) {
+  function update<K extends keyof Capture>(key: K, value: Capture[K], manual = true) {
+    if (manual) manualEdits.current.add(key);
     setCapture((prev) => ({ ...prev, [key]: value }));
   }
 
+  // ---- Diktat-Parser: fuellt leere Felder live aus dem Transkript -----------
+  const parsed = useMemo(
+    () => (capture.transcript.trim() ? parseDictation(capture.transcript, bootstrap?.brands ?? []) : null),
+    [capture.transcript, bootstrap],
+  );
+
+  useEffect(() => {
+    if (!parsed) return;
+    setCapture((prev) => {
+      const next = { ...prev };
+      if (parsed.brand && !manualEdits.current.has("brand")) next.brand = parsed.brand;
+      if (parsed.model && !manualEdits.current.has("model")) next.model = parsed.model;
+      if (parsed.serial_number && !manualEdits.current.has("code") && !prev.code) {
+        next.code = parsed.serial_number;
+        next.codeTarget = "serial";
+      }
+      if (parsed.manufacturing_year && !manualEdits.current.has("manufacturingYear")) {
+        next.manufacturingYear = String(parsed.manufacturing_year);
+      }
+      if (parsed.condition && !manualEdits.current.has("condition")) next.condition = parsed.condition;
+      if (parsed.object_class_slug && !manualEdits.current.has("objectClassId") && !prev.objectClassId) {
+        const match = bootstrap?.object_classes.find((entry) => entry.slug === parsed.object_class_slug);
+        if (match) next.objectClassId = match.id;
+      }
+      return next;
+    });
+  }, [parsed, bootstrap]);
+
   function applyScannedCode(code: string) {
     const isInventoryLabel = /^SHR-/i.test(code);
-    setCapture((prev) => ({ ...prev, code, codeTarget: isInventoryLabel ? "inventory" : "serial" }));
+    update("code", code);
+    update("codeTarget", isInventoryLabel ? "inventory" : "serial");
     setScannerOpen(false);
   }
 
-  function resetForNext() {
-    setCapture(emptyCapture);
-    setRequirements([]);
-    setUploadSteps([]);
-    createdItemRef.current = null;
-    uploadedRef.current = new Set();
-    setStepIndex(0);
-  }
-
-  function buildUploadPlan(): UploadStep[] {
-    const plan: UploadStep[] = [{ key: "item", label: "Objekt anlegen", state: "wartet" }];
-    if (capture.objectPhoto) plan.push({ key: "photo:object", label: "Objektfoto hochladen", state: "wartet" });
-    for (const type of Object.keys(capture.evidencePhotos)) {
-      plan.push({ key: `photo:${type}`, label: `${EVIDENCE_LABELS[type] ?? type} hochladen`, state: "wartet" });
-    }
-    if (capture.audioBlob || capture.transcript.trim()) {
-      plan.push({ key: "audio", label: "Sprachnotiz speichern", state: "wartet" });
-    }
-    plan.push({ key: "ai", label: "KI-Vorschlag anstossen", state: "wartet" });
-    return plan;
-  }
-
-  function setStepState(key: string, state: UploadState, detail?: string) {
-    setUploadSteps((prev) => prev.map((entry) => (entry.key === key ? { ...entry, state, detail } : entry)));
-  }
-
-  async function runUpload() {
-    if (!joined || uploading) return;
-    setUploading(true);
-    const plan = uploadSteps.length ? uploadSteps : buildUploadPlan();
-    if (!uploadSteps.length) setUploadSteps(plan);
+  // ---- Speichern: lokal zuerst (< 100 ms), Sync laeuft im Hintergrund -------
+  async function saveCapture() {
+    if (!joined || saving) return;
+    setSaving(true);
     try {
-      // 1) Objekt anlegen (einmalig; bei Retry wird das vorhandene genutzt)
-      if (!createdItemRef.current) {
-        setStepState("item", "laeuft");
-        const body: Record<string, unknown> = {
-          session_id: joined.session.id,
-          object_class_id: capture.objectClassId || null,
-          condition: capture.condition,
-          brand: capture.brand.trim() || null,
-          model: capture.model.trim() || null,
-        };
-        if (capture.code) {
-          if (capture.codeTarget === "inventory") body.inventory_id = capture.code;
-          else body.serial_number = capture.code;
-        }
-        createdItemRef.current = await apiWithRetry<Item>("/items", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
+      const photos: CaptureRecord["photos"] = [];
+      if (capture.objectPhoto) photos.push({ type: "object", blob: capture.objectPhoto, name: capture.objectPhoto.name || "object.jpg" });
+      for (const [type, file] of Object.entries(capture.evidencePhotos)) {
+        photos.push({ type, blob: file, name: file.name || `${type}.jpg` });
       }
-      const item = createdItemRef.current;
-      setStepState("item", "fertig", item.inventory_id || item.temporary_id);
-
-      // 2) Fotos
-      const photoJobs: Array<[string, File]> = [];
-      if (capture.objectPhoto) photoJobs.push(["object", capture.objectPhoto]);
-      for (const [type, file] of Object.entries(capture.evidencePhotos)) photoJobs.push([type, file]);
-      for (const [type, file] of photoJobs) {
-        const key = `photo:${type}`;
-        if (uploadedRef.current.has(key)) continue;
-        setStepState(key, "laeuft");
-        const form = new FormData();
-        form.append("file", file, file.name || `${type}.jpg`);
-        await apiWithRetry(`/items/${item.id}/photos?photo_type=${type}`, { method: "POST", body: form });
-        uploadedRef.current.add(key);
-        setStepState(key, "fertig");
-      }
-
-      // 3) Sprachnotiz (Audio und/oder Transkript)
-      if ((capture.audioBlob || capture.transcript.trim()) && !uploadedRef.current.has("audio")) {
-        setStepState("audio", "laeuft");
-        const form = new FormData();
-        if (capture.audioBlob) {
-          const ext = capture.audioMime.includes("mp4") ? "m4a" : capture.audioMime.includes("ogg") ? "ogg" : "webm";
-          form.append("file", new File([capture.audioBlob], `notiz.${ext}`, { type: capture.audioMime || "audio/webm" }));
-        }
-        if (capture.transcript.trim()) form.append("transcript", capture.transcript.trim());
-        await apiWithRetry(`/items/${item.id}/audio`, { method: "POST", body: form });
-        uploadedRef.current.add("audio");
-        setStepState("audio", "fertig");
-      }
-
-      // 4) KI anstossen
-      if (!uploadedRef.current.has("ai")) {
-        setStepState("ai", "laeuft");
-        await apiWithRetry(`/items/${item.id}/ai/run`, { method: "POST", body: "{}" });
-        uploadedRef.current.add("ai");
-        setStepState("ai", "fertig");
-      }
-
-      setDoneCount((value) => value + 1);
-      setLastInventoryId(item.inventory_id || item.temporary_id);
-      resetForNext();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload fehlgeschlagen";
-      setUploadSteps((prev) => prev.map((entry) => (entry.state === "laeuft" ? { ...entry, state: "fehler", detail: message } : entry)));
+      const record: CaptureRecord = {
+        clientCaptureId: crypto.randomUUID(),
+        sessionId: joined.sessionId,
+        createdAt: Date.now(),
+        state: "wartet",
+        attempts: 0,
+        objectClassId: capture.objectClassId || null,
+        condition: capture.condition,
+        brand: capture.brand.trim() || null,
+        model: capture.model.trim() || null,
+        serialNumber: capture.codeTarget === "serial" && capture.code ? capture.code : null,
+        inventoryId: capture.codeTarget === "inventory" && capture.code ? capture.code : null,
+        manufacturingYear: capture.manufacturingYear ? parseInt(capture.manufacturingYear, 10) : null,
+        transcript: capture.transcript.trim() || null,
+        audio: capture.audioBlob ? { blob: capture.audioBlob, mime: capture.audioMime } : null,
+        photos,
+        progress: { itemId: null, photosDone: [], audioDone: false },
+        label: selectedClass?.name ?? "Objekt",
+      };
+      await outboxAdd(record);
+      setLastInventoryId("");
+      setCapture(emptyCapture);
+      manualEdits.current = new Set();
+      setStepIndex(0);
+      if (navigator.onLine) void processOutbox();
     } finally {
-      setUploading(false);
+      setSaving(false);
     }
   }
 
-  // ----- Renderzweige -----
+  // ---- Renderzweige ----------------------------------------------------------
 
-  if (joinError) {
+  if (joinError && !joined) {
     return (
       <main className="page mobile-shell">
         <section className="panel grid">
@@ -332,25 +431,57 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
     );
   }
 
-  const hasUploadError = uploadSteps.some((entry) => entry.state === "fehler");
+  const quarantined = outboxRecords.filter((record) => record.state === "quarantaene").length;
 
   return (
     <main className="page mobile-shell">
       <header className="wizard-head">
         <div>
-          <strong>{roomName}</strong>
-          <span className="muted"> · {doneCount} erfasst</span>
+          <strong>{joined.roomName}</strong>
+          <span className="muted"> · {syncedCount} uebertragen</span>
         </div>
-        <span className="status pruefen">Schritt {Math.min(stepIndex + 1, steps.length)}/{steps.length}</span>
+        <button className={`net-pill ${online ? "online" : "offline"}`} onClick={() => setOutboxOpen((value) => !value)}>
+          <span className="net-dot" aria-hidden />
+          {online ? "Online" : "Offline"}{pendingCount ? ` · ${pendingCount} warten` : ""}
+        </button>
       </header>
       <div className="wizard-progress" aria-hidden>
         <div className="wizard-progress-fill" style={{ width: `${((stepIndex + 1) / steps.length) * 100}%` }} />
       </div>
-      {lastInventoryId && step === "klasse" ? (
-        <p className="status finalisierbar">Gespeichert: {lastInventoryId}</p>
+
+      {storageWarning ? (
+        <p className="status upload_fehler">Speicher fast voll – bei naechster Gelegenheit synchronisieren.</p>
+      ) : null}
+      {quarantined && !outboxOpen ? (
+        <button className="status upload_fehler" onClick={() => setOutboxOpen(true)} style={{ border: 0, cursor: "pointer" }}>
+          {quarantined} Erfassung(en) abgelehnt – antippen zum Pruefen
+        </button>
+      ) : null}
+      {lastInventoryId && step === "klasse" && !outboxOpen ? (
+        <p className="status finalisierbar">Uebertragen: {lastInventoryId}</p>
       ) : null}
 
-      {step === "klasse" ? (
+      {outboxOpen ? (
+        <section className="panel grid wizard-step">
+          <h1>Warteschlange</h1>
+          <p className="muted">
+            {pendingCount
+              ? "Diese Objekte sind lokal gesichert und werden automatisch uebertragen, sobald Netz da ist."
+              : "Alles uebertragen. Nichts wartet."}
+          </p>
+          {outboxRecords.map((record) => (
+            <OutboxRow key={record.clientCaptureId} record={record} onRetry={() => retryQuarantined(record)} />
+          ))}
+          <div className="wizard-nav">
+            <button className="btn ghost" onClick={() => setOutboxOpen(false)}>Zurueck zur Erfassung</button>
+            <button className="btn accent" onClick={() => void processOutbox()} disabled={!online || !pendingCount}>
+              Jetzt synchronisieren
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {!outboxOpen && step === "klasse" ? (
         <section className="panel grid wizard-step">
           <h1>Was erfasst du?</h1>
           <div className="tile-grid">
@@ -367,23 +498,23 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               </button>
             ))}
             <button
-              className={`tile muted-tile${capture.objectClassId === "" ? "" : ""}`}
+              className="tile muted-tile"
               onClick={() => {
-                update("objectClassId", "");
+                update("objectClassId", "", false);
                 goNext();
               }}
             >
-              Unbekannt – KI klaert
+              Unbekannt – spaeter klaeren
             </button>
           </div>
         </section>
       ) : null}
 
-      {step === "foto" ? (
+      {!outboxOpen && step === "foto" ? (
         <section className="panel grid wizard-step">
           <h1>Objektfoto</h1>
           <p className="muted">{selectedClass ? selectedClass.name : "Objekt"} komplett aufnehmen.</p>
-          <PhotoInput label="Foto aufnehmen" file={capture.objectPhoto} onFile={(file) => update("objectPhoto", file)} />
+          <PhotoInput label="Foto aufnehmen" file={capture.objectPhoto} onFile={(file) => update("objectPhoto", file, false)} />
           <div className="wizard-nav">
             <button className="btn ghost" onClick={goBack}>Zurueck</button>
             {capture.objectPhoto ? (
@@ -395,7 +526,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </section>
       ) : null}
 
-      {step === "code" ? (
+      {!outboxOpen && step === "code" ? (
         <section className="panel grid wizard-step">
           <h1>Code scannen</h1>
           <p className="muted">Inventaretikett oder Seriennummer-Barcode. Ohne Code einfach weiter.</p>
@@ -437,7 +568,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </section>
       ) : null}
 
-      {step === "nachweise" ? (
+      {!outboxOpen && step === "nachweise" ? (
         <section className="panel grid wizard-step">
           <h1>Pflicht-Nachweise</h1>
           <p className="muted">{selectedClass?.name}: diese Fotos verlangt die Pruefung.</p>
@@ -467,9 +598,35 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </section>
       ) : null}
 
-      {step === "details" ? (
+      {!outboxOpen && step === "details" ? (
         <section className="panel grid wizard-step">
-          <h1>Zustand & Notiz</h1>
+          <h1>Diktat & Zustand</h1>
+          <p className="muted dictation-hint">
+            Diktiere: Marke … Typ … Baujahr … Seriennummer … Zustand …
+          </p>
+          <PushToTalk onChange={(blob, mime) => {
+            update("audioBlob", blob, false);
+            update("audioMime", mime, false);
+          }} />
+          <label className="field">
+            <span>Transkript / Notiz (fuellt Felder automatisch)</span>
+            <textarea
+              value={capture.transcript}
+              rows={2}
+              placeholder="z. B. Hebebuehne Marke Nussbaum Typ Smart Lift Baujahr 2018 Zustand gut"
+              onChange={(event) => update("transcript", event.target.value, false)}
+            />
+          </label>
+          {parsed && Object.keys(parsed).length ? (
+            <div className="parsed-chips">
+              {parsed.object_class_slug ? <span className="status ki_vorgefuellt">Klasse erkannt</span> : null}
+              {parsed.brand ? <span className="status ki_vorgefuellt">Marke: {parsed.brand}</span> : null}
+              {parsed.model ? <span className="status ki_vorgefuellt">Typ: {parsed.model}</span> : null}
+              {parsed.manufacturing_year ? <span className="status ki_vorgefuellt">Baujahr: {parsed.manufacturing_year}</span> : null}
+              {parsed.serial_number ? <span className="status ki_vorgefuellt">S/N: {parsed.serial_number}</span> : null}
+              {parsed.condition ? <span className="status ki_vorgefuellt">Zustand: {parsed.condition.replaceAll("_", " ")}</span> : null}
+            </div>
+          ) : null}
           <div className="segmented wrap">
             {CONDITIONS.map((entry) => (
               <button
@@ -481,29 +638,25 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               </button>
             ))}
           </div>
-          <AudioRecorder onChange={(blob, mime) => {
-            update("audioBlob", blob);
-            update("audioMime", mime);
-          }} />
-          <label className="field">
-            <span>Notiz / Transkript (hilft der KI)</span>
-            <textarea
-              value={capture.transcript}
-              rows={2}
-              placeholder="z. B. Dell Monitor, Serviceannahme, Zustand gut"
-              onChange={(event) => update("transcript", event.target.value)}
-            />
-          </label>
           <div className="grid grid-2">
             <label className="field">
-              <span>Marke (optional)</span>
+              <span>Marke</span>
               <input value={capture.brand} onChange={(event) => update("brand", event.target.value)} />
             </label>
             <label className="field">
-              <span>Modell (optional)</span>
+              <span>Modell/Typ</span>
               <input value={capture.model} onChange={(event) => update("model", event.target.value)} />
             </label>
           </div>
+          <label className="field">
+            <span>Baujahr</span>
+            <input
+              value={capture.manufacturingYear}
+              inputMode="numeric"
+              placeholder="z. B. 2018"
+              onChange={(event) => update("manufacturingYear", event.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+            />
+          </label>
           <div className="wizard-nav">
             <button className="btn ghost" onClick={goBack}>Zurueck</button>
             <button className="btn accent big" onClick={goNext}>Weiter</button>
@@ -511,11 +664,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
         </section>
       ) : null}
 
-      {step === "pruefen" ? (
+      {!outboxOpen && step === "pruefen" ? (
         <section className="panel grid wizard-step">
           <h1>Speichern?</h1>
           <ul className="summary-list">
-            <li><span>Klasse</span><strong>{selectedClass?.name ?? "Unbekannt – KI klaert"}</strong></li>
+            <li><span>Klasse</span><strong>{selectedClass?.name ?? "Unbekannt"}</strong></li>
             <li><span>Objektfoto</span><strong>{capture.objectPhoto ? "vorhanden" : "fehlt"}</strong></li>
             {evidenceTypes.map((type) => (
               <li key={type}>
@@ -524,31 +677,22 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               </li>
             ))}
             <li><span>Code</span><strong>{capture.code ? `${capture.code} (${capture.codeTarget === "inventory" ? "Inventar-Nr." : "S/N"})` : "ohne"}</strong></li>
-            <li><span>Zustand</span><strong>{CONDITIONS.find((entry) => entry.value === capture.condition)?.label}</strong></li>
-            <li><span>Sprachnotiz</span><strong>{capture.audioBlob ? "Audio" : capture.transcript.trim() ? "Text" : "keine"}</strong></li>
             {capture.brand || capture.model ? (
-              <li><span>Marke/Modell</span><strong>{[capture.brand, capture.model].filter(Boolean).join(" ")}</strong></li>
+              <li><span>Marke/Typ</span><strong>{[capture.brand, capture.model].filter(Boolean).join(" ")}</strong></li>
             ) : null}
+            {capture.manufacturingYear ? (
+              <li><span>Baujahr</span><strong>{capture.manufacturingYear}</strong></li>
+            ) : null}
+            <li><span>Zustand</span><strong>{CONDITIONS.find((entry) => entry.value === capture.condition)?.label}</strong></li>
+            <li><span>Diktat</span><strong>{capture.audioBlob ? "Audio" : capture.transcript.trim() ? "Text" : "keins"}</strong></li>
           </ul>
-
-          {uploadSteps.length ? (
-            <div className="upload-list">
-              {uploadSteps.map((entry) => (
-                <div key={entry.key} className={`upload-step ${entry.state}`}>
-                  <span>{entry.label}</span>
-                  <strong>
-                    {entry.state === "wartet" ? "…" : entry.state === "laeuft" ? "laeuft" : entry.state === "fertig" ? "OK" : "Fehler"}
-                  </strong>
-                  {entry.detail && entry.state === "fehler" ? <em>{entry.detail}</em> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-
+          <p className="muted">
+            Speichert sofort auf dem Geraet – Uebertragung laeuft automatisch im Hintergrund{online ? "" : ", sobald wieder Netz da ist"}.
+          </p>
           <div className="wizard-nav">
-            <button className="btn ghost" onClick={goBack} disabled={uploading}>Zurueck</button>
-            <button className="btn accent big" onClick={runUpload} disabled={uploading}>
-              {uploading ? "Speichert…" : hasUploadError ? "Erneut versuchen" : "Speichern & Naechstes"}
+            <button className="btn ghost" onClick={goBack} disabled={saving}>Zurueck</button>
+            <button className="btn accent big" onClick={saveCapture} disabled={saving}>
+              {saving ? "Speichert…" : "Speichern & Naechstes"}
             </button>
           </div>
         </section>

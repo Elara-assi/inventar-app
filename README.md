@@ -32,6 +32,16 @@ Phase 0:
 - Uploadordner: `originals`, `stamped`, `audio`, `exports`, `temp`.
 - README und Smoke-Check.
 
+Phase 2 (Offline-First + Diktat, 2026-06):
+
+- **Offline-Modus**: Mobile Erfassung funktioniert zu 100 % ohne Netz. "Speichern" schreibt in < 100 ms in eine IndexedDB-Outbox (atomar, ueberlebt App-Kill); die Sync-Engine uebertraegt im Hintergrund. Service Worker macht die App offline ladbar (nach erstem Besuch); Stammdaten werden beim Join gecacht.
+- **Dublettenfreier Sync**: `client_capture_id` (UUID je Erfassung) + Inhalts-Hashes fuer Fotos/Audio machen Wiederholungs-Uploads idempotent. Abgelehnte Erfassungen (z. B. Raum inzwischen abgeschlossen) landen sichtbar in Quarantaene, nie im Papierkorb. Pruefer kann Raeume wieder oeffnen (`POST /sessions/{id}/reopen`).
+- **Push-to-Talk-Diktat statt KI-Stub im Erfassungspfad**: grosser Halten-zum-Sprechen-Button mit Pegelanzeige; ein deterministischer Slot-Parser (offline, identisch in TS und Python) fuellt Marke/Typ/Baujahr/Seriennummer/Zustand/Klasse direkt aus dem Diktat. Konvention: "Marke ... Typ ... Baujahr ... Seriennummer ... Zustand ...".
+- **Worker transkribiert on-prem**: faster-whisper (Modell `small`, deutsch) verarbeitet hochgeladene Audios nach dem Sync und traegt NUR leere Felder nach (Audit: `fields_from_dictation`). Kein Cloud-Dienst, keine Wartezeit fuer den Erfasser.
+- **Vertrauens-UI**: Online/Offline-Anzeige mit Warteschlangen-Zaehler, Outbox-Ansicht mit Retry, Geraete-Status in der Pruefansicht (letzter Kontakt + ausstehende Erfassungen je Handy), Warnung beim Raumabschluss bei ausstehenden Geraeten.
+- PWA: Manifest mit Icons; Installation "Zum Home-Bildschirm" empfohlen (stabilerer Speicher, v. a. iOS).
+- Plaene und Entscheidungen: [docs/PLAN_OFFLINE_MODUS.md](docs/PLAN_OFFLINE_MODUS.md), [docs/PLAN_DIKTAT_ERFASSUNG.md](docs/PLAN_DIKTAT_ERFASSUNG.md).
+
 Phase 1.5 (Haertung, 2026-06):
 
 - Stabilitaet: DB-Connection-Pool, Transaktionen, atomare Inventar-ID-Vergabe (race-sicher bei parallelen Erfassern), Eingabevalidierung mit Status-Whitelists, defensives Audit-Log, gebatchte Pruef-Abfragen statt N+1.
@@ -212,10 +222,23 @@ npm run db:reset
 python -m py_compile apps/api/app/main.py apps/api/app/db.py apps/api/app/logic.py apps/api/app/settings.py apps/api/app/constants.py
 ```
 
-End-to-End-Integrationstest (DB + API muessen laufen, 30 Checks inkl. Race-Test mit 12 parallelen Erfassern):
+End-to-End-Integrationstest (DB + API muessen laufen; 41 Checks inkl. Race-Test, Sync-Idempotenz, Reopen, Heartbeat):
 
 ```powershell
 python apps/api/tests/integration_test.py
+```
+
+Diktat-Parser (gemeinsame Testfaelle fuer Python und TypeScript):
+
+```powershell
+python apps/api/tests/test_dictation.py
+npx tsc apps/web/lib/dictation.ts --outDir /tmp/dictation-build --module esnext --target es2022 --moduleResolution bundler --skipLibCheck; node scripts/test-dictation.mjs
+```
+
+Lasttest (15 parallele Handys, Sync-Burst):
+
+```powershell
+python scripts/load-test.py 15 30
 ```
 
 ## Handy-Test mit Kamera und Mikrofon (HTTPS)

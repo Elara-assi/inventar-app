@@ -93,7 +93,20 @@ class ItemIn(BaseModel):
     brand: str | None = None
     model: str | None = None
     serial_number: str | None = None
+    manufacturing_year: int | None = Field(default=None, ge=1900, le=2099)
+    client_capture_id: str | None = None
     created_by: str | None = None
+
+    @field_validator("client_capture_id")
+    @classmethod
+    def _capture_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        import uuid
+        try:
+            return str(uuid.UUID(v))
+        except ValueError as exc:
+            raise ValueError("client_capture_id muss eine UUID sein") from exc
 
     @field_validator("condition")
     @classmethod
@@ -293,6 +306,7 @@ def bootstrap() -> dict[str, Any]:
         "buildings": fetch_all("SELECT * FROM buildings ORDER BY name"),
         "rooms": fetch_all("SELECT * FROM rooms ORDER BY name"),
         "object_classes": fetch_all("SELECT * FROM object_classes ORDER BY name"),
+        "brands": [row["name"] for row in fetch_all("SELECT name FROM brand_lexicon ORDER BY name")],
     }
 
 
@@ -436,6 +450,38 @@ def close_session(session_id: str) -> dict[str, Any]:
     return row
 
 
+@app.post("/sessions/{session_id}/reopen")
+def reopen_session(session_id: str) -> dict[str, Any]:
+    """Pruefer oeffnet einen abgeschlossenen Raum wieder, damit Geraete mit
+    lokal wartenden Erfassungen (Offline-Quarantaene) nachsyncen koennen."""
+    session = fetch_one("SELECT * FROM inventory_sessions WHERE id = %s", (session_id,))
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session["status"] != "closed":
+        raise HTTPException(status_code=409, detail="Session ist nicht abgeschlossen")
+    row = execute(
+        "UPDATE inventory_sessions SET status = 'open', closed_at = NULL, join_token_expires_at = now() + interval '12 hours' WHERE id = %s RETURNING *",
+        (session_id,),
+    )
+    audit("session_reopened", "inventory_session", session_id, row)
+    return row
+
+
+class HeartbeatIn(BaseModel):
+    pending_count: int = Field(default=0, ge=0)
+
+
+@app.post("/sessions/{session_id}/devices/{device_id}/heartbeat")
+def device_heartbeat(session_id: str, device_id: str, body: HeartbeatIn) -> dict[str, Any]:
+    row = execute(
+        "UPDATE session_devices SET last_seen_at = now(), pending_count = %s WHERE id = %s AND session_id = %s RETURNING *",
+        (body.pending_count, device_id, session_id),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return row
+
+
 @app.get("/sessions/{session_id}/devices")
 def devices(session_id: str) -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM session_devices WHERE session_id = %s ORDER BY created_at DESC", (session_id,))
@@ -459,6 +505,16 @@ def revoke_device(session_id: str, device_id: str) -> dict[str, Any]:
 
 @app.post("/items")
 def create_item(body: ItemIn) -> dict[str, Any]:
+    # Idempotenz fuer den Offline-Sync: Bricht das Netz nach dem Server-Commit,
+    # aber vor der Client-Bestaetigung ab, liefert der Wiederholungsversuch das
+    # bereits angelegte Objekt zurueck statt eine Dublette zu erzeugen.
+    if body.client_capture_id:
+        existing = fetch_one(
+            "SELECT * FROM inventory_items WHERE client_capture_id = %s",
+            (body.client_capture_id,),
+        )
+        if existing:
+            return existing
     session = get_session(body.session_id)
     if session["status"] != "open":
         raise HTTPException(status_code=409, detail="Session ist abgeschlossen, keine Erfassung mehr moeglich")
@@ -478,10 +534,12 @@ def create_item(body: ItemIn) -> dict[str, Any]:
             INSERT INTO inventory_items (
               inventory_id, temporary_id, session_id, location_id, building_id, room_id,
               object_type, object_class_id, brand, model, serial_number, condition,
-              condition_note, commercial_category, requires_accounting_review,
+              condition_note, manufacturing_date, client_capture_id,
+              commercial_category, requires_accounting_review,
               accounting_relevance, created_by
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (client_capture_id) WHERE client_capture_id IS NOT NULL DO NOTHING
             RETURNING *
             """,
             (
@@ -498,6 +556,8 @@ def create_item(body: ItemIn) -> dict[str, Any]:
                 body.serial_number,
                 body.condition,
                 body.condition_note,
+                f"{body.manufacturing_year}-01-01" if body.manufacturing_year else None,
+                body.client_capture_id,
                 oc["default_commercial_category"] if oc else "ungeklaert",
                 oc["requires_accounting_review"] if oc else False,
                 oc["requires_accounting_review"] if oc else False,
@@ -505,6 +565,14 @@ def create_item(body: ItemIn) -> dict[str, Any]:
             ),
             conn=conn,
         )
+        if row is None:
+            # Paralleler Sync desselben Geraets hat gewonnen: bestehendes Item liefern.
+            row = fetch_one(
+                "SELECT * FROM inventory_items WHERE client_capture_id = %s",
+                (body.client_capture_id,),
+                conn=conn,
+            )
+            return row
         execute(
             """
             INSERT INTO item_accounting_data (item_id, commercial_category, accounting_status)
@@ -663,10 +731,17 @@ async def upload_photo(item_id: str, photo_type: str = "object", file: UploadFil
         """
         INSERT INTO item_photos (item_id, photo_type, original_path, stamped_path, original_hash, metadata_json)
         VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+        ON CONFLICT (item_id, photo_type, original_hash) DO NOTHING
         RETURNING *
         """,
         (item_id, photo_type, str(path), str(stamped), digest, '{"phase":"1","stamp":"pending-worker"}'),
     )
+    if row is None:
+        # Wiederholter Sync derselben Datei: kein Duplikat, bestehende Zeile liefern.
+        return fetch_one(
+            "SELECT * FROM item_photos WHERE item_id = %s AND photo_type = %s AND original_hash = %s",
+            (item_id, photo_type, digest),
+        )
     audit("photo_uploaded", "inventory_item", item_id, {"photo_id": str(row["id"]), "photo_type": photo_type})
     return row
 
@@ -682,28 +757,37 @@ async def upload_audio(
     if not fetch_one("SELECT id FROM inventory_items WHERE id = %s", (item_id,)):
         raise HTTPException(status_code=404, detail="Item not found")
     text = transcript_form if transcript_form is not None else transcript
+    audio_hash: str | None = None
     if file:
         # Nur die gepruefte Endung uebernehmen, nie den Client-Dateinamen
         # (Path-Traversal-Schutz).
         suffix = _validated_suffix(file, C.ALLOWED_AUDIO_SUFFIXES)
         data = await _read_limited(file)
-        path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}{suffix}")
+        audio_hash = hashlib.sha256(data).hexdigest()
+        path = Path(settings.upload_root, "audio", f"{item_id}-{audio_hash[:12]}{suffix}")
         path.write_bytes(data)
         transcript_status = "completed" if text else "pending"
     else:
         if not text:
             raise HTTPException(status_code=422, detail="Weder Audiodatei noch Transkript uebergeben")
-        path = Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(4)}.txt")
+        audio_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        path = Path(settings.upload_root, "audio", f"{item_id}-{audio_hash[:12]}.txt")
         path.write_text(text, encoding="utf-8")
         transcript_status = "completed"
     row = execute(
         """
-        INSERT INTO item_audio_notes (item_id, audio_path, transcript, transcript_status)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO item_audio_notes (item_id, audio_path, transcript, transcript_status, audio_hash)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (item_id, audio_hash) WHERE audio_hash IS NOT NULL DO NOTHING
         RETURNING *
         """,
-        (item_id, str(path), text, transcript_status),
+        (item_id, str(path), text, transcript_status, audio_hash),
     )
+    if row is None:
+        return fetch_one(
+            "SELECT * FROM item_audio_notes WHERE item_id = %s AND audio_hash = %s",
+            (item_id, audio_hash),
+        )
     audit("audio_saved", "inventory_item", item_id, {"note_id": str(row["id"])})
     return row
 
@@ -806,6 +890,13 @@ def ai_results(item_id: str) -> list[dict[str, Any]]:
 @app.get("/object-classes")
 def object_classes() -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM object_classes ORDER BY name")
+
+
+@app.get("/meta/field-requirements")
+def all_field_requirements() -> list[dict[str, Any]]:
+    """Alle Pflichtfelder in einem Aufruf – fuer den Offline-Stammdaten-Cache
+    der mobilen Erfassung (ein Request beim Join statt N beim Klassenwechsel)."""
+    return fetch_all("SELECT * FROM field_requirements ORDER BY object_class_id, sort_order")
 
 
 @app.get("/object-classes/{class_id}/requirements")

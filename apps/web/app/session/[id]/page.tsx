@@ -14,13 +14,30 @@ type Session = {
   status: string;
 };
 
+type Device = {
+  id: string;
+  device_name: string;
+  last_seen_at?: string | null;
+  pending_count?: number;
+  revoked_at?: string | null;
+};
+
 type Filter = "alle" | "blocker" | "offen" | "finalisiert";
+
+function deviceAge(lastSeen?: string | null): string {
+  if (!lastSeen) return "nie gemeldet";
+  const seconds = Math.max(0, (Date.now() - new Date(lastSeen).getTime()) / 1000);
+  if (seconds < 90) return "gerade aktiv";
+  if (seconds < 3600) return `vor ${Math.round(seconds / 60)} min`;
+  return `vor ${Math.round(seconds / 3600)} h`;
+}
 
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const [sessionId, setSessionId] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [items, setItems] = useState<ReviewItem[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [message, setMessage] = useState("");
   const [exportUrl, setExportUrl] = useState("");
   const [search, setSearch] = useState("");
@@ -41,12 +58,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (!sessionId || loadingRef.current) return;
     loadingRef.current = true;
     try {
-      const [sessionData, itemData] = await Promise.all([
+      const [sessionData, itemData, deviceData] = await Promise.all([
         api<Session>(`/sessions/${sessionId}`),
         api<ReviewItem[]>(`/sessions/${sessionId}/items`),
+        api<Device[]>(`/sessions/${sessionId}/devices`).catch(() => [] as Device[]),
       ]);
       setSession(sessionData);
       setItems(itemData);
+      setDevices(deviceData);
       setConnectionError("");
     } catch (err) {
       setConnectionError(err instanceof Error ? err.message : "Verbindung verloren");
@@ -83,13 +102,30 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  const devicesPending = devices.reduce((sum, device) => sum + (device.pending_count ?? 0), 0);
+
   async function closeRoom() {
+    if (devicesPending > 0 && !window.confirm(
+      `${devicesPending} Erfassung(en) warten noch auf Geraeten. Trotzdem abschliessen?`,
+    )) {
+      return;
+    }
     try {
       await api(`/sessions/${sessionId}/close`, { method: "POST", body: "{}" });
       setMessage("Raum abgeschlossen");
       await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Raumabschluss blockiert");
+    }
+  }
+
+  async function reopenRoom() {
+    try {
+      await api(`/sessions/${sessionId}/reopen`, { method: "POST", body: "{}" });
+      setMessage("Raum wieder geoeffnet – Geraete koennen nachsyncen");
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Wiedereroeffnen fehlgeschlagen");
     }
   }
 
@@ -126,10 +162,24 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <button className="btn accent" onClick={exportExcel}>Excel-Export</button>
             {session?.status !== "closed" ? <button className="btn" onClick={closeRoom}>Raum abschliessen</button> : null}
+            {session?.status === "closed" ? <button className="btn secondary" onClick={reopenRoom}>Raum wieder oeffnen</button> : null}
             {exportUrl ? <a className="btn secondary" href={exportUrl}>Export herunterladen</a> : null}
           </div>
           {message ? <p className="status pruefen">{message}</p> : null}
           {connectionError ? <p className="status upload_fehler">{connectionError}</p> : null}
+          {devices.filter((device) => !device.revoked_at).length ? (
+            <div className="device-panel">
+              {devices.filter((device) => !device.revoked_at).map((device) => (
+                <span
+                  key={device.id}
+                  className={`status ${device.pending_count ? "pruefen" : "geprueft"}`}
+                  title={deviceAge(device.last_seen_at)}
+                >
+                  {device.device_name}: {device.pending_count ?? 0} ausstehend · {deviceAge(device.last_seen_at)}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="qr-box">
           {session && session.status !== "closed" ? (

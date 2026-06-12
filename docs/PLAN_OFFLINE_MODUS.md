@@ -1,6 +1,6 @@
 # Plan: Offline-Modus (Offline-First-Erfassung)
 
-Stand: 2026-06-12. Status: Konzept zur Freigabe.
+Stand: 2026-06-12. Status: UMGESETZT (O1+O2+O3-Kern bzw. D1-D3; siehe README Phase 2). On-Device-Whisper (D4) offen.
 
 ## Ziel und Prinzip
 

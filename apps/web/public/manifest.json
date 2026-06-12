@@ -5,5 +5,17 @@
   "display": "standalone",
   "background_color": "#f4f6f7",
   "theme_color": "#26343c",
-  "icons": []
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "description": "Schnelle Inventur-Erfassung – funktioniert auch offline."
 }

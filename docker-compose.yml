@@ -9,7 +9,9 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./db/migrations/002_stability.sql:/docker-entrypoint-initdb.d/002_stability.sql:ro
-      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/003_seed.sql:ro
+      - ./db/migrations/003_offline_dictation.sql:/docker-entrypoint-initdb.d/003_offline_dictation.sql:ro
+      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/004_seed.sql:ro
+      - ./db/seeds/002_brand_lexicon.sql:/docker-entrypoint-initdb.d/005_brand_lexicon.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U inventar -d inventar"]
       interval: 5s
@@ -23,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      target: api
     environment:
       DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
@@ -55,15 +58,18 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    command: ["python", "-m", "app.worker"]
+      target: worker
     environment:
       DATABASE_URL: postgresql://inventar:inventar@postgres:5432/inventar
       UPLOAD_ROOT: /opt/inventar/uploads
       REDIS_URL: redis://redis:6379/0
       LITELLM_URL: http://litellm:4000
+      WHISPER_MODEL: small
+      WHISPER_MODEL_DIR: /opt/inventar/models
     volumes:
       - ./apps/api/app:/app/app
       - ./storage/uploads:/opt/inventar/uploads
+      - whisper-models:/opt/inventar/models
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,3 +95,4 @@ services:
 volumes:
   postgres-data:
   uptime-kuma-data:
+  whisper-models:

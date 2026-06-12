@@ -5,10 +5,12 @@ export type Bootstrap = {
   buildings: Array<{ id: string; name: string; location_id: string }>;
   rooms: Array<{ id: string; name: string; building_id: string }>;
   object_classes: Array<{ id: string; name: string; slug: string }>;
+  brands?: string[];
 };
 
 export type FieldRequirement = {
   id: string;
+  object_class_id?: string;
   field_name: string;
   field_label: string;
   required: boolean;

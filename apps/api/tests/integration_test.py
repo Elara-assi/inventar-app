@@ -162,6 +162,55 @@ def main() -> None:
     late_item = client.post("/items", json={"session_id": clean["id"]})
     ok("abschluss: Erfassung in geschlossener Session abgelehnt", late_item.status_code == 409)
 
+    # --- Offline-Sync: Idempotenz (O2) -------------------------------------------
+    import uuid
+    capture_id = str(uuid.uuid4())
+    first = client.post("/items", json={
+        "session_id": session["id"], "object_class_id": classes["monitor"]["id"],
+        "client_capture_id": capture_id, "manufacturing_year": 2018,
+    })
+    second = client.post("/items", json={
+        "session_id": session["id"], "object_class_id": classes["monitor"]["id"],
+        "client_capture_id": capture_id,
+    })
+    ok("idempotenz: doppelter Sync liefert dasselbe Item", 
+       first.status_code == 200 and second.status_code == 200 and first.json()["id"] == second.json()["id"])
+    ok("diktat: Baujahr wird gespeichert", str(first.json().get("manufacturing_date", "")).startswith("2018"))
+    dup_item_id = first.json()["id"]
+    p1 = client.post(f"/items/{dup_item_id}/photos?photo_type=object",
+                     files={"file": ("a.jpg", TINY_JPEG, "image/jpeg")})
+    p2 = client.post(f"/items/{dup_item_id}/photos?photo_type=object",
+                     files={"file": ("b.jpg", TINY_JPEG, "image/jpeg")})
+    ok("idempotenz: doppeltes Foto erzeugt keine Dublette",
+       p1.status_code == 200 and p2.status_code == 200 and p1.json()["id"] == p2.json()["id"])
+    a1 = client.post(f"/items/{dup_item_id}/audio", data={"transcript": "Monitor Dell Zustand gut"})
+    a2 = client.post(f"/items/{dup_item_id}/audio", data={"transcript": "Monitor Dell Zustand gut"})
+    ok("idempotenz: doppelte Sprachnotiz erzeugt keine Dublette",
+       a1.status_code == 200 and a2.status_code == 200 and a1.json()["id"] == a2.json()["id"])
+
+    # --- Geraete-Heartbeat (Vertrauens-UI) ---------------------------------------
+    device_id = joined.json()["device"]["id"]
+    hb = client.post(f"/sessions/{session['id']}/devices/{device_id}/heartbeat", json={"pending_count": 3})
+    ok("heartbeat: angenommen", hb.status_code == 200 and hb.json()["pending_count"] == 3)
+    device_list = client.get(f"/sessions/{session['id']}/devices").json()
+    ok("heartbeat: Pruefansicht sieht ausstehende Erfassungen",
+       any(d["id"] == device_id and d.get("pending_count") == 3 and d.get("last_seen_at") for d in device_list))
+
+    # --- Reopen (Offline-Quarantaene-Aufloesung) ---------------------------------
+    reopened = client.post(f"/sessions/{clean['id']}/reopen")
+    ok("reopen: abgeschlossener Raum wieder geoeffnet", reopened.status_code == 200 and reopened.json()["status"] == "open")
+    late_after_reopen = client.post("/items", json={
+        "session_id": clean["id"], "object_class_id": classes["monitor"]["id"],
+    })
+    ok("reopen: Nachsync nach Wiedereroeffnung moeglich", late_after_reopen.status_code == 200)
+    reopen_open = client.post(f"/sessions/{session['id']}/reopen")
+    ok("reopen: offener Raum wird abgelehnt", reopen_open.status_code == 409)
+
+    # --- Stammdaten fuer Offline-Cache -------------------------------------------
+    ok("bootstrap: Markenlexikon vorhanden", "Nussbaum" in (boot.get("brands") or []))
+    reqs_all = client.get("/meta/field-requirements")
+    ok("stammdaten: alle Pflichtfelder in einem Aufruf", reqs_all.status_code == 200 and len(reqs_all.json()) >= 10)
+
     # --- Export -----------------------------------------------------------------
     export = client.post(f"/sessions/{session['id']}/export/excel").json()
     download = client.get(f"/exports/{export['id']}/download")

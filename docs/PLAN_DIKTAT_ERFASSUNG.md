@@ -1,6 +1,6 @@
 # Plan: Push-to-Talk-Diktat mit Felderkennung
 
-Stand: 2026-06-12. Status: Konzept zur Freigabe. Baut auf PLAN_OFFLINE_MODUS.md auf.
+Stand: 2026-06-12. Status: UMGESETZT (O1+O2+O3-Kern bzw. D1-D3; siehe README Phase 2). On-Device-Whisper (D4) offen. Baut auf PLAN_OFFLINE_MODUS.md auf.
 
 ## Ausgangslage und Entscheidung
 
