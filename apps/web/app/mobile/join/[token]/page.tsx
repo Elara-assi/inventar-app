@@ -241,6 +241,12 @@ const queueTypeLabels = {
   audio_upload: "Diktat",
 };
 
+// Entscheidung 2026-06-12: Auf dem Handy ersetzt das Komplett-Diktat die
+// KI-Vorschlaege (zu langsam im Raum, offline nicht verfuegbar). Die
+// Server-KI bleibt fuer die Pruefansicht erhalten; dieser Schalter blendet
+// nur den mobilen Erfassungspfad aus.
+const MOBILE_AI_ENABLED = false;
+
 const queueStatusLabels = {
   pending: "wartet",
   uploading: "Übertragung läuft",
@@ -996,7 +1002,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
       setPhotos((current) => [...current, nextPhoto]);
       setMessage(`${photoLabels[type]} lokal gespeichert. ${getOnlineStatus() ? "Synchronisierung läuft." : "Foto wird später übertragen."}`);
       await refreshQueueSummary();
-      const shouldStartAi = type === "object_front" || type === "type_plate" || nextPhotos.length >= 2;
+      const shouldStartAi = MOBILE_AI_ENABLED && (type === "object_front" || type === "type_plate" || nextPhotos.length >= 2);
       if (shouldStartAi) {
         const requestKey = aiRequestKey(item, nextPhotos);
         setDismissedAiKey("");
@@ -1838,6 +1844,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   }
 
   useEffect(() => {
+    if (!MOBILE_AI_ENABLED) return;
     const hasAiPhoto = photos.some((photo) => photo.type === "object_front" || photo.type === "type_plate");
     if (!hasAiPhoto || !activeItem || busy) return;
     if (!isOnline || !getOnlineStatus()) {
@@ -2052,7 +2059,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
               onRemovePhoto={removeCapturedPhoto}
               onTypePlateRequested={() => decideTypePlate("vorhanden")}
             />
-            {hasObjectPhoto || aiProgress.active || aiSuggestion ? (
+            {MOBILE_AI_ENABLED && (hasObjectPhoto || aiProgress.active || aiSuggestion) ? (
               <MobileCopilotCard
                 form={form}
                 photos={photos}
@@ -2296,9 +2303,11 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
                     ))}
                   </div>
                 ) : null}
-                <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto || !isOnline} onClick={() => void loadAiSuggestion()}>
-                  KI erneut prüfen
-                </button>
+                {MOBILE_AI_ENABLED ? (
+                  <button className="btn accent" type="button" disabled={busy || !hasObjectPhoto || !isOnline} onClick={() => void loadAiSuggestion()}>
+                    KI erneut prüfen
+                  </button>
+                ) : null}
                 {!hasObjectPhoto ? <p className="muted">Zuerst Objektfoto aufnehmen.</p> : null}
               </WizardCard>
             ) : null}
