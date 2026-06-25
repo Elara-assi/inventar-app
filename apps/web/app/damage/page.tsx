@@ -116,6 +116,7 @@ async function compressPhoto(file: File, maxSide = 1800): Promise<Blob> {
 
 export default function DamageCapturePage() {
   const [catalogCount, setCatalogCount] = useState(0);
+  const [catalogReady, setCatalogReady] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [teamName, setTeamName] = useState("Team 1");
   const [articleNo, setArticleNo] = useState("");
@@ -192,7 +193,8 @@ export default function DamageCapturePage() {
         setCatalogCount(articles.length);
         setMessage(`${articles.length} Artikel offline bereit`);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Artikelkatalog konnte nicht geladen werden"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Artikelkatalog konnte nicht geladen werden"))
+      .finally(() => setCatalogReady(true));
     refreshReports().catch(() => undefined);
     return () => {
       window.removeEventListener("online", onOnline);
@@ -221,6 +223,13 @@ export default function DamageCapturePage() {
         setLocalReportId("");
         setDescription("");
         setUvvStickerPresent("unklar");
+        await loadPhotosForReport("");
+        return;
+      }
+      if (!catalogReady) {
+        setArticle(null);
+        setLocalReportId("");
+        setMessage("Artikelkatalog wird offline vorbereitet...");
         await loadPhotosForReport("");
         return;
       }
@@ -256,7 +265,7 @@ export default function DamageCapturePage() {
     return () => {
       ignore = true;
     };
-  }, [articleNo, loadPhotosForReport]);
+  }, [articleNo, catalogReady, loadPhotosForReport]);
 
   async function selectPhoto(type: DamagePhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
