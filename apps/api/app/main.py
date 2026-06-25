@@ -2354,20 +2354,20 @@ async def save_item_photo(
 
 @app.get("/offline-sync/recent")
 def offline_sync_recent(request: Request, limit: int = 15) -> list[dict[str, Any]]:
-    """Zuletzt erfasste Objekte dieses Geraets in dieser Session.
+    """Zuletzt erfasste Objekte dieses Geräts in dieser Session.
 
-    Grundlage fuer die Nacherfassung am Handy: ein gespeichertes Objekt
-    wieder oeffnen und Fotos/Felder ergaenzen. Bewusst auf das eigene
-    Geraet begrenzt (source_device_id), damit der Bundle-Upsert beim
+    Grundlage für die Nacherfassung am Handy: ein gespeichertes Objekt
+    wieder öffnen und Fotos/Felder ergänzen. Bewusst auf das eigene
+    Gerät begrenzt (source_device_id), damit der Bundle-Upsert beim
     erneuten Speichern dasselbe Objekt trifft und keine Dublette entsteht.
     """
     auth = getattr(request.state, "auth", None) or {}
     if auth.get("kind") != "mobile_session":
-        raise HTTPException(status_code=403, detail="Nur fuer gekoppelte Geraete")
+        raise HTTPException(status_code=403, detail="Nur für gekoppelte Geräte")
     session_id = str(auth.get("session_id") or "")
     device_id = str(auth.get("device_id") or "")
     if not session_id or not device_id:
-        raise HTTPException(status_code=403, detail="Session/Geraet unbekannt")
+        raise HTTPException(status_code=403, detail="Session/Gerät unbekannt")
     limit = max(1, min(int(limit), 30))
     rows = fetch_all(
         """
@@ -2395,15 +2395,15 @@ async def offline_sync_item_bundle(payload: str = Form(...), files: list[UploadF
     try:
         parsed = json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Sync-Paket ist kein gueltiges JSON") from exc
+        raise HTTPException(status_code=400, detail="Sync-Paket ist kein gültiges JSON") from exc
     item_payload = parsed.get("item") if isinstance(parsed.get("item"), dict) else parsed
     photo_meta = parsed.get("photos") if isinstance(parsed.get("photos"), list) else []
     try:
         body = ItemIn(**item_payload)
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Sync-Paket ist unvollstaendig: {exc}") from exc
+        raise HTTPException(status_code=422, detail=f"Sync-Paket ist unvollständig: {exc}") from exc
     if not body.client_item_id or not body.source_device_id:
-        raise HTTPException(status_code=422, detail="client_item_id und source_device_id sind fuer Offline-Sync erforderlich")
+        raise HTTPException(status_code=422, detail="client_item_id und source_device_id sind für Offline-Sync erforderlich")
     session = get_session(body.session_id)
     if session["status"] != "open":
         raise HTTPException(status_code=409, detail="Raum ist abgeschlossen")
@@ -2589,7 +2589,7 @@ async def upload_audio(item_id: str, transcript: str | None = None, file: Upload
         if not data:
             raise HTTPException(status_code=400, detail="Audio-Datei ist leer")
         if len(data) > settings.max_upload_bytes:
-            raise HTTPException(status_code=413, detail="Audio-Datei ist zu groÃŸ")
+            raise HTTPException(status_code=413, detail="Audio-Datei ist zu groß")
         suffix = safe_audio_suffix(file.filename, file.content_type)
         path = safe_upload_path(str(Path(settings.upload_root, "audio", f"{item_id}-{secrets.token_hex(16)}{suffix}")))
         path.write_bytes(data)
@@ -3079,11 +3079,11 @@ def deep_dive_dossier(
             "confidence": estimated_value_confidence or 0.0,
             "review_required": True,
             "reference_price_available": reference_price_available,
-            "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+            "reference_price_label": reference_price_label or "Kein Referenzpreis verfügbar",
         },
         "valuation_state": valuation_state or ("reference_available" if reference_price_available else "no_reference"),
         "reference_price_available": reference_price_available,
-        "reference_price_label": reference_price_label or "Kein Referenzpreis verfuegbar",
+        "reference_price_label": reference_price_label or "Kein Referenzpreis verfügbar",
         "suggested_age_years": estimated_age_years,
         "confidence": round(min(confidence, 0.92), 2),
         "review_required": True,
@@ -3511,7 +3511,7 @@ def source_reference_match(source: dict[str, Any], item: dict[str, Any], ai_cont
             "reference_match": "similar",
             "reference_status": "preisspanne_pruefen",
             "match_score": min(0.74, 0.28 + 0.1 * len(matched_terms)),
-            "match_reason": "Aehnlicher Gebrauchtmarkt-Treffer, aber Hersteller/Modell/Typ sind nicht eindeutig genug.",
+            "match_reason": "Ähnlicher Gebrauchtmarkt-Treffer, aber Hersteller/Modell/Typ sind nicht eindeutig genug.",
             "matched_terms": matched_terms,
             "missing_terms": missing_terms[:6],
             "source_kind": source_kind,
@@ -3776,13 +3776,13 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
             "estimated_value": estimate,
             "estimated_value_range": {"min": max(1, round(estimate * 0.75)), "max": max(1, round(estimate * 1.25))},
             "estimated_value_confidence": 0.82,
-            "estimated_value_reason": f"Referenzpreis aus {len(trusted_candidates)} eindeutig passendem Gebrauchtmarkt-Treffer(n). Zustand bleibt fachlich zu pruefen.",
+            "estimated_value_reason": f"Referenzpreis aus {len(trusted_candidates)} eindeutig passendem Gebrauchtmarkt-Treffer(n). Zustand bleibt fachlich zu prüfen.",
             "value_requires_review": True,
             "price_candidates": price_candidates[:8],
             "value_source": "gebrauchtmarkt_referenz",
             "valuation_state": "reference_available",
             "reference_price_available": True,
-            "reference_price_label": "Referenzpreis verfuegbar",
+            "reference_price_label": "Referenzpreis verfügbar",
             "selected_price_reference": trusted_candidates[0],
         }
     if similar_candidates:
@@ -3791,13 +3791,13 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
             "estimated_value": None,
             "estimated_value_range": {"min": max(1, round(sorted_values[0] * 0.8)), "max": max(1, round(sorted_values[-1] * 1.2))},
             "estimated_value_confidence": 0.35,
-            "estimated_value_reason": "Aehnliche Gebrauchtmarkt-Treffer gefunden, aber kein eindeutiger Hersteller-/Modell-/Typ-Match. Kein Referenzpreis.",
+            "estimated_value_reason": "Ähnliche Gebrauchtmarkt-Treffer gefunden, aber kein eindeutiger Hersteller-/Modell-/Typ-Match. Kein Referenzpreis.",
             "value_requires_review": True,
             "price_candidates": price_candidates[:8],
             "value_source": "preisspanne_pruefen",
             "valuation_state": "range_review",
             "reference_price_available": False,
-            "reference_price_label": "Preisspanne pruefen",
+            "reference_price_label": "Preisspanne prüfen",
         }
     return {
         "estimated_value": None,
@@ -3809,7 +3809,7 @@ def estimate_value_from_web(item: dict[str, Any], ai_context: str, sources: list
         "value_source": "keine_referenz",
         "valuation_state": "no_reference",
         "reference_price_available": False,
-        "reference_price_label": "Kein Referenzpreis verfuegbar",
+        "reference_price_label": "Kein Referenzpreis verfügbar",
     }
 
 
@@ -4133,7 +4133,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                 "value_source": "gepruefte_wertreferenz",
                 "valuation_state": "reference_available",
                 "reference_price_available": reference_value is not None,
-                "reference_price_label": "Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
+                "reference_price_label": "Referenzpreis verfügbar" if reference_value is not None else "Kein Referenzpreis verfügbar",
                 "value_reference_used": best_value_reference,
                 "matching_value_references": value_references,
                 "notes": "Geprüfte interne Referenz genutzt. Wert und Alter bleiben prüfpflichtige Vorschläge.",
@@ -4148,7 +4148,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                     value_source="gepruefte_wertreferenz",
                     valuation_state="reference_available" if reference_value is not None else "no_reference",
                     reference_price_available=reference_value is not None,
-                    reference_price_label="Referenzpreis verfuegbar" if reference_value is not None else "Kein Referenzpreis verfuegbar",
+                    reference_price_label="Referenzpreis verfügbar" if reference_value is not None else "Kein Referenzpreis verfügbar",
                     estimated_age_years=reference_age_value,
                 ),
             }
@@ -4178,7 +4178,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "value_source": "keine_webquelle",
             "valuation_state": "no_reference",
             "reference_price_available": False,
-            "reference_price_label": "Kein Referenzpreis verfuegbar",
+            "reference_price_label": "Kein Referenzpreis verfügbar",
             "value_reference_used": None,
             "matching_value_references": value_references,
             "notes": "Websuche ohne verwertbare Quelle. Preis und Alter werden nicht geraten und müssen manuell geprüft werden.",
@@ -4190,7 +4190,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                 value_source="keine_webquelle",
                 valuation_state="no_reference",
                 reference_price_available=False,
-                reference_price_label="Kein Referenzpreis verfuegbar",
+                reference_price_label="Kein Referenzpreis verfügbar",
             ),
         }
     if is_tire_item(item, ai_context):
@@ -4204,7 +4204,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "tire_valuation": tire_result["tire_valuation"],
             "valuation_state": "range_review",
             "reference_price_available": False,
-            "reference_price_label": "Preisspanne pruefen",
+            "reference_price_label": "Preisspanne prüfen",
             "value_source": "reifen_heuristik",
         }
     else:
@@ -4233,12 +4233,12 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
                 "value_source": "gepruefte_wertreferenz",
                 "valuation_state": "reference_available",
                 "reference_price_available": True,
-                "reference_price_label": "Referenzpreis verfuegbar",
+                "reference_price_label": "Referenzpreis verfügbar",
             }
         if reference_value is not None and best_value_reference and int(best_value_reference.get("match_score") or 0) >= 9:
             value_source = "gepruefte_wertreferenz"
             estimated_value_confidence = 0.82
-            estimated_value_reason = f"Aus gepruefter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}."
+            estimated_value_reason = f"Aus geprüfter Wertreferenz abgeleitet: {best_value_reference.get('match_reason')}."
             value_reference_used = best_value_reference
         elif guarded_value.get("reference_price_available") and guarded_value.get("estimated_value") is not None:
             value_source = str(guarded_value.get("value_source") or "gebrauchtmarkt_referenz")
@@ -4273,7 +4273,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             "price_candidates": guarded_value.get("price_candidates") or [],
             "valuation_state": guarded_value.get("valuation_state") or "no_reference",
             "reference_price_available": bool(guarded_value.get("reference_price_available")),
-            "reference_price_label": guarded_value.get("reference_price_label") or "Kein Referenzpreis verfuegbar",
+            "reference_price_label": guarded_value.get("reference_price_label") or "Kein Referenzpreis verfügbar",
             "selected_price_reference": guarded_value.get("selected_price_reference"),
             "age_confidence": 0.8 if reference_age is not None and age_from_construction_year is None else 0.55 if estimated_age is not None else 0.0,
             "age_reason": age_reason,
@@ -4311,7 +4311,7 @@ def build_deep_dive_result(item_id: str) -> dict[str, Any]:
             price_candidates=extra_result.get("price_candidates") or [],
             valuation_state=str(extra_result.get("valuation_state") or "no_reference"),
             reference_price_available=bool(extra_result.get("reference_price_available")),
-            reference_price_label=str(extra_result.get("reference_price_label") or "Kein Referenzpreis verfuegbar"),
+            reference_price_label=str(extra_result.get("reference_price_label") or "Kein Referenzpreis verfügbar"),
             estimated_age_years=estimated_age,
         ),
         **extra_result,
@@ -5957,9 +5957,9 @@ async def sync_damage_report(request: Request, payload: str = Form(...), files: 
     try:
         parsed = DamageSyncPayload(**json.loads(payload))
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="Schadenspaket ist kein gueltiges JSON") from exc
+        raise HTTPException(status_code=400, detail="Schadenspaket ist kein gültiges JSON") from exc
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Schadenspaket ist unvollstaendig: {exc}") from exc
+        raise HTTPException(status_code=422, detail=f"Schadenspaket ist unvollständig: {exc}") from exc
     if not parsed.report.description.strip():
         raise HTTPException(status_code=422, detail="Schadensbeschreibung fehlt")
     required_photo_types = {"front", "damage_detail_1"}
@@ -6099,7 +6099,7 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
         "Alter",
         "Team",
         "Erfasst am",
-        "Geaendert am",
+        "Geändert am",
         "Schadensbeschreibung",
         "UVV-Aufkleber vorhanden",
         "Frontbild",
@@ -6141,10 +6141,10 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
 
-    summary_ws = wb.create_sheet("Uebersicht", 0)
+    summary_ws = wb.create_sheet("Übersicht", 0)
     summary_ws.append(["Export", "Schadensliste"])
     summary_ws.append(["Erzeugt am", excel_value(datetime.now())])
-    summary_ws.append(["Schadensfaelle", len(rows)])
+    summary_ws.append(["Schadensfälle", len(rows)])
     summary_ws.append(["Teams", len({row.get("team_name") for row in rows if row.get("team_name")} )])
     summary_ws.column_dimensions["A"].width = 22
     summary_ws.column_dimensions["B"].width = 36
@@ -6359,13 +6359,13 @@ def download_export(export_id: str, request: Request) -> FileResponse:
         raise HTTPException(status_code=404, detail="Export not found")
     auth = getattr(request.state, "auth", {}) or {}
     if auth.get("tenant_id") and row.get("tenant_id") and str(row.get("tenant_id")) != str(auth.get("tenant_id")):
-        raise HTTPException(status_code=403, detail="Export gehoert nicht zu diesem Mandanten")
+        raise HTTPException(status_code=403, detail="Export gehört nicht zu diesem Mandanten")
     if (
         auth.get("kind") == "mobile_session"
         and row.get("export_type") != "damage_excel"
         and str(row.get("session_id") or "") != str(auth.get("session_id") or "")
     ):
-        raise HTTPException(status_code=403, detail="Export gehoert nicht zu dieser mobilen Session")
+        raise HTTPException(status_code=403, detail="Export gehört nicht zu dieser mobilen Session")
     return FileResponse(row["file_path"], filename=Path(row["file_path"]).name)
 
 
@@ -6376,7 +6376,7 @@ def download_damage_photo(photo_id: str, request: Request) -> FileResponse:
         raise HTTPException(status_code=404, detail="Schadensfoto nicht gefunden")
     auth = getattr(request.state, "auth", {}) or {}
     if auth.get("tenant_id") and row.get("tenant_id") and str(row.get("tenant_id")) != str(auth.get("tenant_id")):
-        raise HTTPException(status_code=403, detail="Foto gehoert nicht zu diesem Mandanten")
+        raise HTTPException(status_code=403, detail="Foto gehört nicht zu diesem Mandanten")
     path = safe_upload_path(row["original_path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="Fotodatei nicht gefunden")
@@ -6581,13 +6581,13 @@ class CockpitHeartbeatIn(BaseModel):
 
 @app.post("/sessions/{session_id}/devices/{device_id}/heartbeat")
 def device_heartbeat(session_id: str, device_id: str, body: CockpitHeartbeatIn) -> dict[str, Any]:
-    """Handy meldet sich periodisch: speist das Geraete-Panel im Cockpit."""
+    """Handy meldet sich periodisch: speist das Geräte-Panel im Cockpit."""
     row = execute(
         "UPDATE session_devices SET last_seen_at = now(), pending_count = %s WHERE id = %s AND session_id = %s RETURNING id, last_seen_at, pending_count",
         (max(0, int(body.pending_count)), device_id, session_id),
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Geraet nicht gefunden")
+        raise HTTPException(status_code=404, detail="Gerät nicht gefunden")
     return row
 
 
@@ -6672,10 +6672,10 @@ def append_accounting_sheet(wb: "Workbook", rows: list[dict[str, Any]]) -> None:
             row=row_index,
             column=10,
             value=(
-                f'=IF(I{row_index}="","Wert fehlt – pruefen",'
+                f'=IF(I{row_index}="","Wert fehlt – prüfen",'
                 f'IF(I{row_index}<={minor:.0f},"Sofortaufwand (<= {minor:.0f})",'
                 f'IF(I{row_index}<={gwg:.0f},"GWG Sofortabschreibung",'
-                f'IF(I{row_index}<={pool:.0f},"Sammelposten moeglich","Aktivieren + AfA"))))'
+                f'IF(I{row_index}<={pool:.0f},"Sammelposten möglich","Aktivieren + AfA"))))'
             ),
         )
         ws.cell(row=row_index, column=11, value=photo_count)

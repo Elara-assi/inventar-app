@@ -251,7 +251,7 @@ export default function DamageCapturePage() {
         setDescription(existing.description);
         setUvvStickerPresent(existing.uvv_sticker_present);
         setTeamName(existing.team_name || getStoredDamageTeamName());
-        setExistingHint("Artikel ist bereits lokal erfasst und wurde zum Bearbeiten geoeffnet.");
+        setExistingHint("Artikel ist bereits lokal erfasst und wurde zum Bearbeiten geöffnet.");
         await loadPhotosForReport(existing.local_report_id);
       } else {
         const nextId = createDamageReportId();
@@ -261,7 +261,7 @@ export default function DamageCapturePage() {
         await loadPhotosForReport(nextId);
       }
     }
-    resolveArticle().catch((err) => setError(err instanceof Error ? err.message : "Artikel konnte nicht geprueft werden"));
+    resolveArticle().catch((err) => setError(err instanceof Error ? err.message : "Artikel konnte nicht geprüft werden"));
     return () => {
       ignore = true;
     };
@@ -322,7 +322,7 @@ export default function DamageCapturePage() {
 
   async function saveCurrentReport() {
     if (!article || !localReportId) {
-      setError("Bitte zuerst eine gueltige Artikelnummer eingeben.");
+      setError("Bitte zuerst eine gültige Artikelnummer eingeben.");
       return null;
     }
     if (!canSave) {
@@ -405,7 +405,7 @@ export default function DamageCapturePage() {
     <main className="damage-page">
       <section className="damage-hero">
         <div>
-          <a className="damage-back-link" href="/">Zurueck</a>
+          <a className="damage-back-link" href="/">Zurück</a>
           <h1>Schadenerfassung</h1>
           <p>Artikelnummer eingeben, Pflichtfotos sichern, Schaden beschreiben. Alles wird zuerst lokal gespeichert.</p>
         </div>
@@ -507,12 +507,12 @@ export default function DamageCapturePage() {
           </div>
 
           <label className="field damage-description">
-            <span>Ausfuehrliche Schadensbeschreibung</span>
+            <span>Ausführliche Schadensbeschreibung</span>
             <textarea
               rows={7}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="z. B. Gehaeuse rechts gerissen, Bedienfeld lose, Nutzung nur eingeschraenkt moeglich..."
+              placeholder="z. B. Gehäuse rechts gerissen, Bedienfeld lose, Nutzung nur eingeschränkt möglich..."
             />
           </label>
 
@@ -536,7 +536,7 @@ export default function DamageCapturePage() {
           <div className="damage-section-head">
             <div>
               <h2>Lokaler Stand</h2>
-              <span>Export erst nach Sync vollstaendig auf dem Server.</span>
+              <span>Export erst nach Sync vollständig auf dem Server.</span>
             </div>
           </div>
           <div className="damage-summary-grid">

@@ -95,7 +95,7 @@ function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 export function initDamageDb(): Promise<IDBDatabase> {
-  if (!browserOnly()) return Promise.reject(new Error("IndexedDB ist nicht verfuegbar"));
+  if (!browserOnly()) return Promise.reject(new Error("IndexedDB ist nicht verfügbar"));
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -104,7 +104,7 @@ export function initDamageDb(): Promise<IDBDatabase> {
       if (settled) return;
       settled = true;
       dbPromise = null;
-      reject(new Error("Lokale Schadensspeicherung ist blockiert. Bitte alte Tabs schliessen und neu laden."));
+      reject(new Error("Lokale Schadensspeicherung ist blockiert. Bitte alte Tabs schließen und neu laden."));
     }, 4_000);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -152,7 +152,7 @@ export function initDamageDb(): Promise<IDBDatabase> {
       settled = true;
       window.clearTimeout(timeout);
       dbPromise = null;
-      reject(request.error ?? new Error("Schadensdatenbank konnte nicht geoeffnet werden"));
+      reject(request.error ?? new Error("Schadensdatenbank konnte nicht geöffnet werden"));
     };
   });
   return dbPromise;
