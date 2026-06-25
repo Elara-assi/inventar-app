@@ -1977,7 +1977,10 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <strong>{roomName}</strong>
             <span>{inventoryTypeLabel(inventoryType)}</span>
           </div>
-          <span className="live-indicator">Live</span>
+          <div className="mobile-room-actions">
+            <a className="mobile-damage-link" href="/damage">Schaeden erfassen</a>
+            <span className="live-indicator">Live</span>
+          </div>
         </div> : null}
 
         {!joined ? (

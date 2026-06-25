@@ -1,0 +1,6625 @@
+{
+  "version": "damage-articles-v1",
+  "source_file": "Mappe4.xlsx",
+  "generated_at": "2026-06-25T21:28:33.747Z",
+  "key_column": "Nr.",
+  "header_row": 2,
+  "count": 735,
+  "articles": [
+    {
+      "article_no": "1",
+      "nr": "1",
+      "buchungskreis": "40000009",
+      "anlagenbezeichnung": "FIRMENANTEIL KUNDENADRESSE",
+      "aktivdatum": 39448,
+      "aktivdatum_iso": "2008-01-01",
+      "alter": 18.47
+    },
+    {
+      "article_no": "2",
+      "nr": "2",
+      "buchungskreis": "40000011",
+      "anlagenbezeichnung": "Fa. HP Mid-market Solutions GmbH VW Prof",
+      "aktivdatum": 40415,
+      "aktivdatum_iso": "2010-08-25",
+      "alter": 15.82
+    },
+    {
+      "article_no": "3",
+      "nr": "3",
+      "buchungskreis": "40000012",
+      "anlagenbezeichnung": "Acronis Enterprise Server Lizenz",
+      "aktivdatum": 40738,
+      "aktivdatum_iso": "2011-07-14",
+      "alter": 14.94
+    },
+    {
+      "article_no": "4",
+      "nr": "4",
+      "buchungskreis": "40000013",
+      "anlagenbezeichnung": "FA IT Service, Prout in Form Outputserv",
+      "aktivdatum": 40809,
+      "aktivdatum_iso": "2011-09-23",
+      "alter": 14.74
+    },
+    {
+      "article_no": "5",
+      "nr": "5",
+      "buchungskreis": "40000014",
+      "anlagenbezeichnung": "Upgarde Liznez ESX Host auf Version ESXI",
+      "aktivdatum": 41737,
+      "aktivdatum_iso": "2014-04-08",
+      "alter": 12.2
+    },
+    {
+      "article_no": "11",
+      "nr": "11",
+      "buchungskreis": "5006",
+      "anlagenbezeichnung": "E Bike Hollywood Boulevard",
+      "aktivdatum": 43970,
+      "aktivdatum_iso": "2020-05-19",
+      "alter": 6.08
+    },
+    {
+      "article_no": "17",
+      "nr": "17",
+      "buchungskreis": "7000",
+      "anlagenbezeichnung": "Umbau Renovierung NW Bereich",
+      "aktivdatum": 42735,
+      "aktivdatum_iso": "2016-12-31",
+      "alter": 9.47
+    },
+    {
+      "article_no": "18",
+      "nr": "18",
+      "buchungskreis": "7001",
+      "anlagenbezeichnung": "Photovoltaikanlage GW Center",
+      "aktivdatum": 43837,
+      "aktivdatum_iso": "2020-01-07",
+      "alter": 6.45
+    },
+    {
+      "article_no": "24",
+      "nr": "24",
+      "buchungskreis": "20000090",
+      "anlagenbezeichnung": "WERKSTATTKRAHN",
+      "aktivdatum": 37530,
+      "aktivdatum_iso": "2002-10-01",
+      "alter": 23.73
+    },
+    {
+      "article_no": "25",
+      "nr": "25",
+      "buchungskreis": "20000104",
+      "anlagenbezeichnung": "REGENWASSERVERSORGUNG",
+      "aktivdatum": 37547,
+      "aktivdatum_iso": "2002-10-18",
+      "alter": 23.68
+    },
+    {
+      "article_no": "26",
+      "nr": "26",
+      "buchungskreis": "20000112",
+      "anlagenbezeichnung": "MOTOR U. GETRIEBEHALTER",
+      "aktivdatum": 37540,
+      "aktivdatum_iso": "2002-10-11",
+      "alter": 23.7
+    },
+    {
+      "article_no": "27",
+      "nr": "27",
+      "buchungskreis": "20000113",
+      "anlagenbezeichnung": "SCHERENHEBEBÜHNE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "28",
+      "nr": "28",
+      "buchungskreis": "20000114",
+      "anlagenbezeichnung": "ABGASANLAGE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "29",
+      "nr": "29",
+      "buchungskreis": "20000116",
+      "anlagenbezeichnung": "FRISCHÖLANLAGE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "30",
+      "nr": "30",
+      "buchungskreis": "20000117",
+      "anlagenbezeichnung": "ALTÖLANLAGE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "31",
+      "nr": "31",
+      "buchungskreis": "20000118",
+      "anlagenbezeichnung": "ZZWEISTEMPELHEBEBÜHNE M.",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "32",
+      "nr": "32",
+      "buchungskreis": "20000119",
+      "anlagenbezeichnung": "ZWEISTEMPELHEBEBÜHNE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "33",
+      "nr": "33",
+      "buchungskreis": "20000120",
+      "anlagenbezeichnung": "PRÜFSTRAßE",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "34",
+      "nr": "34",
+      "buchungskreis": "20000121",
+      "anlagenbezeichnung": "MEGAMAT",
+      "aktivdatum": 37558,
+      "aktivdatum_iso": "2002-10-29",
+      "alter": 23.65
+    },
+    {
+      "article_no": "35",
+      "nr": "35",
+      "buchungskreis": "20000123",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "36",
+      "nr": "36",
+      "buchungskreis": "20000124",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "37",
+      "nr": "37",
+      "buchungskreis": "20000125",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "38",
+      "nr": "38",
+      "buchungskreis": "20000126",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "39",
+      "nr": "39",
+      "buchungskreis": "20000127",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "40",
+      "nr": "40",
+      "buchungskreis": "20000128",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "41",
+      "nr": "41",
+      "buchungskreis": "20000129",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "42",
+      "nr": "42",
+      "buchungskreis": "20000130",
+      "anlagenbezeichnung": "ZWEISÄULENHEBEBÜHNE",
+      "aktivdatum": 37579,
+      "aktivdatum_iso": "2002-11-19",
+      "alter": 23.59
+    },
+    {
+      "article_no": "43",
+      "nr": "43",
+      "buchungskreis": "20000133",
+      "anlagenbezeichnung": "Federspannsystem",
+      "aktivdatum": 38132,
+      "aktivdatum_iso": "2004-05-25",
+      "alter": 22.08
+    },
+    {
+      "article_no": "44",
+      "nr": "44",
+      "buchungskreis": "20000144",
+      "anlagenbezeichnung": "Schweißgerät",
+      "aktivdatum": 38569,
+      "aktivdatum_iso": "2005-08-05",
+      "alter": 20.88
+    },
+    {
+      "article_no": "45",
+      "nr": "45",
+      "buchungskreis": "20000156",
+      "anlagenbezeichnung": "Tester  ASE 40515191900",
+      "aktivdatum": 38772,
+      "aktivdatum_iso": "2006-02-24",
+      "alter": 20.32
+    },
+    {
+      "article_no": "46",
+      "nr": "46",
+      "buchungskreis": "20000165",
+      "anlagenbezeichnung": "Bördelgerät für Bremsleitungen",
+      "aktivdatum": 38996,
+      "aktivdatum_iso": "2006-10-06",
+      "alter": 19.71
+    },
+    {
+      "article_no": "47",
+      "nr": "47",
+      "buchungskreis": "20000166",
+      "anlagenbezeichnung": "Profi 95",
+      "aktivdatum": 39010,
+      "aktivdatum_iso": "2006-10-20",
+      "alter": 19.67
+    },
+    {
+      "article_no": "48",
+      "nr": "48",
+      "buchungskreis": "20000170",
+      "anlagenbezeichnung": "Klimaservicegerät+Adapter",
+      "aktivdatum": 39045,
+      "aktivdatum_iso": "2006-11-24",
+      "alter": 19.58
+    },
+    {
+      "article_no": "49",
+      "nr": "49",
+      "buchungskreis": "20000173",
+      "anlagenbezeichnung": "Scherenhubtisch",
+      "aktivdatum": 39059,
+      "aktivdatum_iso": "2006-12-08",
+      "alter": 19.54
+    },
+    {
+      "article_no": "50",
+      "nr": "50",
+      "buchungskreis": "20000176",
+      "anlagenbezeichnung": "Fahrzeugdiagnosegerät",
+      "aktivdatum": 39101,
+      "aktivdatum_iso": "2007-01-19",
+      "alter": 19.42
+    },
+    {
+      "article_no": "51",
+      "nr": "51",
+      "buchungskreis": "20000189",
+      "anlagenbezeichnung": "Reifenmontiergerät",
+      "aktivdatum": 39381,
+      "aktivdatum_iso": "2007-10-26",
+      "alter": 18.65
+    },
+    {
+      "article_no": "52",
+      "nr": "52",
+      "buchungskreis": "20000189",
+      "anlagenbezeichnung": "Reifenmontiergerät/Pax-Aufrüstsatz",
+      "aktivdatum": 39381,
+      "aktivdatum_iso": "2007-10-26",
+      "alter": 18.65
+    },
+    {
+      "article_no": "53",
+      "nr": "53",
+      "buchungskreis": "20000190",
+      "anlagenbezeichnung": "Justagevorrichtung (Achs-Vermessung)",
+      "aktivdatum": 39430,
+      "aktivdatum_iso": "2007-12-14",
+      "alter": 18.52
+    },
+    {
+      "article_no": "54",
+      "nr": "54",
+      "buchungskreis": "20000191",
+      "anlagenbezeichnung": "Radauswuchtmaschine",
+      "aktivdatum": 39447,
+      "aktivdatum_iso": "2007-12-31",
+      "alter": 18.47
+    },
+    {
+      "article_no": "55",
+      "nr": "55",
+      "buchungskreis": "20000193",
+      "anlagenbezeichnung": "Endoskop-Set",
+      "aktivdatum": 39589,
+      "aktivdatum_iso": "2008-05-21",
+      "alter": 18.08
+    },
+    {
+      "article_no": "56",
+      "nr": "56",
+      "buchungskreis": "20000195",
+      "anlagenbezeichnung": "2 X Kalibriervorrichtung",
+      "aktivdatum": 39638,
+      "aktivdatum_iso": "2008-07-09",
+      "alter": 17.95
+    },
+    {
+      "article_no": "57",
+      "nr": "57",
+      "buchungskreis": "20000197",
+      "anlagenbezeichnung": "FA KSW GMBH KÄRCHER HDS 850-4 BASIC",
+      "aktivdatum": 39833,
+      "aktivdatum_iso": "2009-01-20",
+      "alter": 17.42
+    },
+    {
+      "article_no": "58",
+      "nr": "58",
+      "buchungskreis": "20000198",
+      "anlagenbezeichnung": "Fa. Deniz Akyol Fahrzeugdiagnosesystem ",
+      "aktivdatum": 39870,
+      "aktivdatum_iso": "2009-02-26",
+      "alter": 17.32
+    },
+    {
+      "article_no": "59",
+      "nr": "59",
+      "buchungskreis": "20000199",
+      "anlagenbezeichnung": "VW OTLG Auswuchtmaschine",
+      "aktivdatum": 40102,
+      "aktivdatum_iso": "2009-10-16",
+      "alter": 16.68
+    },
+    {
+      "article_no": "60",
+      "nr": "60",
+      "buchungskreis": "20000200",
+      "anlagenbezeichnung": "Fa. Wieländer + Schill Punktschweißpist",
+      "aktivdatum": 40143,
+      "aktivdatum_iso": "2009-11-26",
+      "alter": 16.57
+    },
+    {
+      "article_no": "61",
+      "nr": "61",
+      "buchungskreis": "20000201",
+      "anlagenbezeichnung": "Fa. Büchler Deichselstapler",
+      "aktivdatum": 40145,
+      "aktivdatum_iso": "2009-11-28",
+      "alter": 16.56
+    },
+    {
+      "article_no": "62",
+      "nr": "62",
+      "buchungskreis": "20000204",
+      "anlagenbezeichnung": "VW OTLG Punktschweißgerät 400 V VAS 6545",
+      "aktivdatum": 40155,
+      "aktivdatum_iso": "2009-12-08",
+      "alter": 16.53
+    },
+    {
+      "article_no": "63",
+      "nr": "63",
+      "buchungskreis": "20000205",
+      "anlagenbezeichnung": "Fa. Wieländer+Schill, Punktschweißgerät",
+      "aktivdatum": 40296,
+      "aktivdatum_iso": "2010-04-28",
+      "alter": 16.15
+    },
+    {
+      "article_no": "64",
+      "nr": "64",
+      "buchungskreis": "20000207",
+      "anlagenbezeichnung": "Werkstatttester VAS 6150",
+      "aktivdatum": 40396,
+      "aktivdatum_iso": "2010-08-06",
+      "alter": 15.87
+    },
+    {
+      "article_no": "65",
+      "nr": "65",
+      "buchungskreis": "20000208",
+      "anlagenbezeichnung": "Fa. Wieländer + Schill InvertalPuls Sch",
+      "aktivdatum": 40599,
+      "aktivdatum_iso": "2011-02-25",
+      "alter": 15.32
+    },
+    {
+      "article_no": "66",
+      "nr": "66",
+      "buchungskreis": "20000210",
+      "anlagenbezeichnung": "VW OTLG Trennbox zur Diagnose neuer Ste",
+      "aktivdatum": 40884,
+      "aktivdatum_iso": "2011-12-07",
+      "alter": 14.54
+    },
+    {
+      "article_no": "67",
+      "nr": "67",
+      "buchungskreis": "20000211",
+      "anlagenbezeichnung": "Fa Würth, Werkstattwagen Tool-System",
+      "aktivdatum": 40981,
+      "aktivdatum_iso": "2012-03-13",
+      "alter": 14.27
+    },
+    {
+      "article_no": "68",
+      "nr": "68",
+      "buchungskreis": "20000212",
+      "anlagenbezeichnung": "VW OTLG MESSTECHNIKKABELBOX ADAPTER",
+      "aktivdatum": 41031,
+      "aktivdatum_iso": "2012-05-02",
+      "alter": 14.13
+    },
+    {
+      "article_no": "69",
+      "nr": "69",
+      "buchungskreis": "20000213",
+      "anlagenbezeichnung": "Diagnosesystem",
+      "aktivdatum": 41059,
+      "aktivdatum_iso": "2012-05-30",
+      "alter": 14.06
+    },
+    {
+      "article_no": "70",
+      "nr": "70",
+      "buchungskreis": "20000214",
+      "anlagenbezeichnung": "FA KÄRCHER KSW, Dampfstrahler Werkstatt",
+      "aktivdatum": 41134,
+      "aktivdatum_iso": "2012-08-13",
+      "alter": 13.85
+    },
+    {
+      "article_no": "71",
+      "nr": "71",
+      "buchungskreis": "20000218",
+      "anlagenbezeichnung": "Kurzhubscherenhebebühne",
+      "aktivdatum": 41661,
+      "aktivdatum_iso": "2014-01-22",
+      "alter": 12.41
+    },
+    {
+      "article_no": "72",
+      "nr": "72",
+      "buchungskreis": "20000219",
+      "anlagenbezeichnung": "Tester VAS5051B",
+      "aktivdatum": 41677,
+      "aktivdatum_iso": "2014-02-07",
+      "alter": 12.36
+    },
+    {
+      "article_no": "73",
+      "nr": "73",
+      "buchungskreis": "20000220",
+      "anlagenbezeichnung": "Portalwaschanlage NEW Softwash",
+      "aktivdatum": 41703,
+      "aktivdatum_iso": "2014-03-05",
+      "alter": 12.29
+    },
+    {
+      "article_no": "74",
+      "nr": "74",
+      "buchungskreis": "20000226",
+      "anlagenbezeichnung": "Audi e-tron Ladesäule",
+      "aktivdatum": 41886,
+      "aktivdatum_iso": "2014-09-04",
+      "alter": 11.79
+    },
+    {
+      "article_no": "75",
+      "nr": "75",
+      "buchungskreis": "20000227",
+      "anlagenbezeichnung": "Messtechnik Werkstatt VAS 6356",
+      "aktivdatum": 41885,
+      "aktivdatum_iso": "2014-09-03",
+      "alter": 11.79
+    },
+    {
+      "article_no": "76",
+      "nr": "76",
+      "buchungskreis": "20000228",
+      "anlagenbezeichnung": "Zufahrtweg zum Reifenlager",
+      "aktivdatum": 41927,
+      "aktivdatum_iso": "2014-10-15",
+      "alter": 11.68
+    },
+    {
+      "article_no": "77",
+      "nr": "77",
+      "buchungskreis": "20000230",
+      "anlagenbezeichnung": "Motor und Getriebehalter",
+      "aktivdatum": 41964,
+      "aktivdatum_iso": "2014-11-21",
+      "alter": 11.58
+    },
+    {
+      "article_no": "78",
+      "nr": "78",
+      "buchungskreis": "20000232",
+      "anlagenbezeichnung": "PowerLift HL2.40 NTMB Hebebühne (Thomas",
+      "aktivdatum": 42137,
+      "aktivdatum_iso": "2015-05-13",
+      "alter": 11.1
+    },
+    {
+      "article_no": "82",
+      "nr": "82",
+      "buchungskreis": "20000233",
+      "anlagenbezeichnung": "Kompressor 2010185: N60-270FT (VZ)",
+      "aktivdatum": 42144,
+      "aktivdatum_iso": "2015-05-20",
+      "alter": 11.08
+    },
+    {
+      "article_no": "83",
+      "nr": "83",
+      "buchungskreis": "20000234",
+      "anlagenbezeichnung": "Scheinwerfer-Eistellgerät+Laufschienen",
+      "aktivdatum": 42181,
+      "aktivdatum_iso": "2015-06-26",
+      "alter": 10.98
+    },
+    {
+      "article_no": "84",
+      "nr": "84",
+      "buchungskreis": "20000235",
+      "anlagenbezeichnung": "Abgassmessgerät (Würth)",
+      "aktivdatum": 42184,
+      "aktivdatum_iso": "2015-06-29",
+      "alter": 10.98
+    },
+    {
+      "article_no": "85",
+      "nr": "85",
+      "buchungskreis": "20000236",
+      "anlagenbezeichnung": "Schweißgerät Carbon-Miracle gebr. (comc",
+      "aktivdatum": 42284,
+      "aktivdatum_iso": "2015-10-07",
+      "alter": 10.7
+    },
+    {
+      "article_no": "86",
+      "nr": "86",
+      "buchungskreis": "20000237",
+      "anlagenbezeichnung": "Sprinter mobil 2500 mobile Kurzhubscher",
+      "aktivdatum": 42289,
+      "aktivdatum_iso": "2015-10-12",
+      "alter": 10.69
+    },
+    {
+      "article_no": "87",
+      "nr": "87",
+      "buchungskreis": "20000238",
+      "anlagenbezeichnung": "Rangierhilfe (VZ)",
+      "aktivdatum": 42328,
+      "aktivdatum_iso": "2015-11-20",
+      "alter": 10.58
+    },
+    {
+      "article_no": "88",
+      "nr": "88",
+      "buchungskreis": "20000239",
+      "anlagenbezeichnung": "Rangierhilfe (VZ)",
+      "aktivdatum": 42328,
+      "aktivdatum_iso": "2015-11-20",
+      "alter": 10.58
+    },
+    {
+      "article_no": "89",
+      "nr": "89",
+      "buchungskreis": "20000240",
+      "anlagenbezeichnung": "Hebebühne Rotary VAS 6814 (VZ)",
+      "aktivdatum": 42340,
+      "aktivdatum_iso": "2015-12-02",
+      "alter": 10.55
+    },
+    {
+      "article_no": "90",
+      "nr": "90",
+      "buchungskreis": "20000242",
+      "anlagenbezeichnung": "Reifenmontage-Gerät (VZ)",
+      "aktivdatum": 42389,
+      "aktivdatum_iso": "2016-01-20",
+      "alter": 10.41
+    },
+    {
+      "article_no": "91",
+      "nr": "91",
+      "buchungskreis": "20000243",
+      "anlagenbezeichnung": "TESTER ASE-400-100-70-000 (VZ)",
+      "aktivdatum": 42410,
+      "aktivdatum_iso": "2016-02-10",
+      "alter": 10.36
+    },
+    {
+      "article_no": "92",
+      "nr": "92",
+      "buchungskreis": "20000244",
+      "anlagenbezeichnung": "Klimaservicegerät VAS581001 (VZ)",
+      "aktivdatum": 42419,
+      "aktivdatum_iso": "2016-02-19",
+      "alter": 10.33
+    },
+    {
+      "article_no": "93",
+      "nr": "93",
+      "buchungskreis": "20000245",
+      "anlagenbezeichnung": "Tester Paket ASE-400-101-70-000 (VZ)",
+      "aktivdatum": 42447,
+      "aktivdatum_iso": "2016-03-18",
+      "alter": 10.25
+    },
+    {
+      "article_no": "94",
+      "nr": "94",
+      "buchungskreis": "20000246",
+      "anlagenbezeichnung": "Motor und Getriebeheber VAS6931 (VZ)",
+      "aktivdatum": 42480,
+      "aktivdatum_iso": "2016-04-20",
+      "alter": 10.16
+    },
+    {
+      "article_no": "95",
+      "nr": "95",
+      "buchungskreis": "20000247",
+      "anlagenbezeichnung": "Kalibriergerät für Nachtsichtassistent ",
+      "aktivdatum": 42503,
+      "aktivdatum_iso": "2016-05-13",
+      "alter": 10.1
+    },
+    {
+      "article_no": "96",
+      "nr": "96",
+      "buchungskreis": "20000248",
+      "anlagenbezeichnung": "Werksattwagen bestückt (Würth)",
+      "aktivdatum": 42502,
+      "aktivdatum_iso": "2016-05-12",
+      "alter": 10.1
+    },
+    {
+      "article_no": "97",
+      "nr": "97",
+      "buchungskreis": "20000249",
+      "anlagenbezeichnung": "Werksattwagen bestückt (Würth)",
+      "aktivdatum": 42353,
+      "aktivdatum_iso": "2015-12-15",
+      "alter": 10.51
+    },
+    {
+      "article_no": "98",
+      "nr": "98",
+      "buchungskreis": "20000250",
+      "anlagenbezeichnung": "Werksattwagen bestückt (Würth)",
+      "aktivdatum": 42353,
+      "aktivdatum_iso": "2015-12-15",
+      "alter": 10.51
+    },
+    {
+      "article_no": "99",
+      "nr": "99",
+      "buchungskreis": "20000251",
+      "anlagenbezeichnung": "Universalaufnahme VAS 6095/1",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "100",
+      "nr": "100",
+      "buchungskreis": "20000252",
+      "anlagenbezeichnung": "Werksattwagen bestückt (Würth)",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "101",
+      "nr": "101",
+      "buchungskreis": "20000253",
+      "anlagenbezeichnung": "Werkzeugkoffer (Liqui)",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "102",
+      "nr": "102",
+      "buchungskreis": "20000254",
+      "anlagenbezeichnung": "Roll Out 2004 Scheibendemontage",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "103",
+      "nr": "103",
+      "buchungskreis": "20000255",
+      "anlagenbezeichnung": "Reparaturset für Antenenleitung (VZ)",
+      "aktivdatum": 42538,
+      "aktivdatum_iso": "2016-06-17",
+      "alter": 10.01
+    },
+    {
+      "article_no": "104",
+      "nr": "104",
+      "buchungskreis": "20000256",
+      "anlagenbezeichnung": "Diagnosefunkkopf VAS 5054A (VZ)",
+      "aktivdatum": 42384,
+      "aktivdatum_iso": "2016-01-15",
+      "alter": 10.43
+    },
+    {
+      "article_no": "105",
+      "nr": "105",
+      "buchungskreis": "20000257",
+      "anlagenbezeichnung": "Messwertaufnehmer (VZ)",
+      "aktivdatum": 42480,
+      "aktivdatum_iso": "2016-04-20",
+      "alter": 10.16
+    },
+    {
+      "article_no": "106",
+      "nr": "106",
+      "buchungskreis": "20000258",
+      "anlagenbezeichnung": "Hand-Multimeter V.A.G. 1526E (VZ)",
+      "aktivdatum": 42592,
+      "aktivdatum_iso": "2016-08-10",
+      "alter": 9.86
+    },
+    {
+      "article_no": "107",
+      "nr": "107",
+      "buchungskreis": "20000260",
+      "anlagenbezeichnung": "Kalibriersystem VAS 721001",
+      "aktivdatum": 42706,
+      "aktivdatum_iso": "2016-12-02",
+      "alter": 9.55
+    },
+    {
+      "article_no": "108",
+      "nr": "108",
+      "buchungskreis": "20000261",
+      "anlagenbezeichnung": "Verkaufsleiterarbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "109",
+      "nr": "109",
+      "buchungskreis": "20000262",
+      "anlagenbezeichnung": "Hochvolt Messadapter VAS 6558A",
+      "aktivdatum": 42790,
+      "aktivdatum_iso": "2017-02-24",
+      "alter": 9.32
+    },
+    {
+      "article_no": "110",
+      "nr": "110",
+      "buchungskreis": "20000263",
+      "anlagenbezeichnung": "Fzg.-Konfigurator",
+      "aktivdatum": 42802,
+      "aktivdatum_iso": "2017-03-08",
+      "alter": 9.28
+    },
+    {
+      "article_no": "111",
+      "nr": "111",
+      "buchungskreis": "20000264",
+      "anlagenbezeichnung": "Werkstattwagen bestückt (Würth)",
+      "aktivdatum": 42850,
+      "aktivdatum_iso": "2017-04-25",
+      "alter": 9.15
+    },
+    {
+      "article_no": "112",
+      "nr": "112",
+      "buchungskreis": "20000265",
+      "anlagenbezeichnung": "Elektrische Vakumpumpe VAS 6096/2",
+      "aktivdatum": 42818,
+      "aktivdatum_iso": "2017-03-24",
+      "alter": 9.24
+    },
+    {
+      "article_no": "113",
+      "nr": "113",
+      "buchungskreis": "20000270",
+      "anlagenbezeichnung": "WAUZZZ8V9HA118763 HD-AU 3303 A3",
+      "aktivdatum": 42916,
+      "aktivdatum_iso": "2017-06-30",
+      "alter": 8.97
+    },
+    {
+      "article_no": "114",
+      "nr": "114",
+      "buchungskreis": "20000272",
+      "anlagenbezeichnung": "Diagnoseinterface VAS 6154 W-LAN",
+      "aktivdatum": 42979,
+      "aktivdatum_iso": "2017-09-01",
+      "alter": 8.8
+    },
+    {
+      "article_no": "115",
+      "nr": "115",
+      "buchungskreis": "20000277",
+      "anlagenbezeichnung": "Getriebeaufnahme T40344 (VZ)",
+      "aktivdatum": 43026,
+      "aktivdatum_iso": "2017-10-18",
+      "alter": 8.67
+    },
+    {
+      "article_no": "116",
+      "nr": "116",
+      "buchungskreis": "20000278",
+      "anlagenbezeichnung": "Hochvolt Diagnosebox VAS 5581 (VZ)",
+      "aktivdatum": 43026,
+      "aktivdatum_iso": "2017-10-18",
+      "alter": 8.67
+    },
+    {
+      "article_no": "117",
+      "nr": "117",
+      "buchungskreis": "20000279",
+      "anlagenbezeichnung": "Hochvolt Diagnosebox VAS 5581 (VZ)",
+      "aktivdatum": 43026,
+      "aktivdatum_iso": "2017-10-18",
+      "alter": 8.67
+    },
+    {
+      "article_no": "118",
+      "nr": "118",
+      "buchungskreis": "20000280",
+      "anlagenbezeichnung": "Werksattwagen bestückt (Würth)",
+      "aktivdatum": 43047,
+      "aktivdatum_iso": "2017-11-08",
+      "alter": 8.61
+    },
+    {
+      "article_no": "119",
+      "nr": "119",
+      "buchungskreis": "20000281",
+      "anlagenbezeichnung": "Hunter QuickGrip Radgreifer (VZ)",
+      "aktivdatum": 42972,
+      "aktivdatum_iso": "2017-08-25",
+      "alter": 8.82
+    },
+    {
+      "article_no": "120",
+      "nr": "120",
+      "buchungskreis": "20000282",
+      "anlagenbezeichnung": "Ultraschallreinigungsgerät VAS 6189B (V",
+      "aktivdatum": 43019,
+      "aktivdatum_iso": "2017-10-11",
+      "alter": 8.69
+    },
+    {
+      "article_no": "121",
+      "nr": "121",
+      "buchungskreis": "20000286",
+      "anlagenbezeichnung": "Spülgerät für Kühlsystem VAS 531007 VZ",
+      "aktivdatum": 43161,
+      "aktivdatum_iso": "2018-03-02",
+      "alter": 8.3
+    },
+    {
+      "article_no": "122",
+      "nr": "122",
+      "buchungskreis": "20000288",
+      "anlagenbezeichnung": "Heizzentrale Buderus Mietkaufrechnung 0",
+      "aktivdatum": 43161,
+      "aktivdatum_iso": "2018-03-02",
+      "alter": 8.3
+    },
+    {
+      "article_no": "123",
+      "nr": "123",
+      "buchungskreis": "20000289",
+      "anlagenbezeichnung": "Hebebühne Mietkaufrechnung 001",
+      "aktivdatum": 43160,
+      "aktivdatum_iso": "2018-03-01",
+      "alter": 8.3
+    },
+    {
+      "article_no": "124",
+      "nr": "124",
+      "buchungskreis": "20000290",
+      "anlagenbezeichnung": "Kalibiertafel für Laserscanner VAS6430/",
+      "aktivdatum": 43292,
+      "aktivdatum_iso": "2018-07-11",
+      "alter": 7.94
+    },
+    {
+      "article_no": "125",
+      "nr": "125",
+      "buchungskreis": "20000291",
+      "anlagenbezeichnung": "Hochdruckreiniger HDS 11/18-4S Kärcher",
+      "aktivdatum": 43355,
+      "aktivdatum_iso": "2018-09-12",
+      "alter": 7.77
+    },
+    {
+      "article_no": "126",
+      "nr": "126",
+      "buchungskreis": "20000292",
+      "anlagenbezeichnung": "Blockheizkraftwerk",
+      "aktivdatum": 42736,
+      "aktivdatum_iso": "2017-01-01",
+      "alter": 9.46
+    },
+    {
+      "article_no": "127",
+      "nr": "127",
+      "buchungskreis": "20000293",
+      "anlagenbezeichnung": "Blockheizkraftwerk",
+      "aktivdatum": 42736,
+      "aktivdatum_iso": "2017-01-01",
+      "alter": 9.46
+    },
+    {
+      "article_no": "128",
+      "nr": "128",
+      "buchungskreis": "20000295",
+      "anlagenbezeichnung": "Reifeneinlagerung Handy Scan+Installati",
+      "aktivdatum": 43396,
+      "aktivdatum_iso": "2018-10-23",
+      "alter": 7.65
+    },
+    {
+      "article_no": "129",
+      "nr": "129",
+      "buchungskreis": "20000296",
+      "anlagenbezeichnung": "WAUZZZGA0KA016287 HD-QQ 235",
+      "aktivdatum": 43451,
+      "aktivdatum_iso": "2018-12-17",
+      "alter": 7.5
+    },
+    {
+      "article_no": "130",
+      "nr": "130",
+      "buchungskreis": "20000309",
+      "anlagenbezeichnung": "Saugwellengerät",
+      "aktivdatum": 43528,
+      "aktivdatum_iso": "2019-03-04",
+      "alter": 7.29
+    },
+    {
+      "article_no": "131",
+      "nr": "131",
+      "buchungskreis": "20000310",
+      "anlagenbezeichnung": "Abmontagekoffer für Windschutzscheibe",
+      "aktivdatum": 43539,
+      "aktivdatum_iso": "2019-03-15",
+      "alter": 7.26
+    },
+    {
+      "article_no": "132",
+      "nr": "132",
+      "buchungskreis": "20000312",
+      "anlagenbezeichnung": "Ladestation etron",
+      "aktivdatum": 43646,
+      "aktivdatum_iso": "2019-06-30",
+      "alter": 6.97
+    },
+    {
+      "article_no": "133",
+      "nr": "133",
+      "buchungskreis": "20000313",
+      "anlagenbezeichnung": "Heinzzentrale Buderus Merca Leasing",
+      "aktivdatum": 43161,
+      "aktivdatum_iso": "2018-03-02",
+      "alter": 8.3
+    },
+    {
+      "article_no": "134",
+      "nr": "134",
+      "buchungskreis": "20000314",
+      "anlagenbezeichnung": "Abgas Absauganlage Merca Leasing",
+      "aktivdatum": 43160,
+      "aktivdatum_iso": "2018-03-01",
+      "alter": 8.3
+    },
+    {
+      "article_no": "135",
+      "nr": "135",
+      "buchungskreis": "20000315",
+      "anlagenbezeichnung": "Diasngonseinterface Wireless LAN VAS 61",
+      "aktivdatum": 43726,
+      "aktivdatum_iso": "2019-09-18",
+      "alter": 6.75
+    },
+    {
+      "article_no": "136",
+      "nr": "136",
+      "buchungskreis": "20000317",
+      "anlagenbezeichnung": "Batterietester VAS 6161",
+      "aktivdatum": 43803,
+      "aktivdatum_iso": "2019-12-04",
+      "alter": 6.54
+    },
+    {
+      "article_no": "141",
+      "nr": "141",
+      "buchungskreis": "20000318",
+      "anlagenbezeichnung": "Vibrations-und Geräuscheanalysesystem V",
+      "aktivdatum": 43826,
+      "aktivdatum_iso": "2019-12-27",
+      "alter": 6.48
+    },
+    {
+      "article_no": "142",
+      "nr": "142",
+      "buchungskreis": "20000319",
+      "anlagenbezeichnung": "Vibrations-und Geräuscheanalysesystem V",
+      "aktivdatum": 43826,
+      "aktivdatum_iso": "2019-12-27",
+      "alter": 6.48
+    },
+    {
+      "article_no": "143",
+      "nr": "143",
+      "buchungskreis": "20000320",
+      "anlagenbezeichnung": "Bremsenprüfstand , PC Kompakt WIN 10",
+      "aktivdatum": 43945,
+      "aktivdatum_iso": "2020-04-24",
+      "alter": 6.15
+    },
+    {
+      "article_no": "144",
+      "nr": "144",
+      "buchungskreis": "20000324",
+      "anlagenbezeichnung": "Hochvolt Werkzeug e-tron",
+      "aktivdatum": 44062,
+      "aktivdatum_iso": "2020-08-19",
+      "alter": 5.83
+    },
+    {
+      "article_no": "145",
+      "nr": "145",
+      "buchungskreis": "20000326",
+      "anlagenbezeichnung": "Wash Tec, Waschportal Easy Wash",
+      "aktivdatum": 44091,
+      "aktivdatum_iso": "2020-09-17",
+      "alter": 5.75
+    },
+    {
+      "article_no": "146",
+      "nr": "146",
+      "buchungskreis": "20000328",
+      "anlagenbezeichnung": "Diagnosegerät Proffessional VAS 6150 E",
+      "aktivdatum": 44209,
+      "aktivdatum_iso": "2021-01-13",
+      "alter": 5.43
+    },
+    {
+      "article_no": "147",
+      "nr": "147",
+      "buchungskreis": "20000330",
+      "anlagenbezeichnung": "Elektronisches Messsystem VAS 611007",
+      "aktivdatum": 44365,
+      "aktivdatum_iso": "2021-06-18",
+      "alter": 5
+    },
+    {
+      "article_no": "148",
+      "nr": "148",
+      "buchungskreis": "20000331",
+      "anlagenbezeichnung": "Getriebeaufnahme+Hebevorrichtung",
+      "aktivdatum": 44461,
+      "aktivdatum_iso": "2021-09-22",
+      "alter": 4.74
+    },
+    {
+      "article_no": "149",
+      "nr": "149",
+      "buchungskreis": "20000332",
+      "anlagenbezeichnung": "Spannungsausgleichgerät für Hochvoltbat",
+      "aktivdatum": 44419,
+      "aktivdatum_iso": "2021-08-11",
+      "alter": 4.85
+    },
+    {
+      "article_no": "150",
+      "nr": "150",
+      "buchungskreis": "20000333",
+      "anlagenbezeichnung": "CipherLab RS 51 Mobilgerät, Scanner Räd",
+      "aktivdatum": 44391,
+      "aktivdatum_iso": "2021-07-14",
+      "alter": 4.93
+    },
+    {
+      "article_no": "151",
+      "nr": "151",
+      "buchungskreis": "20000334",
+      "anlagenbezeichnung": "Bremsfüll,Entlüftungsgerät VAS 761003",
+      "aktivdatum": 44498,
+      "aktivdatum_iso": "2021-10-29",
+      "alter": 4.64
+    },
+    {
+      "article_no": "152",
+      "nr": "152",
+      "buchungskreis": "20000335",
+      "anlagenbezeichnung": "Diagnosegerät Professional VAS 6150 E",
+      "aktivdatum": 44580,
+      "aktivdatum_iso": "2022-01-19",
+      "alter": 4.41
+    },
+    {
+      "article_no": "153",
+      "nr": "153",
+      "buchungskreis": "20000336",
+      "anlagenbezeichnung": "Kühlsystem Servicegerät VAS 531011",
+      "aktivdatum": 44610,
+      "aktivdatum_iso": "2022-02-18",
+      "alter": 4.33
+    },
+    {
+      "article_no": "154",
+      "nr": "154",
+      "buchungskreis": "20000338",
+      "anlagenbezeichnung": "Diagnosegerät VAS 6150F",
+      "aktivdatum": 44680,
+      "aktivdatum_iso": "2022-04-29",
+      "alter": 4.14
+    },
+    {
+      "article_no": "155",
+      "nr": "155",
+      "buchungskreis": "20000340",
+      "anlagenbezeichnung": "Batterieladegerät VAS 5908",
+      "aktivdatum": 44785,
+      "aktivdatum_iso": "2022-08-12",
+      "alter": 3.85
+    },
+    {
+      "article_no": "156",
+      "nr": "156",
+      "buchungskreis": "20000341",
+      "anlagenbezeichnung": "Klimaservicegegät VAS 581 009",
+      "aktivdatum": 44776,
+      "aktivdatum_iso": "2022-08-03",
+      "alter": 3.87
+    },
+    {
+      "article_no": "157",
+      "nr": "157",
+      "buchungskreis": "20000342",
+      "anlagenbezeichnung": "Ladegerät Ausstellungshalle",
+      "aktivdatum": 44805,
+      "aktivdatum_iso": "2022-09-01",
+      "alter": 3.79
+    },
+    {
+      "article_no": "158",
+      "nr": "158",
+      "buchungskreis": "20000343",
+      "anlagenbezeichnung": "Prüfgerät für Lecksuche VAS 751 001",
+      "aktivdatum": 44853,
+      "aktivdatum_iso": "2022-10-19",
+      "alter": 3.66
+    },
+    {
+      "article_no": "159",
+      "nr": "159",
+      "buchungskreis": "20000344",
+      "anlagenbezeichnung": "Granulat Punktstrahlgerät VAS 294 011 A",
+      "aktivdatum": 44862,
+      "aktivdatum_iso": "2022-10-28",
+      "alter": 3.64
+    },
+    {
+      "article_no": "160",
+      "nr": "160",
+      "buchungskreis": "20000345",
+      "anlagenbezeichnung": "Moon AD Ladesäule",
+      "aktivdatum": 44868,
+      "aktivdatum_iso": "2022-11-03",
+      "alter": 3.62
+    },
+    {
+      "article_no": "161",
+      "nr": "161",
+      "buchungskreis": "20000346",
+      "anlagenbezeichnung": "Baterrieladegerät",
+      "aktivdatum": 44895,
+      "aktivdatum_iso": "2022-11-30",
+      "alter": 3.55
+    },
+    {
+      "article_no": "162",
+      "nr": "162",
+      "buchungskreis": "20000347",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "163",
+      "nr": "163",
+      "buchungskreis": "20000348",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/15",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "164",
+      "nr": "164",
+      "buchungskreis": "20000349",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/16",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "165",
+      "nr": "165",
+      "buchungskreis": "20000350",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/19",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "166",
+      "nr": "166",
+      "buchungskreis": "20000351",
+      "anlagenbezeichnung": "Diagnosegerät VAS 6150F",
+      "aktivdatum": 44876,
+      "aktivdatum_iso": "2022-11-11",
+      "alter": 3.6
+    },
+    {
+      "article_no": "167",
+      "nr": "167",
+      "buchungskreis": "20000352",
+      "anlagenbezeichnung": "Diagnosebox",
+      "aktivdatum": 44944,
+      "aktivdatum_iso": "2023-01-18",
+      "alter": 3.41
+    },
+    {
+      "article_no": "168",
+      "nr": "168",
+      "buchungskreis": "20000354",
+      "anlagenbezeichnung": "Diagnosegerät VAS 6150F-DEU-",
+      "aktivdatum": 45037,
+      "aktivdatum_iso": "2023-04-21",
+      "alter": 3.16
+    },
+    {
+      "article_no": "169",
+      "nr": "169",
+      "buchungskreis": "20000355",
+      "anlagenbezeichnung": "Abgasuntersuchungsgerät Diesel",
+      "aktivdatum": 45132,
+      "aktivdatum_iso": "2023-07-25",
+      "alter": 2.9
+    },
+    {
+      "article_no": "170",
+      "nr": "170",
+      "buchungskreis": "20000357",
+      "anlagenbezeichnung": "VW OTLG; Aufnahme VAS 6131/19",
+      "aktivdatum": 45783,
+      "aktivdatum_iso": "2025-05-06",
+      "alter": 1.12
+    },
+    {
+      "article_no": "171",
+      "nr": "171",
+      "buchungskreis": "20000358",
+      "anlagenbezeichnung": "Dick & Schaub; Rotary 2-Säulen Hebebühne",
+      "aktivdatum": 45813,
+      "aktivdatum_iso": "2025-06-05",
+      "alter": 1.03
+    },
+    {
+      "article_no": "172",
+      "nr": "172",
+      "buchungskreis": "20000359",
+      "anlagenbezeichnung": "VW OTLG; Interface-Modul VAS6154A/1",
+      "aktivdatum": 45821,
+      "aktivdatum_iso": "2025-06-13",
+      "alter": 1.01
+    },
+    {
+      "article_no": "173",
+      "nr": "173",
+      "buchungskreis": "20000360",
+      "anlagenbezeichnung": "Digital Mobility Leasing; Reifenmontier",
+      "aktivdatum": 45939,
+      "aktivdatum_iso": "2025-10-09",
+      "alter": 0.69
+    },
+    {
+      "article_no": "179",
+      "nr": "179",
+      "buchungskreis": "30000127",
+      "anlagenbezeichnung": "INGANGSETZUNG",
+      "aktivdatum": 37622,
+      "aktivdatum_iso": "2003-01-01",
+      "alter": 23.47
+    },
+    {
+      "article_no": "185",
+      "nr": "185",
+      "buchungskreis": "21000012",
+      "anlagenbezeichnung": "Tresor Klasse S2",
+      "aktivdatum": 41627,
+      "aktivdatum_iso": "2013-12-19",
+      "alter": 12.5
+    },
+    {
+      "article_no": "186",
+      "nr": "186",
+      "buchungskreis": "21000015",
+      "anlagenbezeichnung": "Audi Pylon",
+      "aktivdatum": 42760,
+      "aktivdatum_iso": "2017-01-25",
+      "alter": 9.4
+    },
+    {
+      "article_no": "187",
+      "nr": "187",
+      "buchungskreis": "21000016",
+      "anlagenbezeichnung": "GW Schild Werbetafel /Schriftzeichen GW",
+      "aktivdatum": 42814,
+      "aktivdatum_iso": "2017-03-20",
+      "alter": 9.25
+    },
+    {
+      "article_no": "188",
+      "nr": "188",
+      "buchungskreis": "21000017",
+      "anlagenbezeichnung": "Lichtstäbe",
+      "aktivdatum": 42837,
+      "aktivdatum_iso": "2017-04-12",
+      "alter": 9.19
+    },
+    {
+      "article_no": "189",
+      "nr": "189",
+      "buchungskreis": "21000018",
+      "anlagenbezeichnung": "Gebrauchtwagen Schriftzug",
+      "aktivdatum": 42923,
+      "aktivdatum_iso": "2017-07-07",
+      "alter": 8.95
+    },
+    {
+      "article_no": "190",
+      "nr": "190",
+      "buchungskreis": "21000019",
+      "anlagenbezeichnung": "Kamerasystem GW-Center",
+      "aktivdatum": 42931,
+      "aktivdatum_iso": "2017-07-15",
+      "alter": 8.93
+    },
+    {
+      "article_no": "195",
+      "nr": "195",
+      "buchungskreis": "22000224",
+      "anlagenbezeichnung": "Audi Prinz 4113980 Oldtimer NICHT ANGEM",
+      "aktivdatum": 39141,
+      "aktivdatum_iso": "2007-02-28",
+      "alter": 19.31
+    },
+    {
+      "article_no": "196",
+      "nr": "196",
+      "buchungskreis": "22000344",
+      "anlagenbezeichnung": "PKW-Anhänger, FA. Oswald HD AU 117",
+      "aktivdatum": 39730,
+      "aktivdatum_iso": "2008-10-09",
+      "alter": 17.7
+    },
+    {
+      "article_no": "197",
+      "nr": "197",
+      "buchungskreis": "22000662",
+      "anlagenbezeichnung": "Anhänger Autotransporter AH4320/35",
+      "aktivdatum": 41737,
+      "aktivdatum_iso": "2014-04-08",
+      "alter": 12.2
+    },
+    {
+      "article_no": "198",
+      "nr": "198",
+      "buchungskreis": "22000826",
+      "anlagenbezeichnung": "WUAZZZ4H7HN900090 HD-AU 8808 S8",
+      "aktivdatum": 42570,
+      "aktivdatum_iso": "2016-07-19",
+      "alter": 9.92
+    },
+    {
+      "article_no": "199",
+      "nr": "199",
+      "buchungskreis": "22000931",
+      "anlagenbezeichnung": "WAUZZZ8K5EA097993 HD-AU 4040",
+      "aktivdatum": 43056,
+      "aktivdatum_iso": "2017-11-17",
+      "alter": 8.59
+    },
+    {
+      "article_no": "200",
+      "nr": "200",
+      "buchungskreis": "22001032",
+      "anlagenbezeichnung": "WAUZZZ8K2DA219272 HD-AU 440",
+      "aktivdatum": 43798,
+      "aktivdatum_iso": "2019-11-29",
+      "alter": 6.55
+    },
+    {
+      "article_no": "201",
+      "nr": "201",
+      "buchungskreis": "22001077",
+      "anlagenbezeichnung": "WAUZZZFY1M2070824 HD-AU 560 E",
+      "aktivdatum": 44361,
+      "aktivdatum_iso": "2021-06-14",
+      "alter": 5.01
+    },
+    {
+      "article_no": "202",
+      "nr": "202",
+      "buchungskreis": "22001085",
+      "anlagenbezeichnung": "WAUZZZF57MN003987 HD-AU 5040",
+      "aktivdatum": 44404,
+      "aktivdatum_iso": "2021-07-27",
+      "alter": 4.89
+    },
+    {
+      "article_no": "203",
+      "nr": "203",
+      "buchungskreis": "22001105",
+      "anlagenbezeichnung": "WAUZZZ4G2EN130457 HD-AU 630",
+      "aktivdatum": 44384,
+      "aktivdatum_iso": "2021-07-07",
+      "alter": 4.95
+    },
+    {
+      "article_no": "204",
+      "nr": "204",
+      "buchungskreis": "22001119",
+      "anlagenbezeichnung": "WUAZZZF39N1900015 HD-QQ 334",
+      "aktivdatum": 44592,
+      "aktivdatum_iso": "2022-01-31",
+      "alter": 4.38
+    },
+    {
+      "article_no": "205",
+      "nr": "205",
+      "buchungskreis": "22001130",
+      "anlagenbezeichnung": "WAUZZZ8V0JA016760 HD-AU 330",
+      "aktivdatum": 44676,
+      "aktivdatum_iso": "2022-04-25",
+      "alter": 4.15
+    },
+    {
+      "article_no": "206",
+      "nr": "206",
+      "buchungskreis": "22001135",
+      "anlagenbezeichnung": "WUAZZZF35M1906442 HD-PH 334",
+      "aktivdatum": 44740,
+      "aktivdatum_iso": "2022-06-28",
+      "alter": 3.97
+    },
+    {
+      "article_no": "207",
+      "nr": "207",
+      "buchungskreis": "22001157",
+      "anlagenbezeichnung": "WAUZZZF8XPN013217",
+      "aktivdatum": 45089,
+      "aktivdatum_iso": "2023-06-12",
+      "alter": 3.02
+    },
+    {
+      "article_no": "208",
+      "nr": "208",
+      "buchungskreis": "22001161",
+      "anlagenbezeichnung": "WAUZZZGE0RB001327",
+      "aktivdatum": 45126,
+      "aktivdatum_iso": "2023-07-19",
+      "alter": 2.92
+    },
+    {
+      "article_no": "209",
+      "nr": "209",
+      "buchungskreis": "22001165",
+      "anlagenbezeichnung": "WAUZZZF4XJA094117 HD-AU 450",
+      "aktivdatum": 45190,
+      "aktivdatum_iso": "2023-09-21",
+      "alter": 2.74
+    },
+    {
+      "article_no": "210",
+      "nr": "210",
+      "buchungskreis": "22001176",
+      "anlagenbezeichnung": "WAUZZZFZ8RP023597 HD-QQ 445E",
+      "aktivdatum": 45310,
+      "aktivdatum_iso": "2024-01-19",
+      "alter": 2.41
+    },
+    {
+      "article_no": "211",
+      "nr": "211",
+      "buchungskreis": "22001178",
+      "anlagenbezeichnung": "WUAZZZF48RA900859",
+      "aktivdatum": 45364,
+      "aktivdatum_iso": "2024-03-13",
+      "alter": 2.26
+    },
+    {
+      "article_no": "212",
+      "nr": "212",
+      "buchungskreis": "22001179",
+      "anlagenbezeichnung": "WAUZZZFY3P2140067",
+      "aktivdatum": 45369,
+      "aktivdatum_iso": "2024-03-18",
+      "alter": 2.25
+    },
+    {
+      "article_no": "213",
+      "nr": "213",
+      "buchungskreis": "22001181",
+      "anlagenbezeichnung": "WAUZZZGA8RA047703 HD-QQ 232 Audi Q2 S",
+      "aktivdatum": 45415,
+      "aktivdatum_iso": "2024-05-03",
+      "alter": 2.12
+    },
+    {
+      "article_no": "214",
+      "nr": "214",
+      "buchungskreis": "22001183",
+      "anlagenbezeichnung": "WAUZZZF56RN003339 HD-PH 565",
+      "aktivdatum": 45519,
+      "aktivdatum_iso": "2024-08-15",
+      "alter": 1.84
+    },
+    {
+      "article_no": "215",
+      "nr": "215",
+      "buchungskreis": "22001184",
+      "anlagenbezeichnung": "WAUZZZGAXRA005615",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "216",
+      "nr": "216",
+      "buchungskreis": "22001185",
+      "anlagenbezeichnung": "WUAZZZFV8M1901317",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "217",
+      "nr": "217",
+      "buchungskreis": "22001186",
+      "anlagenbezeichnung": "WV1ZZZ7HZJH204559",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "218",
+      "nr": "218",
+      "buchungskreis": "22001187",
+      "anlagenbezeichnung": "WVWZZZ3CZKE072385",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "219",
+      "nr": "219",
+      "buchungskreis": "22001188",
+      "anlagenbezeichnung": "WVWZZZAAZLD000820",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "220",
+      "nr": "220",
+      "buchungskreis": "22001189",
+      "anlagenbezeichnung": "WVWZZZAUZKW106473",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "221",
+      "nr": "221",
+      "buchungskreis": "22001192",
+      "anlagenbezeichnung": "VSSZZZK1ZNP008011",
+      "aktivdatum": 45565,
+      "aktivdatum_iso": "2024-09-30",
+      "alter": 1.71
+    },
+    {
+      "article_no": "222",
+      "nr": "222",
+      "buchungskreis": "22001193",
+      "anlagenbezeichnung": "WAUZZZF20RN018618 HD-AU 656E",
+      "aktivdatum": 45456,
+      "aktivdatum_iso": "2024-06-13",
+      "alter": 2.01
+    },
+    {
+      "article_no": "223",
+      "nr": "223",
+      "buchungskreis": "22001194",
+      "anlagenbezeichnung": "WAUZZZF33R1130345 HD-QQ 3035",
+      "aktivdatum": 45467,
+      "aktivdatum_iso": "2024-06-24",
+      "alter": 1.98
+    },
+    {
+      "article_no": "224",
+      "nr": "224",
+      "buchungskreis": "22001195",
+      "anlagenbezeichnung": "WAUZZZF5XRA061686 HD-AU 5040",
+      "aktivdatum": 45456,
+      "aktivdatum_iso": "2024-06-13",
+      "alter": 2.01
+    },
+    {
+      "article_no": "225",
+      "nr": "225",
+      "buchungskreis": "22001196",
+      "anlagenbezeichnung": "WAUZZZFU7SN003153 HD-AU 5151",
+      "aktivdatum": 45602,
+      "aktivdatum_iso": "2024-11-06",
+      "alter": 1.61
+    },
+    {
+      "article_no": "226",
+      "nr": "226",
+      "buchungskreis": "22001197",
+      "anlagenbezeichnung": "WAUZZZFW5P7005917 HD-PH 650E",
+      "aktivdatum": 45552,
+      "aktivdatum_iso": "2024-09-17",
+      "alter": 1.75
+    },
+    {
+      "article_no": "227",
+      "nr": "227",
+      "buchungskreis": "22001198",
+      "anlagenbezeichnung": "WAUZZZGY3SA004275 HD-AU 300",
+      "aktivdatum": 45567,
+      "aktivdatum_iso": "2024-10-02",
+      "alter": 1.71
+    },
+    {
+      "article_no": "228",
+      "nr": "228",
+      "buchungskreis": "22001199",
+      "anlagenbezeichnung": "WUAZZZF55RA901881 HD-PH 5055",
+      "aktivdatum": 45545,
+      "aktivdatum_iso": "2024-09-10",
+      "alter": 1.77
+    },
+    {
+      "article_no": "229",
+      "nr": "229",
+      "buchungskreis": "22001200",
+      "anlagenbezeichnung": "WUAZZZGYXSA902118 HD-PH 3636",
+      "aktivdatum": 45629,
+      "aktivdatum_iso": "2024-12-03",
+      "alter": 1.54
+    },
+    {
+      "article_no": "230",
+      "nr": "230",
+      "buchungskreis": "22001201",
+      "anlagenbezeichnung": "WAUZZZFZ4RP072330 HD-QQ 440E",
+      "aktivdatum": 45642,
+      "aktivdatum_iso": "2024-12-16",
+      "alter": 1.5
+    },
+    {
+      "article_no": "231",
+      "nr": "231",
+      "buchungskreis": "22001202",
+      "anlagenbezeichnung": "WUAZZZF27SN901045 HD-PH 676",
+      "aktivdatum": 45656,
+      "aktivdatum_iso": "2024-12-30",
+      "alter": 1.46
+    },
+    {
+      "article_no": "232",
+      "nr": "232",
+      "buchungskreis": "22001203",
+      "anlagenbezeichnung": "WAUZZZFY7P2044586 HD-QQ 533",
+      "aktivdatum": 45657,
+      "aktivdatum_iso": "2024-12-31",
+      "alter": 1.46
+    },
+    {
+      "article_no": "233",
+      "nr": "233",
+      "buchungskreis": "22001204",
+      "anlagenbezeichnung": "WAUZZZF41RA057002 HD-AU 4000",
+      "aktivdatum": 45642,
+      "aktivdatum_iso": "2024-12-16",
+      "alter": 1.5
+    },
+    {
+      "article_no": "234",
+      "nr": "234",
+      "buchungskreis": "22001205",
+      "anlagenbezeichnung": "WAUZZZGHXSA002913 HD-AU 669E",
+      "aktivdatum": 45694,
+      "aktivdatum_iso": "2025-02-06",
+      "alter": 1.36
+    },
+    {
+      "article_no": "235",
+      "nr": "235",
+      "buchungskreis": "22001206",
+      "anlagenbezeichnung": "WAUZZZGU1S2002550 HD-QQ 5002",
+      "aktivdatum": 45714,
+      "aktivdatum_iso": "2025-02-26",
+      "alter": 1.3
+    },
+    {
+      "article_no": "236",
+      "nr": "236",
+      "buchungskreis": "22001207",
+      "anlagenbezeichnung": "WAUZZZFUXSN013515 HD-AU 5050",
+      "aktivdatum": 45722,
+      "aktivdatum_iso": "2025-03-06",
+      "alter": 1.28
+    },
+    {
+      "article_no": "237",
+      "nr": "237",
+      "buchungskreis": "22001208",
+      "anlagenbezeichnung": "WAUZZZFZ6SP032661",
+      "aktivdatum": 45743,
+      "aktivdatum_iso": "2025-03-27",
+      "alter": 1.22
+    },
+    {
+      "article_no": "238",
+      "nr": "238",
+      "buchungskreis": "22001209",
+      "anlagenbezeichnung": "WAUZZZF24RN061195",
+      "aktivdatum": 45749,
+      "aktivdatum_iso": "2025-04-02",
+      "alter": 1.21
+    },
+    {
+      "article_no": "239",
+      "nr": "239",
+      "buchungskreis": "22001210",
+      "anlagenbezeichnung": "WAUZZZGF6SA055283 Audi Q6",
+      "aktivdatum": 45770,
+      "aktivdatum_iso": "2025-04-23",
+      "alter": 1.15
+    },
+    {
+      "article_no": "240",
+      "nr": "240",
+      "buchungskreis": "22001211",
+      "anlagenbezeichnung": "WUAZZZF46RA902349",
+      "aktivdatum": 45756,
+      "aktivdatum_iso": "2025-04-09",
+      "alter": 1.19
+    },
+    {
+      "article_no": "241",
+      "nr": "241",
+      "buchungskreis": "22001212",
+      "anlagenbezeichnung": "WAUZZZFN4TN0026791",
+      "aktivdatum": 45791,
+      "aktivdatum_iso": "2025-05-14",
+      "alter": 1.09
+    },
+    {
+      "article_no": "242",
+      "nr": "242",
+      "buchungskreis": "22001213",
+      "anlagenbezeichnung": "WAUZZZGY3SA124724",
+      "aktivdatum": 45803,
+      "aktivdatum_iso": "2025-05-26",
+      "alter": 1.06
+    },
+    {
+      "article_no": "243",
+      "nr": "243",
+      "buchungskreis": "22001214",
+      "anlagenbezeichnung": "WAUZZZFU7SN049372",
+      "aktivdatum": 45825,
+      "aktivdatum_iso": "2025-06-17",
+      "alter": 1
+    },
+    {
+      "article_no": "244",
+      "nr": "244",
+      "buchungskreis": "22001215",
+      "anlagenbezeichnung": "WUAZZZF13SD004950",
+      "aktivdatum": 45832,
+      "aktivdatum_iso": "2025-06-24",
+      "alter": 0.98
+    },
+    {
+      "article_no": "245",
+      "nr": "245",
+      "buchungskreis": "22001216",
+      "anlagenbezeichnung": "WAUZZZFU9SN019323",
+      "aktivdatum": 45847,
+      "aktivdatum_iso": "2025-07-09",
+      "alter": 0.94
+    },
+    {
+      "article_no": "246",
+      "nr": "246",
+      "buchungskreis": "22001217",
+      "anlagenbezeichnung": "WAUZZZGA0JA121376",
+      "aktivdatum": 45853,
+      "aktivdatum_iso": "2025-07-15",
+      "alter": 0.92
+    },
+    {
+      "article_no": "247",
+      "nr": "247",
+      "buchungskreis": "22001218",
+      "anlagenbezeichnung": "WAUZZZFU0SN048578",
+      "aktivdatum": 45854,
+      "aktivdatum_iso": "2025-07-16",
+      "alter": 0.92
+    },
+    {
+      "article_no": "248",
+      "nr": "248",
+      "buchungskreis": "22001219",
+      "anlagenbezeichnung": "WAUZZZGB7SR035302",
+      "aktivdatum": 45873,
+      "aktivdatum_iso": "2025-08-04",
+      "alter": 0.87
+    },
+    {
+      "article_no": "249",
+      "nr": "249",
+      "buchungskreis": "22001220",
+      "anlagenbezeichnung": "WAUZZZGU4S2048079",
+      "aktivdatum": 45916,
+      "aktivdatum_iso": "2025-09-16",
+      "alter": 0.75
+    },
+    {
+      "article_no": "253",
+      "nr": "253",
+      "buchungskreis": "22001221",
+      "anlagenbezeichnung": "WAUZZZ8KXAA115737 HD-AU 404",
+      "aktivdatum": 45930,
+      "aktivdatum_iso": "2025-09-30",
+      "alter": 0.71
+    },
+    {
+      "article_no": "259",
+      "nr": "259",
+      "buchungskreis": "29000090",
+      "anlagenbezeichnung": "bbt GmbH; Laserdrucker Brother",
+      "aktivdatum": 45307,
+      "aktivdatum_iso": "2024-01-16",
+      "alter": 2.42
+    },
+    {
+      "article_no": "260",
+      "nr": "260",
+      "buchungskreis": "29000091",
+      "anlagenbezeichnung": "cyberport; iPad Air 2x",
+      "aktivdatum": 45309,
+      "aktivdatum_iso": "2024-01-18",
+      "alter": 2.41
+    },
+    {
+      "article_no": "261",
+      "nr": "261",
+      "buchungskreis": "29000092",
+      "anlagenbezeichnung": "Dell GmbH; Inspiron Laptop Maier",
+      "aktivdatum": 45329,
+      "aktivdatum_iso": "2024-02-07",
+      "alter": 2.36
+    },
+    {
+      "article_no": "262",
+      "nr": "262",
+      "buchungskreis": "29000093",
+      "anlagenbezeichnung": "Würth; Werkstattwagen 2 Stk",
+      "aktivdatum": 45364,
+      "aktivdatum_iso": "2024-03-13",
+      "alter": 2.26
+    },
+    {
+      "article_no": "263",
+      "nr": "263",
+      "buchungskreis": "29000094",
+      "anlagenbezeichnung": "Geekom; Mini PC",
+      "aktivdatum": 45366,
+      "aktivdatum_iso": "2024-03-15",
+      "alter": 2.26
+    },
+    {
+      "article_no": "264",
+      "nr": "264",
+      "buchungskreis": "29000095",
+      "anlagenbezeichnung": "BayWa AG; Aggregat Pumpmatic f. Öltank ",
+      "aktivdatum": 45366,
+      "aktivdatum_iso": "2024-03-15",
+      "alter": 2.26
+    },
+    {
+      "article_no": "265",
+      "nr": "265",
+      "buchungskreis": "29000096",
+      "anlagenbezeichnung": "VW OTLG; Hochvolt-Prüfadapter VAS 6558A",
+      "aktivdatum": 45394,
+      "aktivdatum_iso": "2024-04-12",
+      "alter": 2.18
+    },
+    {
+      "article_no": "266",
+      "nr": "266",
+      "buchungskreis": "29000097",
+      "anlagenbezeichnung": "KeySolution; Mini PC",
+      "aktivdatum": 45292,
+      "aktivdatum_iso": "2024-01-01",
+      "alter": 2.46
+    },
+    {
+      "article_no": "267",
+      "nr": "267",
+      "buchungskreis": "29000098",
+      "anlagenbezeichnung": "VW OTLG; Gaslecksuchgerät",
+      "aktivdatum": 45524,
+      "aktivdatum_iso": "2024-08-20",
+      "alter": 1.82
+    },
+    {
+      "article_no": "268",
+      "nr": "268",
+      "buchungskreis": "29000099",
+      "anlagenbezeichnung": "VW OTLG; Druckminderer",
+      "aktivdatum": 45524,
+      "aktivdatum_iso": "2024-08-20",
+      "alter": 1.82
+    },
+    {
+      "article_no": "269",
+      "nr": "269",
+      "buchungskreis": "29000100",
+      "anlagenbezeichnung": "VW OTLG; Batterieladegerät",
+      "aktivdatum": 45527,
+      "aktivdatum_iso": "2024-08-23",
+      "alter": 1.82
+    },
+    {
+      "article_no": "270",
+      "nr": "270",
+      "buchungskreis": "29000101",
+      "anlagenbezeichnung": "bbt; Brother Farblaserdrucker f. Vermes",
+      "aktivdatum": 45470,
+      "aktivdatum_iso": "2024-06-27",
+      "alter": 1.97
+    },
+    {
+      "article_no": "271",
+      "nr": "271",
+      "buchungskreis": "29000102",
+      "anlagenbezeichnung": "VW OTLG; 2D Scanner ASE-447-043-01-00",
+      "aktivdatum": 45457,
+      "aktivdatum_iso": "2024-06-14",
+      "alter": 2.01
+    },
+    {
+      "article_no": "272",
+      "nr": "272",
+      "buchungskreis": "29000103",
+      "anlagenbezeichnung": "VW OTLG; Adapterkabel VAS 5581/6",
+      "aktivdatum": 45429,
+      "aktivdatum_iso": "2024-05-17",
+      "alter": 2.08
+    },
+    {
+      "article_no": "273",
+      "nr": "273",
+      "buchungskreis": "29000104",
+      "anlagenbezeichnung": "VW OTLG; 2x Hochvolt-Prüfadapter VAS 65",
+      "aktivdatum": 45429,
+      "aktivdatum_iso": "2024-05-17",
+      "alter": 2.08
+    },
+    {
+      "article_no": "274",
+      "nr": "274",
+      "buchungskreis": "29000105",
+      "anlagenbezeichnung": "Apple iPhone 16 Pro Max",
+      "aktivdatum": 45559,
+      "aktivdatum_iso": "2024-09-24",
+      "alter": 1.73
+    },
+    {
+      "article_no": "275",
+      "nr": "275",
+      "buchungskreis": "29000106",
+      "anlagenbezeichnung": "VW OTLG; Adapterkabel VAS 5581/6",
+      "aktivdatum": 45587,
+      "aktivdatum_iso": "2024-10-22",
+      "alter": 1.65
+    },
+    {
+      "article_no": "276",
+      "nr": "276",
+      "buchungskreis": "29000107",
+      "anlagenbezeichnung": "VW OTLG; Hochvolt-Prüfadapter VAS 6558/",
+      "aktivdatum": 45629,
+      "aktivdatum_iso": "2024-12-03",
+      "alter": 1.54
+    },
+    {
+      "article_no": "277",
+      "nr": "277",
+      "buchungskreis": "29000108",
+      "anlagenbezeichnung": "VW OTLG; Hochvolt-Prüfadapterset VAS 65",
+      "aktivdatum": 45632,
+      "aktivdatum_iso": "2024-12-06",
+      "alter": 1.53
+    },
+    {
+      "article_no": "278",
+      "nr": "278",
+      "buchungskreis": "29000109",
+      "anlagenbezeichnung": "Spiess Elektro. GmbH; Bosch Einbau-Gesc",
+      "aktivdatum": 45629,
+      "aktivdatum_iso": "2024-12-03",
+      "alter": 1.54
+    },
+    {
+      "article_no": "279",
+      "nr": "279",
+      "buchungskreis": "29000110",
+      "anlagenbezeichnung": "Ikea; Schreibtischstühle",
+      "aktivdatum": 45635,
+      "aktivdatum_iso": "2024-12-09",
+      "alter": 1.52
+    },
+    {
+      "article_no": "280",
+      "nr": "280",
+      "buchungskreis": "29000111",
+      "anlagenbezeichnung": "OTLG; Hochvolt-Prüfadapter",
+      "aktivdatum": 45646,
+      "aktivdatum_iso": "2024-12-20",
+      "alter": 1.49
+    },
+    {
+      "article_no": "281",
+      "nr": "281",
+      "buchungskreis": "29000112",
+      "anlagenbezeichnung": "Freenet; Apple iPhone 16 pro",
+      "aktivdatum": 45659,
+      "aktivdatum_iso": "2025-01-02",
+      "alter": 1.45
+    },
+    {
+      "article_no": "282",
+      "nr": "282",
+      "buchungskreis": "29000113",
+      "anlagenbezeichnung": "Böttcher; Lenovo Notebook V15 G4",
+      "aktivdatum": 45667,
+      "aktivdatum_iso": "2025-01-10",
+      "alter": 1.43
+    },
+    {
+      "article_no": "283",
+      "nr": "283",
+      "buchungskreis": "29000114",
+      "anlagenbezeichnung": "VW OTLG; Montagewerkzeug ASE-412-176-03",
+      "aktivdatum": 45681,
+      "aktivdatum_iso": "2025-01-24",
+      "alter": 1.39
+    },
+    {
+      "article_no": "284",
+      "nr": "284",
+      "buchungskreis": "29000115",
+      "anlagenbezeichnung": "VW OTLG; Adaptersatz VAS 611007/19",
+      "aktivdatum": 45723,
+      "aktivdatum_iso": "2025-03-07",
+      "alter": 1.28
+    },
+    {
+      "article_no": "285",
+      "nr": "285",
+      "buchungskreis": "29000116",
+      "anlagenbezeichnung": "freenet; Apple iPhone 16 pro Max",
+      "aktivdatum": 45707,
+      "aktivdatum_iso": "2025-02-19",
+      "alter": 1.32
+    },
+    {
+      "article_no": "286",
+      "nr": "286",
+      "buchungskreis": "29000117",
+      "anlagenbezeichnung": "VW OTLG; Plattenformwaage VAS 231007A",
+      "aktivdatum": 45797,
+      "aktivdatum_iso": "2025-05-20",
+      "alter": 1.08
+    },
+    {
+      "article_no": "287",
+      "nr": "287",
+      "buchungskreis": "29000118",
+      "anlagenbezeichnung": "VW OTLG; Dongle Achsmesscomputer VAS 62",
+      "aktivdatum": 45821,
+      "aktivdatum_iso": "2025-06-13",
+      "alter": 1.01
+    },
+    {
+      "article_no": "288",
+      "nr": "288",
+      "buchungskreis": "29000119",
+      "anlagenbezeichnung": "VW OTLG; USB-Modul VAS 6454/4B",
+      "aktivdatum": 45900,
+      "aktivdatum_iso": "2025-08-31",
+      "alter": 0.79
+    },
+    {
+      "article_no": "294",
+      "nr": "294",
+      "buchungskreis": "29000058",
+      "anlagenbezeichnung": "VWOTLG Handmultimeter",
+      "aktivdatum": 40555,
+      "aktivdatum_iso": "2011-01-12",
+      "alter": 15.44
+    },
+    {
+      "article_no": "295",
+      "nr": "295",
+      "buchungskreis": "29000059",
+      "anlagenbezeichnung": "FA Wieländer + Schill, Karosseriesäge",
+      "aktivdatum": 40590,
+      "aktivdatum_iso": "2011-02-16",
+      "alter": 15.34
+    },
+    {
+      "article_no": "296",
+      "nr": "296",
+      "buchungskreis": "29000060",
+      "anlagenbezeichnung": "Fa Förch Werstattwagen und Zubehör",
+      "aktivdatum": 40604,
+      "aktivdatum_iso": "2011-03-02",
+      "alter": 15.3
+    },
+    {
+      "article_no": "297",
+      "nr": "297",
+      "buchungskreis": "29000062",
+      "anlagenbezeichnung": "Fa. Sauer-Werkzeuge, Lösehammer inkl. A",
+      "aktivdatum": 40662,
+      "aktivdatum_iso": "2011-04-29",
+      "alter": 15.15
+    },
+    {
+      "article_no": "298",
+      "nr": "298",
+      "buchungskreis": "29000063",
+      "anlagenbezeichnung": "VW OTLG, Drehmomentschlüssel",
+      "aktivdatum": 40739,
+      "aktivdatum_iso": "2011-07-15",
+      "alter": 14.93
+    },
+    {
+      "article_no": "299",
+      "nr": "299",
+      "buchungskreis": "29000065",
+      "anlagenbezeichnung": "VW OTLG Hyprid Prüfadapter",
+      "aktivdatum": 40893,
+      "aktivdatum_iso": "2011-12-16",
+      "alter": 14.51
+    },
+    {
+      "article_no": "300",
+      "nr": "300",
+      "buchungskreis": "29000066",
+      "anlagenbezeichnung": "VW OTLG Hyprid Messmodul",
+      "aktivdatum": 40891,
+      "aktivdatum_iso": "2011-12-14",
+      "alter": 14.52
+    },
+    {
+      "article_no": "301",
+      "nr": "301",
+      "buchungskreis": "29000069",
+      "anlagenbezeichnung": "Fa. Würth, Schlagschrauber Druckluft",
+      "aktivdatum": 40960,
+      "aktivdatum_iso": "2012-02-21",
+      "alter": 14.33
+    },
+    {
+      "article_no": "302",
+      "nr": "302",
+      "buchungskreis": "29000070",
+      "anlagenbezeichnung": "Fa. Würth, Schlagschrauber Druckluft",
+      "aktivdatum": 40953,
+      "aktivdatum_iso": "2012-02-14",
+      "alter": 14.35
+    },
+    {
+      "article_no": "303",
+      "nr": "303",
+      "buchungskreis": "29000071",
+      "anlagenbezeichnung": "Fa. Würth, Ratschenschrauber Druckluft",
+      "aktivdatum": 40953,
+      "aktivdatum_iso": "2012-02-14",
+      "alter": 14.35
+    },
+    {
+      "article_no": "304",
+      "nr": "304",
+      "buchungskreis": "29000076",
+      "anlagenbezeichnung": "FA Wieländer + Schiller, Schleifgerät S",
+      "aktivdatum": 41101,
+      "aktivdatum_iso": "2012-07-11",
+      "alter": 13.94
+    },
+    {
+      "article_no": "305",
+      "nr": "305",
+      "buchungskreis": "29000078",
+      "anlagenbezeichnung": "FA WÜRTH WERKSTATTWAGEN",
+      "aktivdatum": 41101,
+      "aktivdatum_iso": "2012-07-11",
+      "alter": 13.94
+    },
+    {
+      "article_no": "306",
+      "nr": "306",
+      "buchungskreis": "29000079",
+      "anlagenbezeichnung": "Motor- und Getriebehalter",
+      "aktivdatum": 41115,
+      "aktivdatum_iso": "2012-07-25",
+      "alter": 13.9
+    },
+    {
+      "article_no": "307",
+      "nr": "307",
+      "buchungskreis": "29000080",
+      "anlagenbezeichnung": "Fa. Kramer Kompressionsschreiber",
+      "aktivdatum": 41135,
+      "aktivdatum_iso": "2012-08-14",
+      "alter": 13.85
+    },
+    {
+      "article_no": "308",
+      "nr": "308",
+      "buchungskreis": "29000082",
+      "anlagenbezeichnung": "VW Otlg, Messwertaufnehmer",
+      "aktivdatum": 41206,
+      "aktivdatum_iso": "2012-10-24",
+      "alter": 13.65
+    },
+    {
+      "article_no": "309",
+      "nr": "309",
+      "buchungskreis": "29000083",
+      "anlagenbezeichnung": "Fa. Kärcher 2 Hochdruckreiniger",
+      "aktivdatum": 41208,
+      "aktivdatum_iso": "2012-10-26",
+      "alter": 13.65
+    },
+    {
+      "article_no": "310",
+      "nr": "310",
+      "buchungskreis": "29000084",
+      "anlagenbezeichnung": "Fa Förch, Ölauffangwanne",
+      "aktivdatum": 41221,
+      "aktivdatum_iso": "2012-11-08",
+      "alter": 13.61
+    },
+    {
+      "article_no": "311",
+      "nr": "311",
+      "buchungskreis": "29000085",
+      "anlagenbezeichnung": "VW OTLG Ladegerät für Batterie",
+      "aktivdatum": 41234,
+      "aktivdatum_iso": "2012-11-21",
+      "alter": 13.58
+    },
+    {
+      "article_no": "312",
+      "nr": "312",
+      "buchungskreis": "29000087",
+      "anlagenbezeichnung": "AKKU- Bohrschrauber",
+      "aktivdatum": 41460,
+      "aktivdatum_iso": "2013-07-05",
+      "alter": 12.96
+    },
+    {
+      "article_no": "313",
+      "nr": "313",
+      "buchungskreis": "29000088",
+      "anlagenbezeichnung": "AKKU Pack für VAS 5051B",
+      "aktivdatum": 41460,
+      "aktivdatum_iso": "2013-07-05",
+      "alter": 12.96
+    },
+    {
+      "article_no": "314",
+      "nr": "314",
+      "buchungskreis": "29000089",
+      "anlagenbezeichnung": "Prüfgerät Tankdichtigkeit Audi R8",
+      "aktivdatum": 41458,
+      "aktivdatum_iso": "2013-07-03",
+      "alter": 12.96
+    },
+    {
+      "article_no": "319",
+      "nr": "319",
+      "buchungskreis": "30000130",
+      "anlagenbezeichnung": "BRIEFKASTEN",
+      "aktivdatum": 37530,
+      "aktivdatum_iso": "2002-10-01",
+      "alter": 23.73
+    },
+    {
+      "article_no": "320",
+      "nr": "320",
+      "buchungskreis": "30000137",
+      "anlagenbezeichnung": "ABFALLSAMMELREGAL",
+      "aktivdatum": 37530,
+      "aktivdatum_iso": "2002-10-01",
+      "alter": 23.73
+    },
+    {
+      "article_no": "321",
+      "nr": "321",
+      "buchungskreis": "30000144",
+      "anlagenbezeichnung": "Tisch Besprechungszimmer",
+      "aktivdatum": 37802,
+      "aktivdatum_iso": "2003-06-30",
+      "alter": 22.98
+    },
+    {
+      "article_no": "322",
+      "nr": "322",
+      "buchungskreis": "30000145",
+      "anlagenbezeichnung": "Glasvitrine Besprechungsz",
+      "aktivdatum": 37802,
+      "aktivdatum_iso": "2003-06-30",
+      "alter": 22.98
+    },
+    {
+      "article_no": "323",
+      "nr": "323",
+      "buchungskreis": "30000146",
+      "anlagenbezeichnung": "8 Stühle Besprechungsz.",
+      "aktivdatum": 37802,
+      "aktivdatum_iso": "2003-06-30",
+      "alter": 22.98
+    },
+    {
+      "article_no": "324",
+      "nr": "324",
+      "buchungskreis": "30000159",
+      "anlagenbezeichnung": "Zwischenbühne Werkstatt",
+      "aktivdatum": 38199,
+      "aktivdatum_iso": "2004-07-31",
+      "alter": 21.89
+    },
+    {
+      "article_no": "325",
+      "nr": "325",
+      "buchungskreis": "30000160",
+      "anlagenbezeichnung": "WERKBANK",
+      "aktivdatum": 37530,
+      "aktivdatum_iso": "2002-10-01",
+      "alter": 23.73
+    },
+    {
+      "article_no": "326",
+      "nr": "326",
+      "buchungskreis": "30000192",
+      "anlagenbezeichnung": "LAGEREINRICHTUNG",
+      "aktivdatum": 37589,
+      "aktivdatum_iso": "2002-11-29",
+      "alter": 23.56
+    },
+    {
+      "article_no": "327",
+      "nr": "327",
+      "buchungskreis": "30000194",
+      "anlagenbezeichnung": "Kleinteileschrank",
+      "aktivdatum": 37953,
+      "aktivdatum_iso": "2003-11-28",
+      "alter": 22.57
+    },
+    {
+      "article_no": "328",
+      "nr": "328",
+      "buchungskreis": "30000198",
+      "anlagenbezeichnung": "DISPO TAFEL WKST",
+      "aktivdatum": 37519,
+      "aktivdatum_iso": "2002-09-20",
+      "alter": 23.76
+    },
+    {
+      "article_no": "329",
+      "nr": "329",
+      "buchungskreis": "30000218",
+      "anlagenbezeichnung": "Alarmanlage",
+      "aktivdatum": 38456,
+      "aktivdatum_iso": "2005-04-14",
+      "alter": 21.19
+    },
+    {
+      "article_no": "330",
+      "nr": "330",
+      "buchungskreis": "30000241",
+      "anlagenbezeichnung": "Stahlcontainer",
+      "aktivdatum": 39051,
+      "aktivdatum_iso": "2006-11-30",
+      "alter": 19.56
+    },
+    {
+      "article_no": "331",
+      "nr": "331",
+      "buchungskreis": "30000271",
+      "anlagenbezeichnung": "Erweiterung Teilelager",
+      "aktivdatum": 39136,
+      "aktivdatum_iso": "2007-02-23",
+      "alter": 19.33
+    },
+    {
+      "article_no": "332",
+      "nr": "332",
+      "buchungskreis": "30000304",
+      "anlagenbezeichnung": "Audi A 8 Lounge Ausbau, Boden. Leuchten",
+      "aktivdatum": 39448,
+      "aktivdatum_iso": "2008-01-01",
+      "alter": 18.47
+    },
+    {
+      "article_no": "333",
+      "nr": "333",
+      "buchungskreis": "30000305",
+      "anlagenbezeichnung": "Ausbauarbeiten Audi Lounge",
+      "aktivdatum": 39509,
+      "aktivdatum_iso": "2008-03-02",
+      "alter": 18.3
+    },
+    {
+      "article_no": "334",
+      "nr": "334",
+      "buchungskreis": "30000306",
+      "anlagenbezeichnung": "LAGERBÜHNE WERKSTATT",
+      "aktivdatum": 39630,
+      "aktivdatum_iso": "2008-07-01",
+      "alter": 17.97
+    },
+    {
+      "article_no": "335",
+      "nr": "335",
+      "buchungskreis": "30000307",
+      "anlagenbezeichnung": "Möbel Bistrobartheke Audi Lounge",
+      "aktivdatum": 39609,
+      "aktivdatum_iso": "2008-06-10",
+      "alter": 18.03
+    },
+    {
+      "article_no": "336",
+      "nr": "336",
+      "buchungskreis": "30000308",
+      "anlagenbezeichnung": "FA ÖHLINGER STORE FÜR AUDI LOUNGE",
+      "aktivdatum": 39448,
+      "aktivdatum_iso": "2008-01-01",
+      "alter": 18.47
+    },
+    {
+      "article_no": "337",
+      "nr": "337",
+      "buchungskreis": "30000310",
+      "anlagenbezeichnung": "Erweiterung Ausstellungsfläche",
+      "aktivdatum": 39729,
+      "aktivdatum_iso": "2008-10-08",
+      "alter": 17.7
+    },
+    {
+      "article_no": "338",
+      "nr": "338",
+      "buchungskreis": "30000311",
+      "anlagenbezeichnung": "Fa. Draht Christ  Doppelstabmattenzaun",
+      "aktivdatum": 39779,
+      "aktivdatum_iso": "2008-11-27",
+      "alter": 17.56
+    },
+    {
+      "article_no": "339",
+      "nr": "339",
+      "buchungskreis": "30000312",
+      "anlagenbezeichnung": "VZ Batterielade",
+      "aktivdatum": 39805,
+      "aktivdatum_iso": "2008-12-23",
+      "alter": 17.49
+    },
+    {
+      "article_no": "340",
+      "nr": "340",
+      "buchungskreis": "30000313",
+      "anlagenbezeichnung": "Ra. Rachel, Schwerlastregal",
+      "aktivdatum": 39881,
+      "aktivdatum_iso": "2009-03-09",
+      "alter": 17.28
+    },
+    {
+      "article_no": "341",
+      "nr": "341",
+      "buchungskreis": "30000314",
+      "anlagenbezeichnung": "Fa. Isaria Corporate Design AG, div. Wa",
+      "aktivdatum": 40142,
+      "aktivdatum_iso": "2009-11-25",
+      "alter": 16.57
+    },
+    {
+      "article_no": "342",
+      "nr": "342",
+      "buchungskreis": "30000315",
+      "anlagenbezeichnung": "Fa. Isaria 2 kompl. Arbeitsplätze Schro",
+      "aktivdatum": 40261,
+      "aktivdatum_iso": "2010-03-24",
+      "alter": 16.24
+    },
+    {
+      "article_no": "343",
+      "nr": "343",
+      "buchungskreis": "30000316",
+      "anlagenbezeichnung": "Fa. Hintz, 2 X Hebebühne und Zubehör",
+      "aktivdatum": 40304,
+      "aktivdatum_iso": "2010-05-06",
+      "alter": 16.13
+    },
+    {
+      "article_no": "344",
+      "nr": "344",
+      "buchungskreis": "30000317",
+      "anlagenbezeichnung": "FA Iseria, Möbel für Konfigurator",
+      "aktivdatum": 40344,
+      "aktivdatum_iso": "2010-06-15",
+      "alter": 16.02
+    },
+    {
+      "article_no": "345",
+      "nr": "345",
+      "buchungskreis": "30000324",
+      "anlagenbezeichnung": "Server IBM",
+      "aktivdatum": 40560,
+      "aktivdatum_iso": "2011-01-17",
+      "alter": 15.42
+    },
+    {
+      "article_no": "346",
+      "nr": "346",
+      "buchungskreis": "30000326",
+      "anlagenbezeichnung": "Fa. Spiess Elektro Markt, Kaffeevollaut",
+      "aktivdatum": 40590,
+      "aktivdatum_iso": "2011-02-16",
+      "alter": 15.34
+    },
+    {
+      "article_no": "347",
+      "nr": "347",
+      "buchungskreis": "30000328",
+      "anlagenbezeichnung": "FA.Lager-Technik Reifenregalanlage Syst",
+      "aktivdatum": 40634,
+      "aktivdatum_iso": "2011-04-01",
+      "alter": 15.22
+    },
+    {
+      "article_no": "348",
+      "nr": "348",
+      "buchungskreis": "30000329",
+      "anlagenbezeichnung": "VW OTLG, Klimaservicegerät",
+      "aktivdatum": 40730,
+      "aktivdatum_iso": "2011-07-06",
+      "alter": 14.96
+    },
+    {
+      "article_no": "349",
+      "nr": "349",
+      "buchungskreis": "30000334",
+      "anlagenbezeichnung": "Nachttresor",
+      "aktivdatum": 40697,
+      "aktivdatum_iso": "2011-06-03",
+      "alter": 15.05
+    },
+    {
+      "article_no": "350",
+      "nr": "350",
+      "buchungskreis": "30000335",
+      "anlagenbezeichnung": "Fa. KeySolution IT GmbH, neuer Server u",
+      "aktivdatum": 40765,
+      "aktivdatum_iso": "2011-08-10",
+      "alter": 14.86
+    },
+    {
+      "article_no": "351",
+      "nr": "351",
+      "buchungskreis": "30000337",
+      "anlagenbezeichnung": "VW OTLG Kompressor für Spenglerei",
+      "aktivdatum": 40900,
+      "aktivdatum_iso": "2011-12-23",
+      "alter": 14.49
+    },
+    {
+      "article_no": "352",
+      "nr": "352",
+      "buchungskreis": "30000339",
+      "anlagenbezeichnung": "Fa. Elektro Spiess, Klimagerät Serverra",
+      "aktivdatum": 41081,
+      "aktivdatum_iso": "2012-06-21",
+      "alter": 14
+    },
+    {
+      "article_no": "353",
+      "nr": "353",
+      "buchungskreis": "30000340",
+      "anlagenbezeichnung": "Fa. ISARIA Corporate AG, Arbeitsplatz H",
+      "aktivdatum": 41103,
+      "aktivdatum_iso": "2012-07-13",
+      "alter": 13.94
+    },
+    {
+      "article_no": "354",
+      "nr": "354",
+      "buchungskreis": "30000341",
+      "anlagenbezeichnung": "Fa. ISARIA Corporate AG, Druckercontain",
+      "aktivdatum": 41148,
+      "aktivdatum_iso": "2012-08-27",
+      "alter": 13.81
+    },
+    {
+      "article_no": "355",
+      "nr": "355",
+      "buchungskreis": "30000342",
+      "anlagenbezeichnung": "Fa. Kurtz&Schmidt OHG, Kopierer Canon I",
+      "aktivdatum": 41157,
+      "aktivdatum_iso": "2012-09-05",
+      "alter": 13.79
+    },
+    {
+      "article_no": "356",
+      "nr": "356",
+      "buchungskreis": "30000343",
+      "anlagenbezeichnung": "VILLA HOME SCHREIBTISCH",
+      "aktivdatum": 41246,
+      "aktivdatum_iso": "2012-12-03",
+      "alter": 13.55
+    },
+    {
+      "article_no": "357",
+      "nr": "357",
+      "buchungskreis": "30000344",
+      "anlagenbezeichnung": "Samsung Panel allg.",
+      "aktivdatum": 41388,
+      "aktivdatum_iso": "2013-04-24",
+      "alter": 13.16
+    },
+    {
+      "article_no": "358",
+      "nr": "358",
+      "buchungskreis": "30000345",
+      "anlagenbezeichnung": "Kamera Anlage Parkplatz, Außenanlage",
+      "aktivdatum": 41395,
+      "aktivdatum_iso": "2013-05-01",
+      "alter": 13.14
+    },
+    {
+      "article_no": "359",
+      "nr": "359",
+      "buchungskreis": "30000347",
+      "anlagenbezeichnung": "Desktop PC, Office Paket, Bildschirm",
+      "aktivdatum": 41439,
+      "aktivdatum_iso": "2013-06-14",
+      "alter": 13.02
+    },
+    {
+      "article_no": "360",
+      "nr": "360",
+      "buchungskreis": "30000348",
+      "anlagenbezeichnung": "NAS Server für Kamera Backup",
+      "aktivdatum": 41456,
+      "aktivdatum_iso": "2013-07-01",
+      "alter": 12.97
+    },
+    {
+      "article_no": "361",
+      "nr": "361",
+      "buchungskreis": "30000350",
+      "anlagenbezeichnung": "Microsoft Surface mit Windows",
+      "aktivdatum": 41702,
+      "aktivdatum_iso": "2014-03-04",
+      "alter": 12.3
+    },
+    {
+      "article_no": "362",
+      "nr": "362",
+      "buchungskreis": "30000354",
+      "anlagenbezeichnung": "Desktop PC Office Paket Benz",
+      "aktivdatum": 41759,
+      "aktivdatum_iso": "2014-04-30",
+      "alter": 12.14
+    },
+    {
+      "article_no": "363",
+      "nr": "363",
+      "buchungskreis": "30000355",
+      "anlagenbezeichnung": "Firewall Gerät+Software (in sich geschl",
+      "aktivdatum": 41820,
+      "aktivdatum_iso": "2014-06-30",
+      "alter": 11.97
+    },
+    {
+      "article_no": "364",
+      "nr": "364",
+      "buchungskreis": "30000356",
+      "anlagenbezeichnung": "Kaffeeautomat CINO IC PLUS PB",
+      "aktivdatum": 41884,
+      "aktivdatum_iso": "2014-09-02",
+      "alter": 11.8
+    },
+    {
+      "article_no": "365",
+      "nr": "365",
+      "buchungskreis": "30000357",
+      "anlagenbezeichnung": "Remko RKL 460 Mobile Raumklimagerät P.H.",
+      "aktivdatum": 41844,
+      "aktivdatum_iso": "2014-07-24",
+      "alter": 11.91
+    },
+    {
+      "article_no": "366",
+      "nr": "366",
+      "buchungskreis": "30000358",
+      "anlagenbezeichnung": "Reifenregalanlage LagerTechnik",
+      "aktivdatum": 41968,
+      "aktivdatum_iso": "2014-11-25",
+      "alter": 11.57
+    },
+    {
+      "article_no": "367",
+      "nr": "367",
+      "buchungskreis": "30000359",
+      "anlagenbezeichnung": "Kassensystem ND77",
+      "aktivdatum": 42020,
+      "aktivdatum_iso": "2015-01-16",
+      "alter": 11.42
+    },
+    {
+      "article_no": "368",
+      "nr": "368",
+      "buchungskreis": "30000361",
+      "anlagenbezeichnung": "Remko RKL Split Klimagerät (Speiss)",
+      "aktivdatum": 42194,
+      "aktivdatum_iso": "2015-07-09",
+      "alter": 10.95
+    },
+    {
+      "article_no": "369",
+      "nr": "369",
+      "buchungskreis": "30000362",
+      "anlagenbezeichnung": "Arbeitsplatz Terminplanung Arife (ISARI",
+      "aktivdatum": 42410,
+      "aktivdatum_iso": "2016-02-10",
+      "alter": 10.36
+    },
+    {
+      "article_no": "370",
+      "nr": "370",
+      "buchungskreis": "30000363",
+      "anlagenbezeichnung": "Telefonanlage mit Zubehör (Key Solution)",
+      "aktivdatum": 42439,
+      "aktivdatum_iso": "2016-03-10",
+      "alter": 10.28
+    },
+    {
+      "article_no": "371",
+      "nr": "371",
+      "buchungskreis": "30000364",
+      "anlagenbezeichnung": "DELL Notebook i5",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "372",
+      "nr": "372",
+      "buchungskreis": "30000365",
+      "anlagenbezeichnung": "DELL Notebook i5",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "373",
+      "nr": "373",
+      "buchungskreis": "30000366",
+      "anlagenbezeichnung": "Intel NUC",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "377",
+      "nr": "377",
+      "buchungskreis": "30000367",
+      "anlagenbezeichnung": "Werksattplaner Magnettafel",
+      "aktivdatum": 42369,
+      "aktivdatum_iso": "2015-12-31",
+      "alter": 10.47
+    },
+    {
+      "article_no": "378",
+      "nr": "378",
+      "buchungskreis": "30000368",
+      "anlagenbezeichnung": "Intel NUC BOX (Key S.)",
+      "aktivdatum": 42513,
+      "aktivdatum_iso": "2016-05-23",
+      "alter": 10.07
+    },
+    {
+      "article_no": "379",
+      "nr": "379",
+      "buchungskreis": "30000369",
+      "anlagenbezeichnung": "Intel NUC BOX (Key S.)",
+      "aktivdatum": 42513,
+      "aktivdatum_iso": "2016-05-23",
+      "alter": 10.07
+    },
+    {
+      "article_no": "380",
+      "nr": "380",
+      "buchungskreis": "30000370",
+      "anlagenbezeichnung": "Intel NUC BOX (Key S.)",
+      "aktivdatum": 42513,
+      "aktivdatum_iso": "2016-05-23",
+      "alter": 10.07
+    },
+    {
+      "article_no": "381",
+      "nr": "381",
+      "buchungskreis": "30000371",
+      "anlagenbezeichnung": "Intel NUC BOX (Key S.)",
+      "aktivdatum": 42513,
+      "aktivdatum_iso": "2016-05-23",
+      "alter": 10.07
+    },
+    {
+      "article_no": "382",
+      "nr": "382",
+      "buchungskreis": "30000372",
+      "anlagenbezeichnung": "BTO Serversystem",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "383",
+      "nr": "383",
+      "buchungskreis": "30000373",
+      "anlagenbezeichnung": "BTO Serversystem",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "384",
+      "nr": "384",
+      "buchungskreis": "30000374",
+      "anlagenbezeichnung": "BTO Serversystem",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "385",
+      "nr": "385",
+      "buchungskreis": "30000375",
+      "anlagenbezeichnung": "Apple iPad Air 2 (Key S.)",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "386",
+      "nr": "386",
+      "buchungskreis": "30000376",
+      "anlagenbezeichnung": "Aktenvernichter 8283 CC",
+      "aktivdatum": 42587,
+      "aktivdatum_iso": "2016-08-05",
+      "alter": 9.87
+    },
+    {
+      "article_no": "387",
+      "nr": "387",
+      "buchungskreis": "30000378",
+      "anlagenbezeichnung": "Beratungstisch mit PC-/Druckercontainer",
+      "aktivdatum": 42643,
+      "aktivdatum_iso": "2016-09-30",
+      "alter": 9.72
+    },
+    {
+      "article_no": "388",
+      "nr": "388",
+      "buchungskreis": "30000379",
+      "anlagenbezeichnung": "iPad Pro (Key S.)",
+      "aktivdatum": 42660,
+      "aktivdatum_iso": "2016-10-17",
+      "alter": 9.67
+    },
+    {
+      "article_no": "389",
+      "nr": "389",
+      "buchungskreis": "30000380",
+      "anlagenbezeichnung": "Beratungstisch mit PC-/Druckercontainer",
+      "aktivdatum": 42643,
+      "aktivdatum_iso": "2016-09-30",
+      "alter": 9.72
+    },
+    {
+      "article_no": "390",
+      "nr": "390",
+      "buchungskreis": "30000381",
+      "anlagenbezeichnung": "Samsumg UE65KU6079 TV Flachbildschirm",
+      "aktivdatum": 42697,
+      "aktivdatum_iso": "2016-11-23",
+      "alter": 9.57
+    },
+    {
+      "article_no": "391",
+      "nr": "391",
+      "buchungskreis": "30000382",
+      "anlagenbezeichnung": "Stuhl Catifa Leder Schwarz",
+      "aktivdatum": 42661,
+      "aktivdatum_iso": "2016-10-18",
+      "alter": 9.67
+    },
+    {
+      "article_no": "392",
+      "nr": "392",
+      "buchungskreis": "30000383",
+      "anlagenbezeichnung": "Audi Sport Arbeitsplatz S. Schmidt",
+      "aktivdatum": 42691,
+      "aktivdatum_iso": "2016-11-17",
+      "alter": 9.59
+    },
+    {
+      "article_no": "393",
+      "nr": "393",
+      "buchungskreis": "30000384",
+      "anlagenbezeichnung": "Mitsubishi Klima Split",
+      "aktivdatum": 42723,
+      "aktivdatum_iso": "2016-12-19",
+      "alter": 9.5
+    },
+    {
+      "article_no": "394",
+      "nr": "394",
+      "buchungskreis": "30000385",
+      "anlagenbezeichnung": "Komplettarbeitsplatz Empfang",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "395",
+      "nr": "395",
+      "buchungskreis": "30000386",
+      "anlagenbezeichnung": "Verkäuferarbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "396",
+      "nr": "396",
+      "buchungskreis": "30000387",
+      "anlagenbezeichnung": "Verkaufsleiterarbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "397",
+      "nr": "397",
+      "buchungskreis": "30000388",
+      "anlagenbezeichnung": "Geschäftsführer Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "398",
+      "nr": "398",
+      "buchungskreis": "30000389",
+      "anlagenbezeichnung": "Service Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "399",
+      "nr": "399",
+      "buchungskreis": "30000390",
+      "anlagenbezeichnung": "Service Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "400",
+      "nr": "400",
+      "buchungskreis": "30000391",
+      "anlagenbezeichnung": "Service Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "401",
+      "nr": "401",
+      "buchungskreis": "30000392",
+      "anlagenbezeichnung": "Service Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "402",
+      "nr": "402",
+      "buchungskreis": "30000393",
+      "anlagenbezeichnung": "Serviceleiter Arbeitsplatz",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "403",
+      "nr": "403",
+      "buchungskreis": "30000394",
+      "anlagenbezeichnung": "Teiletheke",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "404",
+      "nr": "404",
+      "buchungskreis": "30000395",
+      "anlagenbezeichnung": "Teiletheke",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "405",
+      "nr": "405",
+      "buchungskreis": "30000396",
+      "anlagenbezeichnung": "Arbeitsplatz Kundendienstleiter",
+      "aktivdatum": 42719,
+      "aktivdatum_iso": "2016-12-15",
+      "alter": 9.51
+    },
+    {
+      "article_no": "406",
+      "nr": "406",
+      "buchungskreis": "30000397",
+      "anlagenbezeichnung": "Drehstuhl Modus  Empfang",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "407",
+      "nr": "407",
+      "buchungskreis": "30000398",
+      "anlagenbezeichnung": "Drehstuhl Modus  Empfang",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "408",
+      "nr": "408",
+      "buchungskreis": "30000399",
+      "anlagenbezeichnung": "Drehstuhl Modus  Verkauf",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "409",
+      "nr": "409",
+      "buchungskreis": "30000400",
+      "anlagenbezeichnung": "Drehstuhl Modus  Verkaufsleiter",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "410",
+      "nr": "410",
+      "buchungskreis": "30000401",
+      "anlagenbezeichnung": "Drehstuhl Modus  Service",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "411",
+      "nr": "411",
+      "buchungskreis": "30000402",
+      "anlagenbezeichnung": "Drehstuhl Modus  Service",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "412",
+      "nr": "412",
+      "buchungskreis": "30000403",
+      "anlagenbezeichnung": "Drehstuhl Modus  Service",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "413",
+      "nr": "413",
+      "buchungskreis": "30000404",
+      "anlagenbezeichnung": "Drehstuhl Modus  Service",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "414",
+      "nr": "414",
+      "buchungskreis": "30000405",
+      "anlagenbezeichnung": "Drehstuhl Modus  Service",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "415",
+      "nr": "415",
+      "buchungskreis": "30000406",
+      "anlagenbezeichnung": "Drehstuhl Modus  Serviceleiter",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "416",
+      "nr": "416",
+      "buchungskreis": "30000407",
+      "anlagenbezeichnung": "Drehstuhl Modus  GF-Büro",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "417",
+      "nr": "417",
+      "buchungskreis": "30000408",
+      "anlagenbezeichnung": "Konferenztisch GF Büro",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "418",
+      "nr": "418",
+      "buchungskreis": "30000409",
+      "anlagenbezeichnung": "Drehstuhl Modus  GW",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "419",
+      "nr": "419",
+      "buchungskreis": "30000410",
+      "anlagenbezeichnung": "Drehstuhl Modus  GW",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "420",
+      "nr": "420",
+      "buchungskreis": "30000411",
+      "anlagenbezeichnung": "Drehstuhl Modus  Direktannahme",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "421",
+      "nr": "421",
+      "buchungskreis": "30000412",
+      "anlagenbezeichnung": "Drehstuhl Modus  Terminvereinb.",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "422",
+      "nr": "422",
+      "buchungskreis": "30000413",
+      "anlagenbezeichnung": "Verkaufsleiterarbeitsplatz GW",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "423",
+      "nr": "423",
+      "buchungskreis": "30000414",
+      "anlagenbezeichnung": "Verkaufsleiterarbeitsplatz GW",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "424",
+      "nr": "424",
+      "buchungskreis": "30000415",
+      "anlagenbezeichnung": "Arbeitsplatz Direktannahme",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "425",
+      "nr": "425",
+      "buchungskreis": "30000416",
+      "anlagenbezeichnung": "Arbeitsplatz Terminvereinbarung",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "426",
+      "nr": "426",
+      "buchungskreis": "30000417",
+      "anlagenbezeichnung": "Kundenlounge",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "427",
+      "nr": "427",
+      "buchungskreis": "30000418",
+      "anlagenbezeichnung": "Shop Vitrine",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "428",
+      "nr": "428",
+      "buchungskreis": "30000419",
+      "anlagenbezeichnung": "Kundenlounge",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "429",
+      "nr": "429",
+      "buchungskreis": "30000420",
+      "anlagenbezeichnung": "Lamellenvorhänge Tebra 127 mm P.H. Büro",
+      "aktivdatum": 42774,
+      "aktivdatum_iso": "2017-02-08",
+      "alter": 9.36
+    },
+    {
+      "article_no": "430",
+      "nr": "430",
+      "buchungskreis": "30000421",
+      "anlagenbezeichnung": "Lamellenvorhänge Tebra 127 mm Audi Spor",
+      "aktivdatum": 42774,
+      "aktivdatum_iso": "2017-02-08",
+      "alter": 9.36
+    },
+    {
+      "article_no": "431",
+      "nr": "431",
+      "buchungskreis": "30000422",
+      "anlagenbezeichnung": "Inszenierungselement",
+      "aktivdatum": 42905,
+      "aktivdatum_iso": "2017-06-19",
+      "alter": 9
+    },
+    {
+      "article_no": "435",
+      "nr": "435",
+      "buchungskreis": "30000423",
+      "anlagenbezeichnung": "Serverschrank Switch",
+      "aktivdatum": 42928,
+      "aktivdatum_iso": "2017-07-12",
+      "alter": 8.94
+    },
+    {
+      "article_no": "436",
+      "nr": "436",
+      "buchungskreis": "30000424",
+      "anlagenbezeichnung": "Drehstuhl Modus",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "437",
+      "nr": "437",
+      "buchungskreis": "30000425",
+      "anlagenbezeichnung": "Drehstuhl Modus",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "438",
+      "nr": "438",
+      "buchungskreis": "30000426",
+      "anlagenbezeichnung": "Drehstuhl Modus",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "439",
+      "nr": "439",
+      "buchungskreis": "30000427",
+      "anlagenbezeichnung": "Verkäuferarbeitsplatz GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "440",
+      "nr": "440",
+      "buchungskreis": "30000428",
+      "anlagenbezeichnung": "Verkäuferarbeitsplatz GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "441",
+      "nr": "441",
+      "buchungskreis": "30000429",
+      "anlagenbezeichnung": "Verkäuferarbeitsplatz GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "442",
+      "nr": "442",
+      "buchungskreis": "30000430",
+      "anlagenbezeichnung": "Standvitrine GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "443",
+      "nr": "443",
+      "buchungskreis": "30000431",
+      "anlagenbezeichnung": "Prospektständer GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "444",
+      "nr": "444",
+      "buchungskreis": "30000432",
+      "anlagenbezeichnung": "Cafeteriatisch GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "445",
+      "nr": "445",
+      "buchungskreis": "30000433",
+      "anlagenbezeichnung": "Barelement Fahrzeugübergabe GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "446",
+      "nr": "446",
+      "buchungskreis": "30000434",
+      "anlagenbezeichnung": "Cafeteriastuhl cuba weiß GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "447",
+      "nr": "447",
+      "buchungskreis": "30000435",
+      "anlagenbezeichnung": "Cafeteriastuhl cuba weiß GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "448",
+      "nr": "448",
+      "buchungskreis": "30000436",
+      "anlagenbezeichnung": "Cafeteriastuhl cuba weiß GW Cente",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "449",
+      "nr": "449",
+      "buchungskreis": "30000437",
+      "anlagenbezeichnung": "Cafeteriastuhl cuba weiß GW Cente",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "450",
+      "nr": "450",
+      "buchungskreis": "30000438",
+      "anlagenbezeichnung": "Barhoker Thin GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "451",
+      "nr": "451",
+      "buchungskreis": "30000439",
+      "anlagenbezeichnung": "Barhoker Thin GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "452",
+      "nr": "452",
+      "buchungskreis": "30000440",
+      "anlagenbezeichnung": "Barhoker Thin GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "453",
+      "nr": "453",
+      "buchungskreis": "30000441",
+      "anlagenbezeichnung": "Verkäuferarbeitsplatz GW Center",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "454",
+      "nr": "454",
+      "buchungskreis": "30000442",
+      "anlagenbezeichnung": "Arbeitsplatz Fr. Östringer PC+Bildschirm",
+      "aktivdatum": 42990,
+      "aktivdatum_iso": "2017-09-12",
+      "alter": 8.77
+    },
+    {
+      "article_no": "455",
+      "nr": "455",
+      "buchungskreis": "30000445",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "456",
+      "nr": "456",
+      "buchungskreis": "30000446",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "457",
+      "nr": "457",
+      "buchungskreis": "30000447",
+      "anlagenbezeichnung": "Apple 12.9 iPad Pro Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "458",
+      "nr": "458",
+      "buchungskreis": "30000448",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "459",
+      "nr": "459",
+      "buchungskreis": "30000449",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "460",
+      "nr": "460",
+      "buchungskreis": "30000450",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "461",
+      "nr": "461",
+      "buchungskreis": "30000451",
+      "anlagenbezeichnung": "Apple iPad mini 4 Wi-Fi",
+      "aktivdatum": 43025,
+      "aktivdatum_iso": "2017-10-17",
+      "alter": 8.67
+    },
+    {
+      "article_no": "462",
+      "nr": "462",
+      "buchungskreis": "30000452",
+      "anlagenbezeichnung": "Apple iPhone 7 G.H.",
+      "aktivdatum": 43038,
+      "aktivdatum_iso": "2017-10-30",
+      "alter": 8.64
+    },
+    {
+      "article_no": "463",
+      "nr": "463",
+      "buchungskreis": "30000453",
+      "anlagenbezeichnung": "Kaffeeautomat Philips Saeco Exprelia",
+      "aktivdatum": 42979,
+      "aktivdatum_iso": "2017-09-01",
+      "alter": 8.8
+    },
+    {
+      "article_no": "464",
+      "nr": "464",
+      "buchungskreis": "30000454",
+      "anlagenbezeichnung": "Nootbook Tester Werkstatt (Key S.)",
+      "aktivdatum": 42843,
+      "aktivdatum_iso": "2017-04-18",
+      "alter": 9.17
+    },
+    {
+      "article_no": "465",
+      "nr": "465",
+      "buchungskreis": "30000455",
+      "anlagenbezeichnung": "Notebook Herr Schlund (Key S.)",
+      "aktivdatum": 42843,
+      "aktivdatum_iso": "2017-04-18",
+      "alter": 9.17
+    },
+    {
+      "article_no": "466",
+      "nr": "466",
+      "buchungskreis": "30000456",
+      "anlagenbezeichnung": "Raumteiler Klarglas (Dedores AP)",
+      "aktivdatum": 42921,
+      "aktivdatum_iso": "2017-07-05",
+      "alter": 8.96
+    },
+    {
+      "article_no": "467",
+      "nr": "467",
+      "buchungskreis": "30000457",
+      "anlagenbezeichnung": "Canon IR ADV C3525i Kopierer",
+      "aktivdatum": 43201,
+      "aktivdatum_iso": "2018-04-11",
+      "alter": 8.19
+    },
+    {
+      "article_no": "468",
+      "nr": "468",
+      "buchungskreis": "30000458",
+      "anlagenbezeichnung": "Intel NUC7i5BNK PC Obloj",
+      "aktivdatum": 43196,
+      "aktivdatum_iso": "2018-04-06",
+      "alter": 8.2
+    },
+    {
+      "article_no": "469",
+      "nr": "469",
+      "buchungskreis": "30000459",
+      "anlagenbezeichnung": "Eibauküche Nobilia (GW Halle)",
+      "aktivdatum": 43256,
+      "aktivdatum_iso": "2018-06-05",
+      "alter": 8.04
+    },
+    {
+      "article_no": "470",
+      "nr": "470",
+      "buchungskreis": "30000460",
+      "anlagenbezeichnung": "Kombitresor Sonder-Innenausstattung",
+      "aktivdatum": 43242,
+      "aktivdatum_iso": "2018-05-22",
+      "alter": 8.08
+    },
+    {
+      "article_no": "471",
+      "nr": "471",
+      "buchungskreis": "30000461",
+      "anlagenbezeichnung": "PC Arbeitsplatz Hr. Schlund (KSIT)",
+      "aktivdatum": 43299,
+      "aktivdatum_iso": "2018-07-18",
+      "alter": 7.92
+    },
+    {
+      "article_no": "472",
+      "nr": "472",
+      "buchungskreis": "30000463",
+      "anlagenbezeichnung": "Jalousie Raffstore 3x Steuerschalter",
+      "aktivdatum": 43327,
+      "aktivdatum_iso": "2018-08-15",
+      "alter": 7.84
+    },
+    {
+      "article_no": "473",
+      "nr": "473",
+      "buchungskreis": "30000464",
+      "anlagenbezeichnung": "Thekenerweiterung",
+      "aktivdatum": 43311,
+      "aktivdatum_iso": "2018-07-30",
+      "alter": 7.89
+    },
+    {
+      "article_no": "474",
+      "nr": "474",
+      "buchungskreis": "30000465",
+      "anlagenbezeichnung": "Kombitresor",
+      "aktivdatum": 43237,
+      "aktivdatum_iso": "2018-05-17",
+      "alter": 8.09
+    },
+    {
+      "article_no": "475",
+      "nr": "475",
+      "buchungskreis": "30000466",
+      "anlagenbezeichnung": "Intel NUC7i5BNK Neuer PC Krampen TD",
+      "aktivdatum": 43360,
+      "aktivdatum_iso": "2018-09-17",
+      "alter": 7.75
+    },
+    {
+      "article_no": "476",
+      "nr": "476",
+      "buchungskreis": "30000468",
+      "anlagenbezeichnung": "Mini PC+Festplatte Serverraum Sicherung",
+      "aktivdatum": 43509,
+      "aktivdatum_iso": "2019-02-13",
+      "alter": 7.35
+    },
+    {
+      "article_no": "477",
+      "nr": "477",
+      "buchungskreis": "30000469",
+      "anlagenbezeichnung": "Samsung Smart TV für NW Ausstellung",
+      "aktivdatum": 43547,
+      "aktivdatum_iso": "2019-03-23",
+      "alter": 7.24
+    },
+    {
+      "article_no": "478",
+      "nr": "478",
+      "buchungskreis": "30000470",
+      "anlagenbezeichnung": "Überwachung Parkplätze Kameras",
+      "aktivdatum": 43547,
+      "aktivdatum_iso": "2019-03-23",
+      "alter": 7.24
+    },
+    {
+      "article_no": "479",
+      "nr": "479",
+      "buchungskreis": "30000471",
+      "anlagenbezeichnung": "CPL Raum, Illusionsraum NW",
+      "aktivdatum": 43556,
+      "aktivdatum_iso": "2019-04-01",
+      "alter": 7.22
+    },
+    {
+      "article_no": "480",
+      "nr": "480",
+      "buchungskreis": "30000472",
+      "anlagenbezeichnung": "Arbeitsplatz Czernoch PC",
+      "aktivdatum": 43540,
+      "aktivdatum_iso": "2019-03-16",
+      "alter": 7.26
+    },
+    {
+      "article_no": "481",
+      "nr": "481",
+      "buchungskreis": "30000473",
+      "anlagenbezeichnung": "Arbeistplatz Frau Martin Neue GW Halle",
+      "aktivdatum": 43504,
+      "aktivdatum_iso": "2019-02-08",
+      "alter": 7.36
+    },
+    {
+      "article_no": "482",
+      "nr": "482",
+      "buchungskreis": "30000474",
+      "anlagenbezeichnung": "Arbeistplatz Herr Cotronese Neue GW Hal",
+      "aktivdatum": 43504,
+      "aktivdatum_iso": "2019-02-08",
+      "alter": 7.36
+    },
+    {
+      "article_no": "483",
+      "nr": "483",
+      "buchungskreis": "30000475",
+      "anlagenbezeichnung": "Arbeistplatz Herr Benz Neue GW Halle",
+      "aktivdatum": 43585,
+      "aktivdatum_iso": "2019-04-30",
+      "alter": 7.14
+    },
+    {
+      "article_no": "484",
+      "nr": "484",
+      "buchungskreis": "30000476",
+      "anlagenbezeichnung": "Arbeistplatz Frau Martin Neue GW Halle",
+      "aktivdatum": 43585,
+      "aktivdatum_iso": "2019-04-30",
+      "alter": 7.14
+    },
+    {
+      "article_no": "485",
+      "nr": "485",
+      "buchungskreis": "30000477",
+      "anlagenbezeichnung": "Arbeistplatz Herr Cotronese Neue GW Hal",
+      "aktivdatum": 43585,
+      "aktivdatum_iso": "2019-04-30",
+      "alter": 7.14
+    },
+    {
+      "article_no": "486",
+      "nr": "486",
+      "buchungskreis": "30000478",
+      "anlagenbezeichnung": "Arbeitsplatz Frau Martin GW Halle",
+      "aktivdatum": 43599,
+      "aktivdatum_iso": "2019-05-14",
+      "alter": 7.1
+    },
+    {
+      "article_no": "487",
+      "nr": "487",
+      "buchungskreis": "30000479",
+      "anlagenbezeichnung": "Arbeistplatz Herr Cotronese Neue GW Hal",
+      "aktivdatum": 43599,
+      "aktivdatum_iso": "2019-05-14",
+      "alter": 7.1
+    },
+    {
+      "article_no": "488",
+      "nr": "488",
+      "buchungskreis": "30000480",
+      "anlagenbezeichnung": "Arbeistplatz Herr Benz Neue GW Halle",
+      "aktivdatum": 43599,
+      "aktivdatum_iso": "2019-05-14",
+      "alter": 7.1
+    },
+    {
+      "article_no": "489",
+      "nr": "489",
+      "buchungskreis": "30000481",
+      "anlagenbezeichnung": "Mitsubishi Klima Set Verkauf CPL Raum",
+      "aktivdatum": 43646,
+      "aktivdatum_iso": "2019-06-30",
+      "alter": 6.97
+    },
+    {
+      "article_no": "494",
+      "nr": "494",
+      "buchungskreis": "30000482",
+      "anlagenbezeichnung": "Aruba Switch + Installation Verkabelung",
+      "aktivdatum": 43710,
+      "aktivdatum_iso": "2019-09-02",
+      "alter": 6.79
+    },
+    {
+      "article_no": "495",
+      "nr": "495",
+      "buchungskreis": "30000483",
+      "anlagenbezeichnung": "Arbeitsplatz PC Counter Mitte",
+      "aktivdatum": 43748,
+      "aktivdatum_iso": "2019-10-10",
+      "alter": 6.69
+    },
+    {
+      "article_no": "496",
+      "nr": "496",
+      "buchungskreis": "30000490",
+      "anlagenbezeichnung": "Büroeinrichutng DISPO NW",
+      "aktivdatum": 44057,
+      "aktivdatum_iso": "2020-08-14",
+      "alter": 5.84
+    },
+    {
+      "article_no": "497",
+      "nr": "497",
+      "buchungskreis": "30000491",
+      "anlagenbezeichnung": "Büroeinrichutng DISPO GW",
+      "aktivdatum": 44057,
+      "aktivdatum_iso": "2020-08-14",
+      "alter": 5.84
+    },
+    {
+      "article_no": "498",
+      "nr": "498",
+      "buchungskreis": "30000494",
+      "anlagenbezeichnung": "Kassensystem Cash 5X Lennovo",
+      "aktivdatum": 44253,
+      "aktivdatum_iso": "2021-02-26",
+      "alter": 5.31
+    },
+    {
+      "article_no": "499",
+      "nr": "499",
+      "buchungskreis": "30000495",
+      "anlagenbezeichnung": "I Phone 12 Purple Frau Hofmann",
+      "aktivdatum": 44358,
+      "aktivdatum_iso": "2021-06-11",
+      "alter": 5.02
+    },
+    {
+      "article_no": "500",
+      "nr": "500",
+      "buchungskreis": "30000496",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Carop",
+      "aktivdatum": 44301,
+      "aktivdatum_iso": "2021-04-15",
+      "alter": 5.18
+    },
+    {
+      "article_no": "501",
+      "nr": "501",
+      "buchungskreis": "30000497",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Funk",
+      "aktivdatum": 44301,
+      "aktivdatum_iso": "2021-04-15",
+      "alter": 5.18
+    },
+    {
+      "article_no": "502",
+      "nr": "502",
+      "buchungskreis": "30000498",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Hofma",
+      "aktivdatum": 44301,
+      "aktivdatum_iso": "2021-04-15",
+      "alter": 5.18
+    },
+    {
+      "article_no": "503",
+      "nr": "503",
+      "buchungskreis": "30000499",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Maier",
+      "aktivdatum": 44341,
+      "aktivdatum_iso": "2021-05-25",
+      "alter": 5.07
+    },
+    {
+      "article_no": "504",
+      "nr": "504",
+      "buchungskreis": "30000500",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Scher",
+      "aktivdatum": 44341,
+      "aktivdatum_iso": "2021-05-25",
+      "alter": 5.07
+    },
+    {
+      "article_no": "505",
+      "nr": "505",
+      "buchungskreis": "30000501",
+      "anlagenbezeichnung": "Philips Monitor+ Lenovo Think Pad Heid",
+      "aktivdatum": 44341,
+      "aktivdatum_iso": "2021-05-25",
+      "alter": 5.07
+    },
+    {
+      "article_no": "506",
+      "nr": "506",
+      "buchungskreis": "30000502",
+      "anlagenbezeichnung": "E-Bike",
+      "aktivdatum": 43970,
+      "aktivdatum_iso": "2020-05-19",
+      "alter": 6.08
+    },
+    {
+      "article_no": "507",
+      "nr": "507",
+      "buchungskreis": "30000503",
+      "anlagenbezeichnung": "E-Bike",
+      "aktivdatum": 43970,
+      "aktivdatum_iso": "2020-05-19",
+      "alter": 6.08
+    },
+    {
+      "article_no": "508",
+      "nr": "508",
+      "buchungskreis": "30000505",
+      "anlagenbezeichnung": "Lenovo Yoga Slim NW",
+      "aktivdatum": 44466,
+      "aktivdatum_iso": "2021-09-27",
+      "alter": 4.72
+    },
+    {
+      "article_no": "509",
+      "nr": "509",
+      "buchungskreis": "30000506",
+      "anlagenbezeichnung": "Think Book DISPO",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "510",
+      "nr": "510",
+      "buchungskreis": "30000507",
+      "anlagenbezeichnung": "Think Book verkäufer Gottfried",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "511",
+      "nr": "511",
+      "buchungskreis": "30000509",
+      "anlagenbezeichnung": "Apple iPad Pro",
+      "aktivdatum": 44697,
+      "aktivdatum_iso": "2022-05-16",
+      "alter": 4.09
+    },
+    {
+      "article_no": "512",
+      "nr": "512",
+      "buchungskreis": "30000510",
+      "anlagenbezeichnung": "Lenovo ThoinBook",
+      "aktivdatum": 44686,
+      "aktivdatum_iso": "2022-05-05",
+      "alter": 4.12
+    },
+    {
+      "article_no": "513",
+      "nr": "513",
+      "buchungskreis": "30000511",
+      "anlagenbezeichnung": "Lenovo ThoinBook",
+      "aktivdatum": 44686,
+      "aktivdatum_iso": "2022-05-05",
+      "alter": 4.12
+    },
+    {
+      "article_no": "514",
+      "nr": "514",
+      "buchungskreis": "30000513",
+      "anlagenbezeichnung": "Iphone 14 Pro (Chef)",
+      "aktivdatum": 44846,
+      "aktivdatum_iso": "2022-10-12",
+      "alter": 3.68
+    },
+    {
+      "article_no": "515",
+      "nr": "515",
+      "buchungskreis": "30000514",
+      "anlagenbezeichnung": "Necta Krea Touch Espresso",
+      "aktivdatum": 44910,
+      "aktivdatum_iso": "2022-12-15",
+      "alter": 3.51
+    },
+    {
+      "article_no": "516",
+      "nr": "516",
+      "buchungskreis": "30000515",
+      "anlagenbezeichnung": "PC und Bildschirm Herr Greiner",
+      "aktivdatum": 44989,
+      "aktivdatum_iso": "2023-03-04",
+      "alter": 3.29
+    },
+    {
+      "article_no": "517",
+      "nr": "517",
+      "buchungskreis": "30000516",
+      "anlagenbezeichnung": "KSI; 2HE Intel Single-CPU Server",
+      "aktivdatum": 45504,
+      "aktivdatum_iso": "2024-07-31",
+      "alter": 1.88
+    },
+    {
+      "article_no": "518",
+      "nr": "518",
+      "buchungskreis": "30000517",
+      "anlagenbezeichnung": "KSI; 2HE Intel Single-CPU Server",
+      "aktivdatum": 45292,
+      "aktivdatum_iso": "2024-01-01",
+      "alter": 2.46
+    },
+    {
+      "article_no": "519",
+      "nr": "519",
+      "buchungskreis": "30000518",
+      "anlagenbezeichnung": "MAHA; PC Bremsenprüfstand",
+      "aktivdatum": 45495,
+      "aktivdatum_iso": "2024-07-22",
+      "alter": 1.9
+    },
+    {
+      "article_no": "520",
+      "nr": "520",
+      "buchungskreis": "30000519",
+      "anlagenbezeichnung": "VW OTLG; Diagnose-Interface VAS 6154B",
+      "aktivdatum": 45499,
+      "aktivdatum_iso": "2024-07-26",
+      "alter": 1.89
+    },
+    {
+      "article_no": "521",
+      "nr": "521",
+      "buchungskreis": "30000520",
+      "anlagenbezeichnung": "VAPS; De Edge Box - Size S",
+      "aktivdatum": 45411,
+      "aktivdatum_iso": "2024-04-29",
+      "alter": 2.13
+    },
+    {
+      "article_no": "522",
+      "nr": "522",
+      "buchungskreis": "30000521",
+      "anlagenbezeichnung": "amazon; Samsung Curved Monitor",
+      "aktivdatum": 45373,
+      "aktivdatum_iso": "2024-03-22",
+      "alter": 2.24
+    },
+    {
+      "article_no": "523",
+      "nr": "523",
+      "buchungskreis": "30000522",
+      "anlagenbezeichnung": "Kaufmann Ulm; Leuchtreklame VW Service",
+      "aktivdatum": 45596,
+      "aktivdatum_iso": "2024-10-31",
+      "alter": 1.63
+    },
+    {
+      "article_no": "524",
+      "nr": "524",
+      "buchungskreis": "30000527",
+      "anlagenbezeichnung": "VW OTLG; Messhilfsmittelset VAG 1594E",
+      "aktivdatum": 45860,
+      "aktivdatum_iso": "2025-07-22",
+      "alter": 0.9
+    },
+    {
+      "article_no": "525",
+      "nr": "525",
+      "buchungskreis": "30000528",
+      "anlagenbezeichnung": "VW OTLG; AnschlussleitungVAS 6910/19",
+      "aktivdatum": 45860,
+      "aktivdatum_iso": "2025-07-22",
+      "alter": 0.9
+    },
+    {
+      "article_no": "530",
+      "nr": "530",
+      "buchungskreis": "39000580",
+      "anlagenbezeichnung": "Werkstattwagen Toll System Hr. Bitzenbe",
+      "aktivdatum": 42089,
+      "aktivdatum_iso": "2015-03-26",
+      "alter": 11.24
+    },
+    {
+      "article_no": "531",
+      "nr": "531",
+      "buchungskreis": "39000581",
+      "anlagenbezeichnung": "Druckbecherpistole VAG 1538",
+      "aktivdatum": 42109,
+      "aktivdatum_iso": "2015-04-15",
+      "alter": 11.18
+    },
+    {
+      "article_no": "532",
+      "nr": "532",
+      "buchungskreis": "39000582",
+      "anlagenbezeichnung": "Gewindereparatursatz (Fa. Pichler)",
+      "aktivdatum": 42012,
+      "aktivdatum_iso": "2015-01-08",
+      "alter": 11.45
+    },
+    {
+      "article_no": "533",
+      "nr": "533",
+      "buchungskreis": "39000583",
+      "anlagenbezeichnung": "DELL Latitude Notebook i5 (Key Solution)",
+      "aktivdatum": 42034,
+      "aktivdatum_iso": "2015-01-30",
+      "alter": 11.39
+    },
+    {
+      "article_no": "534",
+      "nr": "534",
+      "buchungskreis": "39000584",
+      "anlagenbezeichnung": "DELL Latitude Notebook i5 (Key Solution)",
+      "aktivdatum": 42034,
+      "aktivdatum_iso": "2015-01-30",
+      "alter": 11.39
+    },
+    {
+      "article_no": "535",
+      "nr": "535",
+      "buchungskreis": "39000585",
+      "anlagenbezeichnung": "Kopfhörer Headset Kasse (Key Solution)",
+      "aktivdatum": 42034,
+      "aktivdatum_iso": "2015-01-30",
+      "alter": 11.39
+    },
+    {
+      "article_no": "536",
+      "nr": "536",
+      "buchungskreis": "39000586",
+      "anlagenbezeichnung": "Kyocera Laserdrucker 2000 Serie (Key So",
+      "aktivdatum": 42052,
+      "aktivdatum_iso": "2015-02-17",
+      "alter": 11.34
+    },
+    {
+      "article_no": "537",
+      "nr": "537",
+      "buchungskreis": "39000587",
+      "anlagenbezeichnung": "Apple iPhone 6 64GB grey (mobilcom)",
+      "aktivdatum": 42047,
+      "aktivdatum_iso": "2015-02-12",
+      "alter": 11.35
+    },
+    {
+      "article_no": "538",
+      "nr": "538",
+      "buchungskreis": "39000588",
+      "anlagenbezeichnung": "Werkzeugkoffer (Liquo Moly)",
+      "aktivdatum": 42079,
+      "aktivdatum_iso": "2015-03-16",
+      "alter": 11.26
+    },
+    {
+      "article_no": "539",
+      "nr": "539",
+      "buchungskreis": "39000589",
+      "anlagenbezeichnung": "Schweißschutzdecke (Wieländer)",
+      "aktivdatum": 42109,
+      "aktivdatum_iso": "2015-04-15",
+      "alter": 11.18
+    },
+    {
+      "article_no": "540",
+      "nr": "540",
+      "buchungskreis": "39000590",
+      "anlagenbezeichnung": "Universalaufnahme VAS 6095/1",
+      "aktivdatum": 42060,
+      "aktivdatum_iso": "2015-02-25",
+      "alter": 11.32
+    },
+    {
+      "article_no": "541",
+      "nr": "541",
+      "buchungskreis": "39000593",
+      "anlagenbezeichnung": "Bürostuhl Neidig (Office Disc)",
+      "aktivdatum": 42139,
+      "aktivdatum_iso": "2015-05-15",
+      "alter": 11.1
+    },
+    {
+      "article_no": "542",
+      "nr": "542",
+      "buchungskreis": "39000595",
+      "anlagenbezeichnung": "Kyocera FS-2100DN Laserdrucker Kandler ",
+      "aktivdatum": 42142,
+      "aktivdatum_iso": "2015-05-18",
+      "alter": 11.09
+    },
+    {
+      "article_no": "543",
+      "nr": "543",
+      "buchungskreis": "39000596",
+      "anlagenbezeichnung": "Intel NUC (PC Celeste) Key Solution",
+      "aktivdatum": 42170,
+      "aktivdatum_iso": "2015-06-15",
+      "alter": 11.01
+    },
+    {
+      "article_no": "544",
+      "nr": "544",
+      "buchungskreis": "39000597",
+      "anlagenbezeichnung": "Jabra GN9120 Midiboom Alcatel",
+      "aktivdatum": 42170,
+      "aktivdatum_iso": "2015-06-15",
+      "alter": 11.01
+    },
+    {
+      "article_no": "545",
+      "nr": "545",
+      "buchungskreis": "39000598",
+      "anlagenbezeichnung": "Jabra GN9120 Midiboom Alcatel",
+      "aktivdatum": 42170,
+      "aktivdatum_iso": "2015-06-15",
+      "alter": 11.01
+    },
+    {
+      "article_no": "546",
+      "nr": "546",
+      "buchungskreis": "39000599",
+      "anlagenbezeichnung": "Kyocera FS-2100DN Laserdrucker Cotrones",
+      "aktivdatum": 42166,
+      "aktivdatum_iso": "2015-06-11",
+      "alter": 11.02
+    },
+    {
+      "article_no": "547",
+      "nr": "547",
+      "buchungskreis": "39000600",
+      "anlagenbezeichnung": "Werkstattplaner Spenglerei",
+      "aktivdatum": 42157,
+      "aktivdatum_iso": "2015-06-02",
+      "alter": 11.05
+    },
+    {
+      "article_no": "548",
+      "nr": "548",
+      "buchungskreis": "39000601",
+      "anlagenbezeichnung": "Sicherheits-Standascher",
+      "aktivdatum": 42162,
+      "aktivdatum_iso": "2015-06-07",
+      "alter": 11.04
+    },
+    {
+      "article_no": "549",
+      "nr": "549",
+      "buchungskreis": "39000602",
+      "anlagenbezeichnung": "Werkstattwagen (Förch)",
+      "aktivdatum": 42193,
+      "aktivdatum_iso": "2015-07-08",
+      "alter": 10.95
+    },
+    {
+      "article_no": "550",
+      "nr": "550",
+      "buchungskreis": "39000603",
+      "anlagenbezeichnung": "Roll Out 2004 (Scheibendemontage)",
+      "aktivdatum": 42208,
+      "aktivdatum_iso": "2015-07-23",
+      "alter": 10.91
+    },
+    {
+      "article_no": "551",
+      "nr": "551",
+      "buchungskreis": "39000605",
+      "anlagenbezeichnung": "Terassenstrahler Karroserie",
+      "aktivdatum": 42216,
+      "aktivdatum_iso": "2015-07-31",
+      "alter": 10.89
+    },
+    {
+      "article_no": "552",
+      "nr": "552",
+      "buchungskreis": "39000606",
+      "anlagenbezeichnung": "Kühlschrank",
+      "aktivdatum": 42214,
+      "aktivdatum_iso": "2015-07-29",
+      "alter": 10.89
+    },
+    {
+      "article_no": "553",
+      "nr": "553",
+      "buchungskreis": "39000610",
+      "anlagenbezeichnung": "Schlagschrauber Druckluft (Würth)",
+      "aktivdatum": 42326,
+      "aktivdatum_iso": "2015-11-18",
+      "alter": 10.59
+    },
+    {
+      "article_no": "554",
+      "nr": "554",
+      "buchungskreis": "39000612",
+      "anlagenbezeichnung": "Werkstattwagen bestückt (Würth)",
+      "aktivdatum": 42353,
+      "aktivdatum_iso": "2015-12-15",
+      "alter": 10.51
+    },
+    {
+      "article_no": "555",
+      "nr": "555",
+      "buchungskreis": "39000613",
+      "anlagenbezeichnung": "Apple iPad Air 2 (Key S.)",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "556",
+      "nr": "556",
+      "buchungskreis": "39000614",
+      "anlagenbezeichnung": "Diagnosefunkkopf VAS 5054A (VZ)",
+      "aktivdatum": 42384,
+      "aktivdatum_iso": "2016-01-15",
+      "alter": 10.43
+    },
+    {
+      "article_no": "557",
+      "nr": "557",
+      "buchungskreis": "39000615",
+      "anlagenbezeichnung": "Ledersessel Hr. Runge (büroplus)",
+      "aktivdatum": 42418,
+      "aktivdatum_iso": "2016-02-18",
+      "alter": 10.33
+    },
+    {
+      "article_no": "558",
+      "nr": "558",
+      "buchungskreis": "39000616",
+      "anlagenbezeichnung": "Messwertaufnahme Achsvermessung (VZ)",
+      "aktivdatum": 42403,
+      "aktivdatum_iso": "2016-02-03",
+      "alter": 10.38
+    },
+    {
+      "article_no": "559",
+      "nr": "559",
+      "buchungskreis": "39000622",
+      "anlagenbezeichnung": "Messwertaufnehmer (VZ)",
+      "aktivdatum": 42480,
+      "aktivdatum_iso": "2016-04-20",
+      "alter": 10.16
+    },
+    {
+      "article_no": "560",
+      "nr": "560",
+      "buchungskreis": "39000628",
+      "anlagenbezeichnung": "Hardware Routen P.H. (Key S.)",
+      "aktivdatum": 42491,
+      "aktivdatum_iso": "2016-05-01",
+      "alter": 10.13
+    },
+    {
+      "article_no": "561",
+      "nr": "561",
+      "buchungskreis": "39000629",
+      "anlagenbezeichnung": "Brother Drucker P.H. (Key S.)",
+      "aktivdatum": 42491,
+      "aktivdatum_iso": "2016-05-01",
+      "alter": 10.13
+    },
+    {
+      "article_no": "562",
+      "nr": "562",
+      "buchungskreis": "39000630",
+      "anlagenbezeichnung": "Monitor P.H. (Key S.)",
+      "aktivdatum": 42491,
+      "aktivdatum_iso": "2016-05-01",
+      "alter": 10.13
+    },
+    {
+      "article_no": "563",
+      "nr": "563",
+      "buchungskreis": "39000631",
+      "anlagenbezeichnung": "Sennheiser D10 Headset",
+      "aktivdatum": 42513,
+      "aktivdatum_iso": "2016-05-23",
+      "alter": 10.07
+    },
+    {
+      "article_no": "564",
+      "nr": "564",
+      "buchungskreis": "39000632",
+      "anlagenbezeichnung": "Brother FAX 2840",
+      "aktivdatum": 42388,
+      "aktivdatum_iso": "2016-01-19",
+      "alter": 10.42
+    },
+    {
+      "article_no": "565",
+      "nr": "565",
+      "buchungskreis": "39000634",
+      "anlagenbezeichnung": "Siemens Waschmaschine WM14E3A1",
+      "aktivdatum": 42565,
+      "aktivdatum_iso": "2016-07-14",
+      "alter": 9.93
+    },
+    {
+      "article_no": "566",
+      "nr": "566",
+      "buchungskreis": "39000639",
+      "anlagenbezeichnung": "ND 77 Drucker Kasse",
+      "aktivdatum": 42587,
+      "aktivdatum_iso": "2016-08-05",
+      "alter": 9.87
+    },
+    {
+      "article_no": "567",
+      "nr": "567",
+      "buchungskreis": "39000640",
+      "anlagenbezeichnung": "BEKO Stand Kühlschrank (Speiß)",
+      "aktivdatum": 42599,
+      "aktivdatum_iso": "2016-08-17",
+      "alter": 9.84
+    },
+    {
+      "article_no": "568",
+      "nr": "568",
+      "buchungskreis": "39000641",
+      "anlagenbezeichnung": "OKI MC342dn Multifunktionsdrucker Farbe",
+      "aktivdatum": 42633,
+      "aktivdatum_iso": "2016-09-20",
+      "alter": 9.75
+    },
+    {
+      "article_no": "569",
+      "nr": "569",
+      "buchungskreis": "39000642",
+      "anlagenbezeichnung": "LG Electronics Full HD (Monitor Berberi",
+      "aktivdatum": 42619,
+      "aktivdatum_iso": "2016-09-06",
+      "alter": 9.78
+    },
+    {
+      "article_no": "570",
+      "nr": "570",
+      "buchungskreis": "39000643",
+      "anlagenbezeichnung": "Netgear W-Lan Router",
+      "aktivdatum": 42633,
+      "aktivdatum_iso": "2016-09-20",
+      "alter": 9.75
+    },
+    {
+      "article_no": "571",
+      "nr": "571",
+      "buchungskreis": "39000645",
+      "anlagenbezeichnung": "Rücklaufmengenmessgerät VAS 6681",
+      "aktivdatum": 42685,
+      "aktivdatum_iso": "2016-11-11",
+      "alter": 9.6
+    },
+    {
+      "article_no": "572",
+      "nr": "572",
+      "buchungskreis": "39000646",
+      "anlagenbezeichnung": "Stuhl Catifa Leder Schwarz",
+      "aktivdatum": 42661,
+      "aktivdatum_iso": "2016-10-18",
+      "alter": 9.67
+    },
+    {
+      "article_no": "573",
+      "nr": "573",
+      "buchungskreis": "39000648",
+      "anlagenbezeichnung": "Ladegerät für Batterie ASE-447-037-00-0",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "574",
+      "nr": "574",
+      "buchungskreis": "39000649",
+      "anlagenbezeichnung": "Ladegerät für Batterie ASE-447-037-00-0",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "575",
+      "nr": "575",
+      "buchungskreis": "39000650",
+      "anlagenbezeichnung": "Ladegerät für Batterie ASE-447-037-00-0",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "576",
+      "nr": "576",
+      "buchungskreis": "39000654",
+      "anlagenbezeichnung": "Samsung Monitor 24Zoll",
+      "aktivdatum": 42732,
+      "aktivdatum_iso": "2016-12-28",
+      "alter": 9.47
+    },
+    {
+      "article_no": "577",
+      "nr": "577",
+      "buchungskreis": "39000655",
+      "anlagenbezeichnung": "Freischwinger Neos",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "578",
+      "nr": "578",
+      "buchungskreis": "39000656",
+      "anlagenbezeichnung": "Freischwinger Neos",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "579",
+      "nr": "579",
+      "buchungskreis": "39000657",
+      "anlagenbezeichnung": "Freischwinger Neos 4St.",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "580",
+      "nr": "580",
+      "buchungskreis": "39000658",
+      "anlagenbezeichnung": "Freischwinger Neos 2St.",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "581",
+      "nr": "581",
+      "buchungskreis": "39000659",
+      "anlagenbezeichnung": "Freischwinger Neos 2St.",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "582",
+      "nr": "582",
+      "buchungskreis": "39000660",
+      "anlagenbezeichnung": "Freischwinger Neos 4St.",
+      "aktivdatum": 42720,
+      "aktivdatum_iso": "2016-12-16",
+      "alter": 9.51
+    },
+    {
+      "article_no": "583",
+      "nr": "583",
+      "buchungskreis": "39000661",
+      "anlagenbezeichnung": "Kaffee Vollautomat Delonglii",
+      "aktivdatum": 42744,
+      "aktivdatum_iso": "2017-01-09",
+      "alter": 9.44
+    },
+    {
+      "article_no": "584",
+      "nr": "584",
+      "buchungskreis": "39000664",
+      "anlagenbezeichnung": "Druckbecherpistole VAG 1538 VZ",
+      "aktivdatum": 42776,
+      "aktivdatum_iso": "2017-02-10",
+      "alter": 9.35
+    },
+    {
+      "article_no": "588",
+      "nr": "588",
+      "buchungskreis": "39000665",
+      "anlagenbezeichnung": "Batterieladegerät VAS 5906 VZ",
+      "aktivdatum": 42776,
+      "aktivdatum_iso": "2017-02-10",
+      "alter": 9.35
+    },
+    {
+      "article_no": "589",
+      "nr": "589",
+      "buchungskreis": "39000667",
+      "anlagenbezeichnung": "Prüfadapter VAS 6606/10",
+      "aktivdatum": 42790,
+      "aktivdatum_iso": "2017-02-24",
+      "alter": 9.32
+    },
+    {
+      "article_no": "590",
+      "nr": "590",
+      "buchungskreis": "39000668",
+      "anlagenbezeichnung": "Delonghi ECAM Kaffeevollautomat",
+      "aktivdatum": 42744,
+      "aktivdatum_iso": "2017-01-09",
+      "alter": 9.44
+    },
+    {
+      "article_no": "591",
+      "nr": "591",
+      "buchungskreis": "39000670",
+      "anlagenbezeichnung": "Monitor 24 Zoll Samsung S24F350FH (2St)",
+      "aktivdatum": 42804,
+      "aktivdatum_iso": "2017-03-10",
+      "alter": 9.28
+    },
+    {
+      "article_no": "592",
+      "nr": "592",
+      "buchungskreis": "39000671",
+      "anlagenbezeichnung": "Hinterachsaufnahme T10552 VZ",
+      "aktivdatum": 42809,
+      "aktivdatum_iso": "2017-03-15",
+      "alter": 9.26
+    },
+    {
+      "article_no": "593",
+      "nr": "593",
+      "buchungskreis": "39000672",
+      "anlagenbezeichnung": "Staubsauger Werkstatt 2St.",
+      "aktivdatum": 42803,
+      "aktivdatum_iso": "2017-03-09",
+      "alter": 9.28
+    },
+    {
+      "article_no": "594",
+      "nr": "594",
+      "buchungskreis": "39000676",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558A/23",
+      "aktivdatum": 42832,
+      "aktivdatum_iso": "2017-04-07",
+      "alter": 9.2
+    },
+    {
+      "article_no": "595",
+      "nr": "595",
+      "buchungskreis": "39000684",
+      "anlagenbezeichnung": "LG Electronics 27MP47HQ-P Monitor Berbe",
+      "aktivdatum": 42916,
+      "aktivdatum_iso": "2017-06-30",
+      "alter": 8.97
+    },
+    {
+      "article_no": "596",
+      "nr": "596",
+      "buchungskreis": "39000685",
+      "anlagenbezeichnung": "Prüfgerät für Überrollschutzsystem VAS ",
+      "aktivdatum": 42907,
+      "aktivdatum_iso": "2017-06-21",
+      "alter": 8.99
+    },
+    {
+      "article_no": "597",
+      "nr": "597",
+      "buchungskreis": "39000686",
+      "anlagenbezeichnung": "Freischinger Neos 183/3",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "598",
+      "nr": "598",
+      "buchungskreis": "39000687",
+      "anlagenbezeichnung": "Freischinger Neos 183/3",
+      "aktivdatum": 42927,
+      "aktivdatum_iso": "2017-07-11",
+      "alter": 8.94
+    },
+    {
+      "article_no": "599",
+      "nr": "599",
+      "buchungskreis": "39000689",
+      "anlagenbezeichnung": "Nootbuck Service Heilig",
+      "aktivdatum": 42971,
+      "aktivdatum_iso": "2017-08-24",
+      "alter": 8.82
+    },
+    {
+      "article_no": "600",
+      "nr": "600",
+      "buchungskreis": "39000690",
+      "anlagenbezeichnung": "Ersatz NUC Mobiltelefon Gröbler",
+      "aktivdatum": 42948,
+      "aktivdatum_iso": "2017-08-01",
+      "alter": 8.88
+    },
+    {
+      "article_no": "601",
+      "nr": "601",
+      "buchungskreis": "39000693",
+      "anlagenbezeichnung": "Kyocera Drucker 2St.",
+      "aktivdatum": 42928,
+      "aktivdatum_iso": "2017-07-12",
+      "alter": 8.94
+    },
+    {
+      "article_no": "602",
+      "nr": "602",
+      "buchungskreis": "39000694",
+      "anlagenbezeichnung": "Rasenmäher",
+      "aktivdatum": 43060,
+      "aktivdatum_iso": "2017-11-21",
+      "alter": 8.58
+    },
+    {
+      "article_no": "603",
+      "nr": "603",
+      "buchungskreis": "39000695",
+      "anlagenbezeichnung": "Staubsauger Kärcher",
+      "aktivdatum": 43074,
+      "aktivdatum_iso": "2017-12-05",
+      "alter": 8.54
+    },
+    {
+      "article_no": "604",
+      "nr": "604",
+      "buchungskreis": "39000696",
+      "anlagenbezeichnung": "NOCO Genius Boost Starthilfegerät",
+      "aktivdatum": 43084,
+      "aktivdatum_iso": "2017-12-15",
+      "alter": 8.51
+    },
+    {
+      "article_no": "605",
+      "nr": "605",
+      "buchungskreis": "39000698",
+      "anlagenbezeichnung": "Yealink T48G Cotronese (Key S.)",
+      "aktivdatum": 43130,
+      "aktivdatum_iso": "2018-01-30",
+      "alter": 8.38
+    },
+    {
+      "article_no": "606",
+      "nr": "606",
+      "buchungskreis": "39000699",
+      "anlagenbezeichnung": "LED Monitor LG 27BK550Y-B GW 4x",
+      "aktivdatum": 43130,
+      "aktivdatum_iso": "2018-01-30",
+      "alter": 8.38
+    },
+    {
+      "article_no": "607",
+      "nr": "607",
+      "buchungskreis": "39000700",
+      "anlagenbezeichnung": "Werkbank (Hornbach) Werksatt GW 3x",
+      "aktivdatum": 43158,
+      "aktivdatum_iso": "2018-02-27",
+      "alter": 8.31
+    },
+    {
+      "article_no": "608",
+      "nr": "608",
+      "buchungskreis": "39000701",
+      "anlagenbezeichnung": "Werkzeughochschrank (Hornbach) GW Werks",
+      "aktivdatum": 43158,
+      "aktivdatum_iso": "2018-02-27",
+      "alter": 8.31
+    },
+    {
+      "article_no": "609",
+      "nr": "609",
+      "buchungskreis": "39000702",
+      "anlagenbezeichnung": "Werkbank (Hornbach) Werksatt GW 3x",
+      "aktivdatum": 43158,
+      "aktivdatum_iso": "2018-02-27",
+      "alter": 8.31
+    },
+    {
+      "article_no": "610",
+      "nr": "610",
+      "buchungskreis": "39000703",
+      "anlagenbezeichnung": "Werkzeughochschrank (Hornbach) GW Werks",
+      "aktivdatum": 43158,
+      "aktivdatum_iso": "2018-02-27",
+      "alter": 8.31
+    },
+    {
+      "article_no": "611",
+      "nr": "611",
+      "buchungskreis": "39000704",
+      "anlagenbezeichnung": "Konferenztisch",
+      "aktivdatum": 43187,
+      "aktivdatum_iso": "2018-03-28",
+      "alter": 8.23
+    },
+    {
+      "article_no": "612",
+      "nr": "612",
+      "buchungskreis": "39000707",
+      "anlagenbezeichnung": "Diagnoseinterface VAS6154",
+      "aktivdatum": 43250,
+      "aktivdatum_iso": "2018-05-30",
+      "alter": 8.05
+    },
+    {
+      "article_no": "613",
+      "nr": "613",
+      "buchungskreis": "39000708",
+      "anlagenbezeichnung": "Panasonic CF-VEB541AU Dockingstation",
+      "aktivdatum": 43250,
+      "aktivdatum_iso": "2018-05-30",
+      "alter": 8.05
+    },
+    {
+      "article_no": "614",
+      "nr": "614",
+      "buchungskreis": "39000709",
+      "anlagenbezeichnung": "Laptop Spenglerei Panasonic Toughbook",
+      "aktivdatum": 43270,
+      "aktivdatum_iso": "2018-06-19",
+      "alter": 8
+    },
+    {
+      "article_no": "615",
+      "nr": "615",
+      "buchungskreis": "39000710",
+      "anlagenbezeichnung": "Diagnoseinterface VAS6154 (Wireless Lan)",
+      "aktivdatum": 43278,
+      "aktivdatum_iso": "2018-06-27",
+      "alter": 7.98
+    },
+    {
+      "article_no": "616",
+      "nr": "616",
+      "buchungskreis": "39000711",
+      "anlagenbezeichnung": "Batterieladegerät VAS 5906A NW",
+      "aktivdatum": 43301,
+      "aktivdatum_iso": "2018-07-20",
+      "alter": 7.92
+    },
+    {
+      "article_no": "617",
+      "nr": "617",
+      "buchungskreis": "39000712",
+      "anlagenbezeichnung": "Diagnoseinterface VAS6154 (Wireless Lan)",
+      "aktivdatum": 43299,
+      "aktivdatum_iso": "2018-07-18",
+      "alter": 7.92
+    },
+    {
+      "article_no": "618",
+      "nr": "618",
+      "buchungskreis": "39000715",
+      "anlagenbezeichnung": "Werkstattwagen Heni",
+      "aktivdatum": 43312,
+      "aktivdatum_iso": "2018-07-31",
+      "alter": 7.88
+    },
+    {
+      "article_no": "619",
+      "nr": "619",
+      "buchungskreis": "39000718",
+      "anlagenbezeichnung": "Intel NUC7i5BNK Neuer PC Scherma",
+      "aktivdatum": 43327,
+      "aktivdatum_iso": "2018-08-15",
+      "alter": 7.84
+    },
+    {
+      "article_no": "620",
+      "nr": "620",
+      "buchungskreis": "39000720",
+      "anlagenbezeichnung": "Intel NUC7i5BNK Neuer PC Obloj",
+      "aktivdatum": 43196,
+      "aktivdatum_iso": "2018-04-06",
+      "alter": 8.2
+    },
+    {
+      "article_no": "621",
+      "nr": "621",
+      "buchungskreis": "39000722",
+      "anlagenbezeichnung": "Panasonic Toughbook CF-53 Steiger",
+      "aktivdatum": 43312,
+      "aktivdatum_iso": "2018-07-31",
+      "alter": 7.88
+    },
+    {
+      "article_no": "622",
+      "nr": "622",
+      "buchungskreis": "39000725",
+      "anlagenbezeichnung": "Panasonic Toughbook Schlund",
+      "aktivdatum": 43497,
+      "aktivdatum_iso": "2019-02-01",
+      "alter": 7.38
+    },
+    {
+      "article_no": "623",
+      "nr": "623",
+      "buchungskreis": "39000726",
+      "anlagenbezeichnung": "Druckluft Karosseriesäge",
+      "aktivdatum": 43504,
+      "aktivdatum_iso": "2019-02-08",
+      "alter": 7.36
+    },
+    {
+      "article_no": "624",
+      "nr": "624",
+      "buchungskreis": "39000727",
+      "anlagenbezeichnung": "Druckluft Karosseriestichsäge",
+      "aktivdatum": 43530,
+      "aktivdatum_iso": "2019-03-06",
+      "alter": 7.29
+    },
+    {
+      "article_no": "625",
+      "nr": "625",
+      "buchungskreis": "39000728",
+      "anlagenbezeichnung": "Kühlerspülsystem Abgasrückführung",
+      "aktivdatum": 43539,
+      "aktivdatum_iso": "2019-03-15",
+      "alter": 7.26
+    },
+    {
+      "article_no": "626",
+      "nr": "626",
+      "buchungskreis": "39000730",
+      "anlagenbezeichnung": "Kyocera Drucker Ecosys Schlund",
+      "aktivdatum": 43547,
+      "aktivdatum_iso": "2019-03-23",
+      "alter": 7.24
+    },
+    {
+      "article_no": "627",
+      "nr": "627",
+      "buchungskreis": "39000731",
+      "anlagenbezeichnung": "Apple I Pad Pro 11, Service",
+      "aktivdatum": 43557,
+      "aktivdatum_iso": "2019-04-02",
+      "alter": 7.21
+    },
+    {
+      "article_no": "628",
+      "nr": "628",
+      "buchungskreis": "39000733",
+      "anlagenbezeichnung": "Arbeitsplatz Scherma",
+      "aktivdatum": 43585,
+      "aktivdatum_iso": "2019-04-30",
+      "alter": 7.14
+    },
+    {
+      "article_no": "629",
+      "nr": "629",
+      "buchungskreis": "39000734",
+      "anlagenbezeichnung": "Arbeitsplatz Czernoch PC",
+      "aktivdatum": 43602,
+      "aktivdatum_iso": "2019-05-17",
+      "alter": 7.09
+    },
+    {
+      "article_no": "630",
+      "nr": "630",
+      "buchungskreis": "39000735",
+      "anlagenbezeichnung": "Lackierbock, Montierbock für Karrosserie",
+      "aktivdatum": 43654,
+      "aktivdatum_iso": "2019-07-08",
+      "alter": 6.95
+    },
+    {
+      "article_no": "631",
+      "nr": "631",
+      "buchungskreis": "39000737",
+      "anlagenbezeichnung": "T4W Lackierblock Montierblock Karosserie",
+      "aktivdatum": 43689,
+      "aktivdatum_iso": "2019-08-12",
+      "alter": 6.85
+    },
+    {
+      "article_no": "632",
+      "nr": "632",
+      "buchungskreis": "39000739",
+      "anlagenbezeichnung": "Drucker alte Werkstatt Schlund",
+      "aktivdatum": 43698,
+      "aktivdatum_iso": "2019-08-21",
+      "alter": 6.83
+    },
+    {
+      "article_no": "633",
+      "nr": "633",
+      "buchungskreis": "39000740",
+      "anlagenbezeichnung": "Druckluft Schlagschrauber",
+      "aktivdatum": 43725,
+      "aktivdatum_iso": "2019-09-17",
+      "alter": 6.75
+    },
+    {
+      "article_no": "634",
+      "nr": "634",
+      "buchungskreis": "39000741",
+      "anlagenbezeichnung": "Druckluft Schlagschrauber",
+      "aktivdatum": 43725,
+      "aktivdatum_iso": "2019-09-17",
+      "alter": 6.75
+    },
+    {
+      "article_no": "635",
+      "nr": "635",
+      "buchungskreis": "39000742",
+      "anlagenbezeichnung": "Apple i Pad Hr. Hofmann Tablet",
+      "aktivdatum": 43720,
+      "aktivdatum_iso": "2019-09-12",
+      "alter": 6.77
+    },
+    {
+      "article_no": "636",
+      "nr": "636",
+      "buchungskreis": "39000743",
+      "anlagenbezeichnung": "HP Enterprise Switch+Installation Verka",
+      "aktivdatum": 43710,
+      "aktivdatum_iso": "2019-09-02",
+      "alter": 6.79
+    },
+    {
+      "article_no": "637",
+      "nr": "637",
+      "buchungskreis": "39000744",
+      "anlagenbezeichnung": "HP Enterprise Switch+Installation Verka",
+      "aktivdatum": 43710,
+      "aktivdatum_iso": "2019-09-02",
+      "alter": 6.79
+    },
+    {
+      "article_no": "638",
+      "nr": "638",
+      "buchungskreis": "39000745",
+      "anlagenbezeichnung": "Panasonic Toughbook Notebook VAS Tester",
+      "aktivdatum": 43748,
+      "aktivdatum_iso": "2019-10-10",
+      "alter": 6.69
+    },
+    {
+      "article_no": "639",
+      "nr": "639",
+      "buchungskreis": "39000746",
+      "anlagenbezeichnung": "Werkzeugwagen befüllt Mechatrinker Stad",
+      "aktivdatum": 43748,
+      "aktivdatum_iso": "2019-10-10",
+      "alter": 6.69
+    },
+    {
+      "article_no": "640",
+      "nr": "640",
+      "buchungskreis": "39000747",
+      "anlagenbezeichnung": "Werkzeugwagen befüllt Mechatrinker Stad",
+      "aktivdatum": 43748,
+      "aktivdatum_iso": "2019-10-10",
+      "alter": 6.69
+    },
+    {
+      "article_no": "641",
+      "nr": "641",
+      "buchungskreis": "39000748",
+      "anlagenbezeichnung": "Werkzeugwagen befüllt Mechatrinker Böhm",
+      "aktivdatum": 43739,
+      "aktivdatum_iso": "2019-10-01",
+      "alter": 6.72
+    },
+    {
+      "article_no": "642",
+      "nr": "642",
+      "buchungskreis": "39000749",
+      "anlagenbezeichnung": "Multifunktionsdrucker Kyocera Dispo",
+      "aktivdatum": 43768,
+      "aktivdatum_iso": "2019-10-30",
+      "alter": 6.64
+    },
+    {
+      "article_no": "646",
+      "nr": "646",
+      "buchungskreis": "39000750",
+      "anlagenbezeichnung": "Arbeitsplatz PC Caroppo NW Verkauf",
+      "aktivdatum": 43780,
+      "aktivdatum_iso": "2019-11-11",
+      "alter": 6.6
+    },
+    {
+      "article_no": "647",
+      "nr": "647",
+      "buchungskreis": "39000751",
+      "anlagenbezeichnung": "Apple I Phone 11 Hr. Hofmann",
+      "aktivdatum": 43804,
+      "aktivdatum_iso": "2019-12-05",
+      "alter": 6.54
+    },
+    {
+      "article_no": "648",
+      "nr": "648",
+      "buchungskreis": "39000755",
+      "anlagenbezeichnung": "Interface Diagnose VAS 6154A",
+      "aktivdatum": 43943,
+      "aktivdatum_iso": "2020-04-22",
+      "alter": 6.16
+    },
+    {
+      "article_no": "649",
+      "nr": "649",
+      "buchungskreis": "39000757",
+      "anlagenbezeichnung": "Intel next Computing+Ram Speicher Holzw",
+      "aktivdatum": 43990,
+      "aktivdatum_iso": "2020-06-08",
+      "alter": 6.03
+    },
+    {
+      "article_no": "650",
+      "nr": "650",
+      "buchungskreis": "39000758",
+      "anlagenbezeichnung": "Intel next Computing+Ram Speicher Greco",
+      "aktivdatum": 43990,
+      "aktivdatum_iso": "2020-06-08",
+      "alter": 6.03
+    },
+    {
+      "article_no": "651",
+      "nr": "651",
+      "buchungskreis": "39000760",
+      "anlagenbezeichnung": "Batterieladegerät VAS 5906A",
+      "aktivdatum": 44125,
+      "aktivdatum_iso": "2020-10-21",
+      "alter": 5.66
+    },
+    {
+      "article_no": "652",
+      "nr": "652",
+      "buchungskreis": "39000762",
+      "anlagenbezeichnung": "Kyocera Klimaschutz-System Ecosys Druck",
+      "aktivdatum": 44182,
+      "aktivdatum_iso": "2020-12-17",
+      "alter": 5.5
+    },
+    {
+      "article_no": "653",
+      "nr": "653",
+      "buchungskreis": "39000763",
+      "anlagenbezeichnung": "Kyocera Drucker Ecosys M5521 CDN DISPO",
+      "aktivdatum": 44217,
+      "aktivdatum_iso": "2021-01-21",
+      "alter": 5.41
+    },
+    {
+      "article_no": "654",
+      "nr": "654",
+      "buchungskreis": "39000764",
+      "anlagenbezeichnung": "Curved Monitor Phillips 34 Zoll Hr. Gol",
+      "aktivdatum": 44308,
+      "aktivdatum_iso": "2021-04-22",
+      "alter": 5.16
+    },
+    {
+      "article_no": "655",
+      "nr": "655",
+      "buchungskreis": "39000765",
+      "anlagenbezeichnung": "Rasenmäher Raiffeisen",
+      "aktivdatum": 44349,
+      "aktivdatum_iso": "2021-06-02",
+      "alter": 5.04
+    },
+    {
+      "article_no": "656",
+      "nr": "656",
+      "buchungskreis": "39000766",
+      "anlagenbezeichnung": "mobiles Klimagerät De Longhi",
+      "aktivdatum": 44364,
+      "aktivdatum_iso": "2021-06-17",
+      "alter": 5
+    },
+    {
+      "article_no": "657",
+      "nr": "657",
+      "buchungskreis": "39000767",
+      "anlagenbezeichnung": "Philips Monitor Caroppo",
+      "aktivdatum": 44301,
+      "aktivdatum_iso": "2021-04-15",
+      "alter": 5.18
+    },
+    {
+      "article_no": "658",
+      "nr": "658",
+      "buchungskreis": "39000768",
+      "anlagenbezeichnung": "Lenovo Think Pad Hr. Schlund",
+      "aktivdatum": 44341,
+      "aktivdatum_iso": "2021-05-25",
+      "alter": 5.07
+    },
+    {
+      "article_no": "659",
+      "nr": "659",
+      "buchungskreis": "39000775",
+      "anlagenbezeichnung": "Mono Laserdrucker Werkstatt",
+      "aktivdatum": 44406,
+      "aktivdatum_iso": "2021-07-29",
+      "alter": 4.89
+    },
+    {
+      "article_no": "660",
+      "nr": "660",
+      "buchungskreis": "39000776",
+      "anlagenbezeichnung": "PC BB Intel+SSD Deljusa GW",
+      "aktivdatum": 44426,
+      "aktivdatum_iso": "2021-08-18",
+      "alter": 4.83
+    },
+    {
+      "article_no": "661",
+      "nr": "661",
+      "buchungskreis": "39000777",
+      "anlagenbezeichnung": "PC BB Intel+SSD Langjahr",
+      "aktivdatum": 44426,
+      "aktivdatum_iso": "2021-08-18",
+      "alter": 4.83
+    },
+    {
+      "article_no": "662",
+      "nr": "662",
+      "buchungskreis": "39000778",
+      "anlagenbezeichnung": "PC BB Intel+SSD Service",
+      "aktivdatum": 44426,
+      "aktivdatum_iso": "2021-08-18",
+      "alter": 4.83
+    },
+    {
+      "article_no": "663",
+      "nr": "663",
+      "buchungskreis": "39000779",
+      "anlagenbezeichnung": "Zebra Labeldrucker Rädereinlagerung TD",
+      "aktivdatum": 44491,
+      "aktivdatum_iso": "2021-10-22",
+      "alter": 4.65
+    },
+    {
+      "article_no": "664",
+      "nr": "664",
+      "buchungskreis": "39000780",
+      "anlagenbezeichnung": "Drehstuhl Hr. Hofmann",
+      "aktivdatum": 44482,
+      "aktivdatum_iso": "2021-10-13",
+      "alter": 4.68
+    },
+    {
+      "article_no": "665",
+      "nr": "665",
+      "buchungskreis": "39000781",
+      "anlagenbezeichnung": "Brother Laserdrucker NW Verkäufer",
+      "aktivdatum": 44505,
+      "aktivdatum_iso": "2021-11-05",
+      "alter": 4.62
+    },
+    {
+      "article_no": "666",
+      "nr": "666",
+      "buchungskreis": "39000782",
+      "anlagenbezeichnung": "Brother Laserdrucker Service",
+      "aktivdatum": 44505,
+      "aktivdatum_iso": "2021-11-05",
+      "alter": 4.62
+    },
+    {
+      "article_no": "667",
+      "nr": "667",
+      "buchungskreis": "39000783",
+      "anlagenbezeichnung": "Monitor Samsung DISPO NW",
+      "aktivdatum": 44415,
+      "aktivdatum_iso": "2021-08-07",
+      "alter": 4.86
+    },
+    {
+      "article_no": "668",
+      "nr": "668",
+      "buchungskreis": "39000784",
+      "anlagenbezeichnung": "Monitor Samsung DISPO GW",
+      "aktivdatum": 44415,
+      "aktivdatum_iso": "2021-08-07",
+      "alter": 4.86
+    },
+    {
+      "article_no": "669",
+      "nr": "669",
+      "buchungskreis": "39000785",
+      "anlagenbezeichnung": "Philips Monitor Verkäufer GW",
+      "aktivdatum": 44415,
+      "aktivdatum_iso": "2021-08-07",
+      "alter": 4.86
+    },
+    {
+      "article_no": "670",
+      "nr": "670",
+      "buchungskreis": "39000786",
+      "anlagenbezeichnung": "Philips Monitor Verkäufer GW+Tastatur+M",
+      "aktivdatum": 44415,
+      "aktivdatum_iso": "2021-08-07",
+      "alter": 4.86
+    },
+    {
+      "article_no": "671",
+      "nr": "671",
+      "buchungskreis": "39000787",
+      "anlagenbezeichnung": "Philips Monitor Verkäufer NW+Tastatur+M",
+      "aktivdatum": 44415,
+      "aktivdatum_iso": "2021-08-07",
+      "alter": 4.86
+    },
+    {
+      "article_no": "672",
+      "nr": "672",
+      "buchungskreis": "39000789",
+      "anlagenbezeichnung": "Diagnoseinterface VAS 6154 A Wireless L",
+      "aktivdatum": 44561,
+      "aktivdatum_iso": "2021-12-31",
+      "alter": 4.46
+    },
+    {
+      "article_no": "673",
+      "nr": "673",
+      "buchungskreis": "39000790",
+      "anlagenbezeichnung": "Lenovo Think Book NW",
+      "aktivdatum": 44466,
+      "aktivdatum_iso": "2021-09-27",
+      "alter": 4.72
+    },
+    {
+      "article_no": "674",
+      "nr": "674",
+      "buchungskreis": "39000791",
+      "anlagenbezeichnung": "Lenovo Think Book GW",
+      "aktivdatum": 44466,
+      "aktivdatum_iso": "2021-09-27",
+      "alter": 4.72
+    },
+    {
+      "article_no": "675",
+      "nr": "675",
+      "buchungskreis": "39000792",
+      "anlagenbezeichnung": "Werkstattwagen Werkzeugschrank Spengler",
+      "aktivdatum": 44566,
+      "aktivdatum_iso": "2022-01-05",
+      "alter": 4.45
+    },
+    {
+      "article_no": "676",
+      "nr": "676",
+      "buchungskreis": "39000793",
+      "anlagenbezeichnung": "SchiebetürenSchränke IKEA DISPO",
+      "aktivdatum": 44600,
+      "aktivdatum_iso": "2022-02-08",
+      "alter": 4.36
+    },
+    {
+      "article_no": "677",
+      "nr": "677",
+      "buchungskreis": "39000794",
+      "anlagenbezeichnung": "Beamer Besprechungsraum",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "678",
+      "nr": "678",
+      "buchungskreis": "39000795",
+      "anlagenbezeichnung": "Think Book DISPO",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "679",
+      "nr": "679",
+      "buchungskreis": "39000796",
+      "anlagenbezeichnung": "Think Book Verkäufer Gottfried",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "680",
+      "nr": "680",
+      "buchungskreis": "39000797",
+      "anlagenbezeichnung": "Beamer Besprechungsraum",
+      "aktivdatum": 44607,
+      "aktivdatum_iso": "2022-02-15",
+      "alter": 4.34
+    },
+    {
+      "article_no": "681",
+      "nr": "681",
+      "buchungskreis": "39000799",
+      "anlagenbezeichnung": "Werkzeughochschrank Hornbach",
+      "aktivdatum": 44704,
+      "aktivdatum_iso": "2022-05-23",
+      "alter": 4.07
+    },
+    {
+      "article_no": "682",
+      "nr": "682",
+      "buchungskreis": "39000800",
+      "anlagenbezeichnung": "Samsung monitor (Czernoch) Office Partn",
+      "aktivdatum": 44677,
+      "aktivdatum_iso": "2022-04-26",
+      "alter": 4.15
+    },
+    {
+      "article_no": "683",
+      "nr": "683",
+      "buchungskreis": "39000801",
+      "anlagenbezeichnung": "Samsung Monitor (Adestan) Office Partner",
+      "aktivdatum": 44686,
+      "aktivdatum_iso": "2022-05-05",
+      "alter": 4.12
+    },
+    {
+      "article_no": "684",
+      "nr": "684",
+      "buchungskreis": "39000802",
+      "anlagenbezeichnung": "Brother Laserdrucker",
+      "aktivdatum": 44732,
+      "aktivdatum_iso": "2022-06-20",
+      "alter": 3.99
+    },
+    {
+      "article_no": "685",
+      "nr": "685",
+      "buchungskreis": "39000803",
+      "anlagenbezeichnung": "Samsung Monitor (Adestan) Office Partner",
+      "aktivdatum": 44686,
+      "aktivdatum_iso": "2022-05-05",
+      "alter": 4.12
+    },
+    {
+      "article_no": "686",
+      "nr": "686",
+      "buchungskreis": "39000804",
+      "anlagenbezeichnung": "iPhone 14Pro Max",
+      "aktivdatum": 44846,
+      "aktivdatum_iso": "2022-10-12",
+      "alter": 3.68
+    },
+    {
+      "article_no": "687",
+      "nr": "687",
+      "buchungskreis": "39000805",
+      "anlagenbezeichnung": "Wallbox",
+      "aktivdatum": 44927,
+      "aktivdatum_iso": "2023-01-01",
+      "alter": 3.46
+    },
+    {
+      "article_no": "688",
+      "nr": "688",
+      "buchungskreis": "39000806",
+      "anlagenbezeichnung": "Prüfgerät für Lecksuche",
+      "aktivdatum": 44853,
+      "aktivdatum_iso": "2022-10-19",
+      "alter": 3.66
+    },
+    {
+      "article_no": "689",
+      "nr": "689",
+      "buchungskreis": "39000807",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "690",
+      "nr": "690",
+      "buchungskreis": "39000808",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/15",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "691",
+      "nr": "691",
+      "buchungskreis": "39000809",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/16",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "692",
+      "nr": "692",
+      "buchungskreis": "39000810",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS 6558/19",
+      "aktivdatum": 44883,
+      "aktivdatum_iso": "2022-11-18",
+      "alter": 3.58
+    },
+    {
+      "article_no": "693",
+      "nr": "693",
+      "buchungskreis": "39000811",
+      "anlagenbezeichnung": "Arbeitsplatz Frau Czernoch",
+      "aktivdatum": 44989,
+      "aktivdatum_iso": "2023-03-04",
+      "alter": 3.29
+    },
+    {
+      "article_no": "694",
+      "nr": "694",
+      "buchungskreis": "39000812",
+      "anlagenbezeichnung": "Aktenvernichter",
+      "aktivdatum": 45055,
+      "aktivdatum_iso": "2023-05-09",
+      "alter": 3.11
+    },
+    {
+      "article_no": "695",
+      "nr": "695",
+      "buchungskreis": "39000813",
+      "anlagenbezeichnung": "Karosseriesäge",
+      "aktivdatum": 44999,
+      "aktivdatum_iso": "2023-03-14",
+      "alter": 3.26
+    },
+    {
+      "article_no": "696",
+      "nr": "696",
+      "buchungskreis": "39000814",
+      "anlagenbezeichnung": "Brother Laserdrucker Serverraum",
+      "aktivdatum": 45097,
+      "aktivdatum_iso": "2023-06-20",
+      "alter": 2.99
+    },
+    {
+      "article_no": "697",
+      "nr": "697",
+      "buchungskreis": "39000815",
+      "anlagenbezeichnung": "Arbeitsplatz Azubi Kutun, Riffel",
+      "aktivdatum": 45217,
+      "aktivdatum_iso": "2023-10-18",
+      "alter": 2.67
+    },
+    {
+      "article_no": "698",
+      "nr": "698",
+      "buchungskreis": "39000816",
+      "anlagenbezeichnung": "Dell Notebook",
+      "aktivdatum": 45223,
+      "aktivdatum_iso": "2023-10-24",
+      "alter": 2.65
+    },
+    {
+      "article_no": "699",
+      "nr": "699",
+      "buchungskreis": "39000817",
+      "anlagenbezeichnung": "Nass Trockensauger u. Filtertüten",
+      "aktivdatum": 45260,
+      "aktivdatum_iso": "2023-11-30",
+      "alter": 2.55
+    },
+    {
+      "article_no": "700",
+      "nr": "700",
+      "buchungskreis": "39000818",
+      "anlagenbezeichnung": "IKEA Arbeitsplatz Azubi",
+      "aktivdatum": 45182,
+      "aktivdatum_iso": "2023-09-13",
+      "alter": 2.76
+    },
+    {
+      "article_no": "704",
+      "nr": "704",
+      "buchungskreis": "39000381",
+      "anlagenbezeichnung": "FA Akyol IT, PC mit Zubehör und Install.",
+      "aktivdatum": 40554,
+      "aktivdatum_iso": "2011-01-11",
+      "alter": 15.44
+    },
+    {
+      "article_no": "705",
+      "nr": "705",
+      "buchungskreis": "39000382",
+      "anlagenbezeichnung": "FA Wieländer + Schill, Scheibendemotage",
+      "aktivdatum": 40555,
+      "aktivdatum_iso": "2011-01-12",
+      "alter": 15.44
+    },
+    {
+      "article_no": "706",
+      "nr": "706",
+      "buchungskreis": "39000383",
+      "anlagenbezeichnung": "Wieländer +Schill, Abroller f Schneiddr",
+      "aktivdatum": 40602,
+      "aktivdatum_iso": "2011-02-28",
+      "alter": 15.31
+    },
+    {
+      "article_no": "707",
+      "nr": "707",
+      "buchungskreis": "39000386",
+      "anlagenbezeichnung": "OFFICE DISCOUNT BÜRODREHSTUHL BERBERICH",
+      "aktivdatum": 40578,
+      "aktivdatum_iso": "2011-02-04",
+      "alter": 15.38
+    },
+    {
+      "article_no": "708",
+      "nr": "708",
+      "buchungskreis": "39000391",
+      "anlagenbezeichnung": "FA Akyol IT,1  PC mit Zubehör und Insta",
+      "aktivdatum": 40599,
+      "aktivdatum_iso": "2011-02-25",
+      "alter": 15.32
+    },
+    {
+      "article_no": "709",
+      "nr": "709",
+      "buchungskreis": "39000392",
+      "anlagenbezeichnung": "FA Akyol IT,1  PC mit Zubehör und Insta",
+      "aktivdatum": 40599,
+      "aktivdatum_iso": "2011-02-25",
+      "alter": 15.32
+    },
+    {
+      "article_no": "710",
+      "nr": "710",
+      "buchungskreis": "39000393",
+      "anlagenbezeichnung": "FA. NextiraOne Telefon Günter Hofmann",
+      "aktivdatum": 40612,
+      "aktivdatum_iso": "2011-03-10",
+      "alter": 15.28
+    },
+    {
+      "article_no": "711",
+      "nr": "711",
+      "buchungskreis": "39000397",
+      "anlagenbezeichnung": "FA Spiess Liebherr Kühlschrank",
+      "aktivdatum": 40618,
+      "aktivdatum_iso": "2011-03-16",
+      "alter": 15.27
+    },
+    {
+      "article_no": "712",
+      "nr": "712",
+      "buchungskreis": "39000399",
+      "anlagenbezeichnung": "FA Akyol IT, Laserdrucker Epson C2800",
+      "aktivdatum": 40641,
+      "aktivdatum_iso": "2011-04-08",
+      "alter": 15.2
+    },
+    {
+      "article_no": "713",
+      "nr": "713",
+      "buchungskreis": "39000402",
+      "anlagenbezeichnung": "FA Spiess Elektro Markt GmbH, LED TV",
+      "aktivdatum": 40705,
+      "aktivdatum_iso": "2011-06-11",
+      "alter": 15.03
+    },
+    {
+      "article_no": "714",
+      "nr": "714",
+      "buchungskreis": "39000403",
+      "anlagenbezeichnung": "Fa. Baier, Videoüberwachung Parkplatz",
+      "aktivdatum": 40716,
+      "aktivdatum_iso": "2011-06-22",
+      "alter": 15
+    },
+    {
+      "article_no": "715",
+      "nr": "715",
+      "buchungskreis": "39000405",
+      "anlagenbezeichnung": "FA KSW, Staubsauger Werkstatt",
+      "aktivdatum": 40730,
+      "aktivdatum_iso": "2011-07-06",
+      "alter": 14.96
+    },
+    {
+      "article_no": "716",
+      "nr": "716",
+      "buchungskreis": "39000406",
+      "anlagenbezeichnung": "VW OTLG Kompressionsdruck-Prüfgerät",
+      "aktivdatum": 40737,
+      "aktivdatum_iso": "2011-07-13",
+      "alter": 14.94
+    },
+    {
+      "article_no": "717",
+      "nr": "717",
+      "buchungskreis": "39000409",
+      "anlagenbezeichnung": "HP Multifunktionsgerät",
+      "aktivdatum": 40738,
+      "aktivdatum_iso": "2011-07-14",
+      "alter": 14.94
+    },
+    {
+      "article_no": "718",
+      "nr": "718",
+      "buchungskreis": "39000410",
+      "anlagenbezeichnung": "Speichermedium für alle Datensicherungen",
+      "aktivdatum": 40738,
+      "aktivdatum_iso": "2011-07-14",
+      "alter": 14.94
+    },
+    {
+      "article_no": "719",
+      "nr": "719",
+      "buchungskreis": "39000412",
+      "anlagenbezeichnung": "Sanitäts-Wandschrank",
+      "aktivdatum": 40774,
+      "aktivdatum_iso": "2011-08-19",
+      "alter": 14.84
+    },
+    {
+      "article_no": "720",
+      "nr": "720",
+      "buchungskreis": "39000416",
+      "anlagenbezeichnung": "Fa. KARTE, Inh. Krüger, Sonnenschutz 3 ",
+      "aktivdatum": 40794,
+      "aktivdatum_iso": "2011-09-08",
+      "alter": 14.78
+    },
+    {
+      "article_no": "721",
+      "nr": "721",
+      "buchungskreis": "39000417",
+      "anlagenbezeichnung": "Fa. KeySolution IT GmbH, 2 neue Tower+Z",
+      "aktivdatum": 40797,
+      "aktivdatum_iso": "2011-09-11",
+      "alter": 14.78
+    },
+    {
+      "article_no": "722",
+      "nr": "722",
+      "buchungskreis": "39000420",
+      "anlagenbezeichnung": "VW OTLG Vermessungsbühne",
+      "aktivdatum": 40842,
+      "aktivdatum_iso": "2011-10-26",
+      "alter": 14.65
+    },
+    {
+      "article_no": "723",
+      "nr": "723",
+      "buchungskreis": "39000421",
+      "anlagenbezeichnung": "Fa. Nextiraone, 1 Mobile 400 Reflexes+Z",
+      "aktivdatum": 40863,
+      "aktivdatum_iso": "2011-11-16",
+      "alter": 14.59
+    },
+    {
+      "article_no": "724",
+      "nr": "724",
+      "buchungskreis": "39000422",
+      "anlagenbezeichnung": "Fa. Nextiraone, 1 Mobile 400 Reflexes+Z",
+      "aktivdatum": 40863,
+      "aktivdatum_iso": "2011-11-16",
+      "alter": 14.59
+    },
+    {
+      "article_no": "725",
+      "nr": "725",
+      "buchungskreis": "39000423",
+      "anlagenbezeichnung": "Fa. KeySol.,4PC+Install. Wege+Dedores+S",
+      "aktivdatum": 40850,
+      "aktivdatum_iso": "2011-11-03",
+      "alter": 14.63
+    },
+    {
+      "article_no": "726",
+      "nr": "726",
+      "buchungskreis": "39000424",
+      "anlagenbezeichnung": "Fa. KeySolution, Office Home, AKBAS Ber",
+      "aktivdatum": 40850,
+      "aktivdatum_iso": "2011-11-03",
+      "alter": 14.63
+    },
+    {
+      "article_no": "727",
+      "nr": "727",
+      "buchungskreis": "39000425",
+      "anlagenbezeichnung": "Fa. KeySolution, PC VAA Archiv",
+      "aktivdatum": 40826,
+      "aktivdatum_iso": "2011-10-10",
+      "alter": 14.7
+    },
+    {
+      "article_no": "728",
+      "nr": "728",
+      "buchungskreis": "39000426",
+      "anlagenbezeichnung": "Fa. KeySolution, PC+Zubehör+Install Her",
+      "aktivdatum": 40833,
+      "aktivdatum_iso": "2011-10-17",
+      "alter": 14.68
+    },
+    {
+      "article_no": "729",
+      "nr": "729",
+      "buchungskreis": "39000428",
+      "anlagenbezeichnung": "Nespresso, 7001 Citiz Titan Kaffeemasch",
+      "aktivdatum": 40875,
+      "aktivdatum_iso": "2011-11-28",
+      "alter": 14.56
+    },
+    {
+      "article_no": "730",
+      "nr": "730",
+      "buchungskreis": "39000429",
+      "anlagenbezeichnung": "Fa. KeySolution, PC+Zubehör+Install Her",
+      "aktivdatum": 40887,
+      "aktivdatum_iso": "2011-12-10",
+      "alter": 14.53
+    },
+    {
+      "article_no": "731",
+      "nr": "731",
+      "buchungskreis": "39000430",
+      "anlagenbezeichnung": "Fa. KeySolution, PC+Zubehör+Install Fra",
+      "aktivdatum": 40887,
+      "aktivdatum_iso": "2011-12-10",
+      "alter": 14.53
+    },
+    {
+      "article_no": "732",
+      "nr": "732",
+      "buchungskreis": "39000431",
+      "anlagenbezeichnung": "Fa. KeySolution, Fritz BOX Audi Konfigu",
+      "aktivdatum": 40847,
+      "aktivdatum_iso": "2011-10-31",
+      "alter": 14.64
+    },
+    {
+      "article_no": "733",
+      "nr": "733",
+      "buchungskreis": "39000432",
+      "anlagenbezeichnung": "Fa. KeySolution,Iphone Herr und Frau Ho",
+      "aktivdatum": 40882,
+      "aktivdatum_iso": "2011-12-05",
+      "alter": 14.54
+    },
+    {
+      "article_no": "734",
+      "nr": "734",
+      "buchungskreis": "39000433",
+      "anlagenbezeichnung": "Fa. ATBAS GmbH, Datalogic Power Scan",
+      "aktivdatum": 40897,
+      "aktivdatum_iso": "2011-12-20",
+      "alter": 14.5
+    },
+    {
+      "article_no": "735",
+      "nr": "735",
+      "buchungskreis": "39000434",
+      "anlagenbezeichnung": "Fa. ATBAS GmbH, Zebra Labledrucker GK42",
+      "aktivdatum": 40897,
+      "aktivdatum_iso": "2011-12-20",
+      "alter": 14.5
+    },
+    {
+      "article_no": "736",
+      "nr": "736",
+      "buchungskreis": "39000435",
+      "anlagenbezeichnung": "Fa. ATBAS GmbH, Zebra Labledrucker TLP2",
+      "aktivdatum": 40897,
+      "aktivdatum_iso": "2011-12-20",
+      "alter": 14.5
+    },
+    {
+      "article_no": "737",
+      "nr": "737",
+      "buchungskreis": "39000436",
+      "anlagenbezeichnung": "Fa. ATBAS GmbH, METROLOGIC Voyager",
+      "aktivdatum": 40897,
+      "aktivdatum_iso": "2011-12-20",
+      "alter": 14.5
+    },
+    {
+      "article_no": "738",
+      "nr": "738",
+      "buchungskreis": "39000437",
+      "anlagenbezeichnung": "Fa. Wieländer+Schill, Schweizschutzhelm",
+      "aktivdatum": 40925,
+      "aktivdatum_iso": "2012-01-17",
+      "alter": 14.42
+    },
+    {
+      "article_no": "739",
+      "nr": "739",
+      "buchungskreis": "39000438",
+      "anlagenbezeichnung": "Fa. Pro Idee, Design Quader Krokoleder ",
+      "aktivdatum": 40917,
+      "aktivdatum_iso": "2012-01-09",
+      "alter": 14.45
+    },
+    {
+      "article_no": "740",
+      "nr": "740",
+      "buchungskreis": "39000441",
+      "anlagenbezeichnung": "FA DELTA-V, 2 Drehstühle Teiledienst",
+      "aktivdatum": 40938,
+      "aktivdatum_iso": "2012-01-30",
+      "alter": 14.39
+    },
+    {
+      "article_no": "741",
+      "nr": "741",
+      "buchungskreis": "39000442",
+      "anlagenbezeichnung": "FA KeySolution, Drucker für Dispo",
+      "aktivdatum": 40956,
+      "aktivdatum_iso": "2012-02-17",
+      "alter": 14.34
+    },
+    {
+      "article_no": "742",
+      "nr": "742",
+      "buchungskreis": "39000443",
+      "anlagenbezeichnung": "FA KeySolution, Neuer PC incl Zubehör W",
+      "aktivdatum": 40956,
+      "aktivdatum_iso": "2012-02-17",
+      "alter": 14.34
+    },
+    {
+      "article_no": "743",
+      "nr": "743",
+      "buchungskreis": "39000444",
+      "anlagenbezeichnung": "VW OTLG Altölauffangbehälter",
+      "aktivdatum": 40975,
+      "aktivdatum_iso": "2012-03-07",
+      "alter": 14.29
+    },
+    {
+      "article_no": "744",
+      "nr": "744",
+      "buchungskreis": "39000445",
+      "anlagenbezeichnung": "Fa. Nibler, Garderobenschrank",
+      "aktivdatum": 40975,
+      "aktivdatum_iso": "2012-03-07",
+      "alter": 14.29
+    },
+    {
+      "article_no": "745",
+      "nr": "745",
+      "buchungskreis": "39000447",
+      "anlagenbezeichnung": "FA KeySolution, Iphone 4S  Frau Hofmann",
+      "aktivdatum": 40962,
+      "aktivdatum_iso": "2012-02-23",
+      "alter": 14.32
+    },
+    {
+      "article_no": "746",
+      "nr": "746",
+      "buchungskreis": "39000448",
+      "anlagenbezeichnung": "FA KeySolution, Office  Programm+Instal",
+      "aktivdatum": 40994,
+      "aktivdatum_iso": "2012-03-26",
+      "alter": 14.24
+    },
+    {
+      "article_no": "747",
+      "nr": "747",
+      "buchungskreis": "39000449",
+      "anlagenbezeichnung": "FA KeySolution, Fritz Box",
+      "aktivdatum": 40991,
+      "aktivdatum_iso": "2012-03-23",
+      "alter": 14.24
+    },
+    {
+      "article_no": "748",
+      "nr": "748",
+      "buchungskreis": "39000452",
+      "anlagenbezeichnung": "FA KeySolution, Office  Programm+Install",
+      "aktivdatum": 41038,
+      "aktivdatum_iso": "2012-05-09",
+      "alter": 14.12
+    },
+    {
+      "article_no": "749",
+      "nr": "749",
+      "buchungskreis": "39000453",
+      "anlagenbezeichnung": "FA KeySolution, Office  Programm+Instal",
+      "aktivdatum": 41038,
+      "aktivdatum_iso": "2012-05-09",
+      "alter": 14.12
+    },
+    {
+      "article_no": "750",
+      "nr": "750",
+      "buchungskreis": "39000454",
+      "anlagenbezeichnung": "FA KeySolution, Neuer PC incl Zubehör O",
+      "aktivdatum": 41040,
+      "aktivdatum_iso": "2012-05-11",
+      "alter": 14.11
+    },
+    {
+      "article_no": "751",
+      "nr": "751",
+      "buchungskreis": "39000456",
+      "anlagenbezeichnung": "Stuhl Hr. Runge",
+      "aktivdatum": 41059,
+      "aktivdatum_iso": "2012-05-30",
+      "alter": 14.06
+    },
+    {
+      "article_no": "752",
+      "nr": "752",
+      "buchungskreis": "39000457",
+      "anlagenbezeichnung": "FA: KEY SOLUTION NEUER PC BAUER INKL ZU",
+      "aktivdatum": 41060,
+      "aktivdatum_iso": "2012-05-31",
+      "alter": 14.05
+    },
+    {
+      "article_no": "753",
+      "nr": "753",
+      "buchungskreis": "39000458",
+      "anlagenbezeichnung": "FA. KEY SOLUTION PC + Zubehör Baumann+G",
+      "aktivdatum": 41075,
+      "aktivdatum_iso": "2012-06-15",
+      "alter": 14.01
+    },
+    {
+      "article_no": "754",
+      "nr": "754",
+      "buchungskreis": "39000459",
+      "anlagenbezeichnung": "VW OTLG GERÄTEWAGEN",
+      "aktivdatum": 41068,
+      "aktivdatum_iso": "2012-06-08",
+      "alter": 14.03
+    },
+    {
+      "article_no": "755",
+      "nr": "755",
+      "buchungskreis": "39000460",
+      "anlagenbezeichnung": "FA. KEY SOLUTION PC + Zubehör PAUCKE",
+      "aktivdatum": 41085,
+      "aktivdatum_iso": "2012-06-25",
+      "alter": 13.99
+    },
+    {
+      "article_no": "756",
+      "nr": "756",
+      "buchungskreis": "39000461",
+      "anlagenbezeichnung": "FA. KEY SOLUTION LASERDRUCKER LAPTOP",
+      "aktivdatum": 41085,
+      "aktivdatum_iso": "2012-06-25",
+      "alter": 13.99
+    },
+    {
+      "article_no": "757",
+      "nr": "757",
+      "buchungskreis": "39000463",
+      "anlagenbezeichnung": "NEXTIRAONE MOBILE 400 INCL ZUBEH SCHLUND",
+      "aktivdatum": 41095,
+      "aktivdatum_iso": "2012-07-05",
+      "alter": 13.96
+    },
+    {
+      "article_no": "758",
+      "nr": "758",
+      "buchungskreis": "39000464",
+      "anlagenbezeichnung": "FA. KEY SOLUTION Desktop PC + Zubeh. H ",
+      "aktivdatum": 41115,
+      "aktivdatum_iso": "2012-07-25",
+      "alter": 13.9
+    },
+    {
+      "article_no": "762",
+      "nr": "762",
+      "buchungskreis": "39000465",
+      "anlagenbezeichnung": "FA. KEY SOLUTION Desktop PC + Zubeh. H ",
+      "aktivdatum": 41137,
+      "aktivdatum_iso": "2012-08-16",
+      "alter": 13.84
+    },
+    {
+      "article_no": "763",
+      "nr": "763",
+      "buchungskreis": "39000467",
+      "anlagenbezeichnung": "FA. WOW Würth Online, Scheinwerfereinst",
+      "aktivdatum": 41173,
+      "aktivdatum_iso": "2012-09-21",
+      "alter": 13.75
+    },
+    {
+      "article_no": "764",
+      "nr": "764",
+      "buchungskreis": "39000468",
+      "anlagenbezeichnung": "FA. KEY SOLUTION Laserfaxgerät",
+      "aktivdatum": 41155,
+      "aktivdatum_iso": "2012-09-03",
+      "alter": 13.79
+    },
+    {
+      "article_no": "765",
+      "nr": "765",
+      "buchungskreis": "39000471",
+      "anlagenbezeichnung": "FA. Key Solution, 2 PC Herr Funk + Herr",
+      "aktivdatum": 41187,
+      "aktivdatum_iso": "2012-10-05",
+      "alter": 13.71
+    },
+    {
+      "article_no": "766",
+      "nr": "766",
+      "buchungskreis": "39000472",
+      "anlagenbezeichnung": "VW Otlg, Funkkopf",
+      "aktivdatum": 41201,
+      "aktivdatum_iso": "2012-10-19",
+      "alter": 13.67
+    },
+    {
+      "article_no": "767",
+      "nr": "767",
+      "buchungskreis": "39000473",
+      "anlagenbezeichnung": "Fa. Printus, Besucherstuhl Delta",
+      "aktivdatum": 41219,
+      "aktivdatum_iso": "2012-11-06",
+      "alter": 13.62
+    },
+    {
+      "article_no": "768",
+      "nr": "768",
+      "buchungskreis": "39000476",
+      "anlagenbezeichnung": "Fa. Keysolution, Drucker Frau Hofmann",
+      "aktivdatum": 41214,
+      "aktivdatum_iso": "2012-11-01",
+      "alter": 13.63
+    },
+    {
+      "article_no": "769",
+      "nr": "769",
+      "buchungskreis": "39000480",
+      "anlagenbezeichnung": "Licht + Wohnen, Luna 220",
+      "aktivdatum": 41256,
+      "aktivdatum_iso": "2012-12-13",
+      "alter": 13.52
+    },
+    {
+      "article_no": "770",
+      "nr": "770",
+      "buchungskreis": "39000481",
+      "anlagenbezeichnung": "Fa Key Solution, 3 PC Schaaf, Geiss, We",
+      "aktivdatum": 41237,
+      "aktivdatum_iso": "2012-11-24",
+      "alter": 13.57
+    },
+    {
+      "article_no": "771",
+      "nr": "771",
+      "buchungskreis": "39000482",
+      "anlagenbezeichnung": "Fa Key Solution, 1 PC COTRONESE",
+      "aktivdatum": 41237,
+      "aktivdatum_iso": "2012-11-24",
+      "alter": 13.57
+    },
+    {
+      "article_no": "772",
+      "nr": "772",
+      "buchungskreis": "39000483",
+      "anlagenbezeichnung": "Fa Key Solution, 3 OFFICE PACKET SCHAAF",
+      "aktivdatum": 41237,
+      "aktivdatum_iso": "2012-11-24",
+      "alter": 13.57
+    },
+    {
+      "article_no": "773",
+      "nr": "773",
+      "buchungskreis": "39000484",
+      "anlagenbezeichnung": "Fa Key Solution,  OFFICE PACKET COTRONE",
+      "aktivdatum": 41237,
+      "aktivdatum_iso": "2012-11-24",
+      "alter": 13.57
+    },
+    {
+      "article_no": "774",
+      "nr": "774",
+      "buchungskreis": "39000486",
+      "anlagenbezeichnung": "NextiraOne Mobilterminal und Zubehör",
+      "aktivdatum": 41239,
+      "aktivdatum_iso": "2012-11-26",
+      "alter": 13.56
+    },
+    {
+      "article_no": "775",
+      "nr": "775",
+      "buchungskreis": "39000488",
+      "anlagenbezeichnung": "Fa. Savoir Promondo Verlag, Tischlampe",
+      "aktivdatum": 41242,
+      "aktivdatum_iso": "2012-11-29",
+      "alter": 13.56
+    },
+    {
+      "article_no": "776",
+      "nr": "776",
+      "buchungskreis": "39000489",
+      "anlagenbezeichnung": "FA Key Solution, Desktop PC+Install Her",
+      "aktivdatum": 41268,
+      "aktivdatum_iso": "2012-12-25",
+      "alter": 13.48
+    },
+    {
+      "article_no": "777",
+      "nr": "777",
+      "buchungskreis": "39000493",
+      "anlagenbezeichnung": "Kyocera Laserdrucker Empfang",
+      "aktivdatum": 41337,
+      "aktivdatum_iso": "2013-03-04",
+      "alter": 13.3
+    },
+    {
+      "article_no": "778",
+      "nr": "778",
+      "buchungskreis": "39000494",
+      "anlagenbezeichnung": "Alcatel Mobiltelefon GW",
+      "aktivdatum": 41337,
+      "aktivdatum_iso": "2013-03-04",
+      "alter": 13.3
+    },
+    {
+      "article_no": "779",
+      "nr": "779",
+      "buchungskreis": "39000495",
+      "anlagenbezeichnung": "Externe RFID-Festplatte",
+      "aktivdatum": 41337,
+      "aktivdatum_iso": "2013-03-04",
+      "alter": 13.3
+    },
+    {
+      "article_no": "780",
+      "nr": "780",
+      "buchungskreis": "39000496",
+      "anlagenbezeichnung": "Brother MFC Multifunktionsgerät",
+      "aktivdatum": 41337,
+      "aktivdatum_iso": "2013-03-04",
+      "alter": 13.3
+    },
+    {
+      "article_no": "781",
+      "nr": "781",
+      "buchungskreis": "39000497",
+      "anlagenbezeichnung": "Desktop PC, Bildschirm, Office Paket In",
+      "aktivdatum": 41337,
+      "aktivdatum_iso": "2013-03-04",
+      "alter": 13.3
+    },
+    {
+      "article_no": "782",
+      "nr": "782",
+      "buchungskreis": "39000502",
+      "anlagenbezeichnung": "Mobile 400 Reflexes für Empfang",
+      "aktivdatum": 41310,
+      "aktivdatum_iso": "2013-02-05",
+      "alter": 13.37
+    },
+    {
+      "article_no": "783",
+      "nr": "783",
+      "buchungskreis": "39000503",
+      "anlagenbezeichnung": "Ersatzfestplatte SAS Datensicherung&Host",
+      "aktivdatum": 41374,
+      "aktivdatum_iso": "2013-04-10",
+      "alter": 13.19
+    },
+    {
+      "article_no": "784",
+      "nr": "784",
+      "buchungskreis": "39000504",
+      "anlagenbezeichnung": "Microsoft Office 2010 Hr. Hofmann",
+      "aktivdatum": 41374,
+      "aktivdatum_iso": "2013-04-10",
+      "alter": 13.19
+    },
+    {
+      "article_no": "785",
+      "nr": "785",
+      "buchungskreis": "39000505",
+      "anlagenbezeichnung": "Desktop, Bildschirm, Office Paket Servi",
+      "aktivdatum": 41388,
+      "aktivdatum_iso": "2013-04-24",
+      "alter": 13.16
+    },
+    {
+      "article_no": "786",
+      "nr": "786",
+      "buchungskreis": "39000511",
+      "anlagenbezeichnung": "Kränzle-Universalkehrmaschine",
+      "aktivdatum": 41438,
+      "aktivdatum_iso": "2013-06-13",
+      "alter": 13.02
+    },
+    {
+      "article_no": "787",
+      "nr": "787",
+      "buchungskreis": "39000512",
+      "anlagenbezeichnung": "Apple iPhone 5 weiß",
+      "aktivdatum": 41458,
+      "aktivdatum_iso": "2013-07-03",
+      "alter": 12.96
+    },
+    {
+      "article_no": "788",
+      "nr": "788",
+      "buchungskreis": "39000519",
+      "anlagenbezeichnung": "Aktenvernichter (office discount)",
+      "aktivdatum": 41570,
+      "aktivdatum_iso": "2013-10-23",
+      "alter": 12.66
+    },
+    {
+      "article_no": "789",
+      "nr": "789",
+      "buchungskreis": "39000520",
+      "anlagenbezeichnung": "Luna 220 30cm Wala",
+      "aktivdatum": 41570,
+      "aktivdatum_iso": "2013-10-23",
+      "alter": 12.66
+    },
+    {
+      "article_no": "790",
+      "nr": "790",
+      "buchungskreis": "39000521",
+      "anlagenbezeichnung": "Öltank (Samoa-Hallbauer)",
+      "aktivdatum": 41608,
+      "aktivdatum_iso": "2013-11-30",
+      "alter": 12.55
+    },
+    {
+      "article_no": "791",
+      "nr": "791",
+      "buchungskreis": "39000522",
+      "anlagenbezeichnung": "Apple iPad G.H.",
+      "aktivdatum": 41608,
+      "aktivdatum_iso": "2013-11-30",
+      "alter": 12.55
+    },
+    {
+      "article_no": "792",
+      "nr": "792",
+      "buchungskreis": "39000523",
+      "anlagenbezeichnung": "Apple iPhone 5s G.H.",
+      "aktivdatum": 41608,
+      "aktivdatum_iso": "2013-11-30",
+      "alter": 12.55
+    },
+    {
+      "article_no": "793",
+      "nr": "793",
+      "buchungskreis": "39000526",
+      "anlagenbezeichnung": "MTR Abgasschlauch 75mm",
+      "aktivdatum": 41620,
+      "aktivdatum_iso": "2013-12-12",
+      "alter": 12.52
+    },
+    {
+      "article_no": "794",
+      "nr": "794",
+      "buchungskreis": "39000527",
+      "anlagenbezeichnung": "3-Stationen Kassendrucker",
+      "aktivdatum": 41617,
+      "aktivdatum_iso": "2013-12-09",
+      "alter": 12.53
+    },
+    {
+      "article_no": "795",
+      "nr": "795",
+      "buchungskreis": "39000528",
+      "anlagenbezeichnung": "Constructa Geschirrspüler",
+      "aktivdatum": 41631,
+      "aktivdatum_iso": "2013-12-23",
+      "alter": 12.49
+    },
+    {
+      "article_no": "796",
+      "nr": "796",
+      "buchungskreis": "39000529",
+      "anlagenbezeichnung": "PC Arbeitsplatz Werkstatt",
+      "aktivdatum": 41656,
+      "aktivdatum_iso": "2014-01-17",
+      "alter": 12.42
+    },
+    {
+      "article_no": "797",
+      "nr": "797",
+      "buchungskreis": "39000531",
+      "anlagenbezeichnung": "Werkstattwagen M-Serie",
+      "aktivdatum": 41676,
+      "aktivdatum_iso": "2014-02-06",
+      "alter": 12.37
+    },
+    {
+      "article_no": "798",
+      "nr": "798",
+      "buchungskreis": "39000533",
+      "anlagenbezeichnung": "Mobile 400",
+      "aktivdatum": 41709,
+      "aktivdatum_iso": "2014-03-11",
+      "alter": 12.28
+    },
+    {
+      "article_no": "799",
+      "nr": "799",
+      "buchungskreis": "39000534",
+      "anlagenbezeichnung": "Mobile 400",
+      "aktivdatum": 41725,
+      "aktivdatum_iso": "2014-03-27",
+      "alter": 12.23
+    },
+    {
+      "article_no": "800",
+      "nr": "800",
+      "buchungskreis": "39000535",
+      "anlagenbezeichnung": "Samsung Galaxy Tab",
+      "aktivdatum": 41743,
+      "aktivdatum_iso": "2014-04-14",
+      "alter": 12.18
+    },
+    {
+      "article_no": "801",
+      "nr": "801",
+      "buchungskreis": "39000536",
+      "anlagenbezeichnung": "Kyocera Laserdrucker FS1100",
+      "aktivdatum": 41759,
+      "aktivdatum_iso": "2014-04-30",
+      "alter": 12.14
+    },
+    {
+      "article_no": "802",
+      "nr": "802",
+      "buchungskreis": "39000539",
+      "anlagenbezeichnung": "Tischventilator",
+      "aktivdatum": 41822,
+      "aktivdatum_iso": "2014-07-02",
+      "alter": 11.97
+    },
+    {
+      "article_no": "803",
+      "nr": "803",
+      "buchungskreis": "39000543",
+      "anlagenbezeichnung": "WLAN Equipment for Audi Showroom",
+      "aktivdatum": 41851,
+      "aktivdatum_iso": "2014-07-31",
+      "alter": 11.89
+    },
+    {
+      "article_no": "804",
+      "nr": "804",
+      "buchungskreis": "39000544",
+      "anlagenbezeichnung": "Hochvolt Prüfadapter VAS6558",
+      "aktivdatum": 41899,
+      "aktivdatum_iso": "2014-09-17",
+      "alter": 11.76
+    },
+    {
+      "article_no": "805",
+      "nr": "805",
+      "buchungskreis": "39000549",
+      "anlagenbezeichnung": "Gitterwagen",
+      "aktivdatum": 41927,
+      "aktivdatum_iso": "2014-10-15",
+      "alter": 11.68
+    },
+    {
+      "article_no": "806",
+      "nr": "806",
+      "buchungskreis": "39000550",
+      "anlagenbezeichnung": "Dianosefunkkopf VAS 5054A 2x",
+      "aktivdatum": 41955,
+      "aktivdatum_iso": "2014-11-12",
+      "alter": 11.6
+    },
+    {
+      "article_no": "807",
+      "nr": "807",
+      "buchungskreis": "39000554",
+      "anlagenbezeichnung": "Dell Lalitude 3500 Laptop",
+      "aktivdatum": 41969,
+      "aktivdatum_iso": "2014-11-26",
+      "alter": 11.56
+    },
+    {
+      "article_no": "808",
+      "nr": "808",
+      "buchungskreis": "39000557",
+      "anlagenbezeichnung": "Intel NUC DC3217IYE-i33217U",
+      "aktivdatum": 41969,
+      "aktivdatum_iso": "2014-11-26",
+      "alter": 11.56
+    },
+    {
+      "article_no": "809",
+      "nr": "809",
+      "buchungskreis": "39000558",
+      "anlagenbezeichnung": "Panasonic Docking Desktop WK",
+      "aktivdatum": 41969,
+      "aktivdatum_iso": "2014-11-26",
+      "alter": 11.56
+    },
+    {
+      "article_no": "810",
+      "nr": "810",
+      "buchungskreis": "39000559",
+      "anlagenbezeichnung": "Apple IPad Air 16GB Wifi",
+      "aktivdatum": 41969,
+      "aktivdatum_iso": "2014-11-26",
+      "alter": 11.56
+    },
+    {
+      "article_no": "811",
+      "nr": "811",
+      "buchungskreis": "39000560",
+      "anlagenbezeichnung": "Battereiladegerät NW-Verkauf",
+      "aktivdatum": 41934,
+      "aktivdatum_iso": "2014-10-22",
+      "alter": 11.66
+    },
+    {
+      "article_no": "812",
+      "nr": "812",
+      "buchungskreis": "39000561",
+      "anlagenbezeichnung": "Hochvolt-Messadapter",
+      "aktivdatum": 41973,
+      "aktivdatum_iso": "2014-11-30",
+      "alter": 11.55
+    },
+    {
+      "article_no": "817",
+      "nr": "817",
+      "buchungskreis": "39000331",
+      "anlagenbezeichnung": "Werkzeug Verwalt. Programm Sepp P",
+      "aktivdatum": 40148,
+      "aktivdatum_iso": "2009-12-01",
+      "alter": 16.55
+    },
+    {
+      "article_no": "818",
+      "nr": "818",
+      "buchungskreis": "39000545",
+      "anlagenbezeichnung": "Office suite, Win, 12, Business, Pro",
+      "aktivdatum": 41901,
+      "aktivdatum_iso": "2014-09-19",
+      "alter": 11.75
+    }
+  ]
+}

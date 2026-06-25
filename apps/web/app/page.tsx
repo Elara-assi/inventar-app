@@ -499,6 +499,10 @@ export default function DashboardPage() {
                   <strong>Spezialwerkzeuge</strong>
                   <small>VAS-Werkzeuge, Spezialgeräte, Koffer, Kalibrierung · in Vorbereitung</small>
                 </button>
+                <a className="damage-mode-link" href="/damage">
+                  <strong>Schadenerfassung</strong>
+                  <small>Artikel-Nr. eingeben, Fotos sichern, Schaden dokumentieren</small>
+                </a>
               </div>
             </div>
 

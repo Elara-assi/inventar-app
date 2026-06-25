@@ -1676,6 +1676,33 @@ body {
   color: #bbf7d0;
 }
 
+.mobile-room-bar > .mobile-room-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mobile-damage-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fde68a;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.mobile-damage-link:hover,
+.mobile-damage-link:focus-visible {
+  outline: 3px solid rgba(251, 191, 36, 0.25);
+}
+
 .mobile-photo-stage {
   min-height: 168px;
   display: grid;
@@ -8061,4 +8088,480 @@ button.btn.accent {
   .saved-card, .recent-item-row, .cockpit-feed-row { animation: none; }
   .cockpit-pill.live { animation: none; }
   .cockpit-bar::after { animation: none; display: none; }
+}
+
+/* ==================================================================== */
+/* Schadenerfassung: additive Offline-Maske, getrennt vom Inventur-Sync. */
+/* ==================================================================== */
+
+.damage-mode-link {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #451a03;
+  padding: 12px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.damage-mode-link:hover,
+.damage-mode-link:focus-visible {
+  outline: 3px solid rgba(251, 191, 36, 0.35);
+  border-color: #f59e0b;
+}
+
+.damage-mode-link small {
+  color: #92400e;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.damage-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1280px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 24px clamp(12px, 3vw, 32px) 42px;
+  color: #0f1c2e;
+}
+
+body:has(.damage-page) .app-shell,
+body:has(.damage-page) .app-shell > main,
+body:has(.damage-page) .topbar,
+body:has(.damage-page) .topbar-inner,
+body:has(.damage-page) .brand,
+body:has(.damage-page) .brand span {
+  min-width: 0;
+  max-width: 100%;
+}
+
+body:has(.damage-page) .app-shell > main,
+body:has(.damage-page) .topbar,
+body:has(.damage-page) .topbar-inner {
+  width: 100%;
+}
+
+body:has(.damage-page) .brand span {
+  overflow-wrap: anywhere;
+}
+
+.damage-page *,
+.damage-page *::before,
+.damage-page *::after {
+  box-sizing: border-box;
+}
+
+.damage-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.damage-hero h1 {
+  margin: 8px 0 6px;
+  color: #0b1830;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.damage-hero p {
+  max-width: 720px;
+  margin: 0;
+  color: #466079;
+  font-weight: 700;
+}
+
+.damage-back-link {
+  color: #7dd3fc;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.damage-kpis {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+  color: #a8bfdc;
+}
+
+.damage-kpis strong {
+  color: #0b1830;
+  font-size: 18px;
+}
+
+.damage-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+  align-items: start;
+}
+
+.damage-capture-panel,
+.damage-side-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 18px;
+  background: #f6f9ff;
+  color: #0f1c2e;
+  box-shadow: 0 18px 44px rgba(2, 8, 20, 0.42);
+  padding: 18px;
+}
+
+.damage-side-panel {
+  position: sticky;
+  top: 18px;
+}
+
+.damage-capture-panel > *,
+.damage-side-panel > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.damage-page .field,
+.damage-page .field input,
+.damage-page .field select,
+.damage-page .field textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.damage-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.damage-section-head h2 {
+  margin: 0 0 4px;
+}
+
+.damage-section-head span:not(.status) {
+  color: #5b7088;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.damage-message {
+  width: fit-content;
+}
+
+.damage-inline-message {
+  margin: 0;
+  color: #2563eb;
+  font-weight: 900;
+}
+
+.damage-form-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.damage-number-field input {
+  min-height: 68px;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.damage-team-field input {
+  min-height: 68px;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.damage-article-box {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed #b8c9de;
+  border-radius: 14px;
+  background: #edf4ff;
+  padding: 14px;
+}
+
+.damage-article-box.is-found {
+  border-style: solid;
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.damage-article-box strong {
+  font-size: 18px;
+}
+
+.damage-article-box span {
+  color: #466079;
+  font-weight: 800;
+}
+
+.damage-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.damage-photo-slot {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 108px;
+  border: 1px solid #c6d6ea;
+  border-radius: 14px;
+  background: white;
+  padding: 8px;
+}
+
+.damage-photo-slot.is-required {
+  border-color: #f59e0b;
+}
+
+.damage-photo-slot.has-photo {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+.damage-photo-slot > button {
+  display: grid;
+  place-items: center;
+  width: 94px;
+  min-height: 90px;
+  border: 1px dashed #9db2c9;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #2563eb;
+  font-size: 30px;
+  font-weight: 900;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.damage-photo-slot > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.damage-photo-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.damage-photo-slot div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.damage-photo-slot small {
+  color: #5b7088;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.damage-photo-slot div button {
+  width: fit-content;
+  border: 0;
+  border-radius: 8px;
+  background: #e8f0fb;
+  color: #15335c;
+  padding: 6px 9px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.damage-uvv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid #c6d6ea;
+  border-radius: 14px;
+  background: white;
+  padding: 10px;
+}
+
+.damage-uvv-row span {
+  margin-right: auto;
+  color: #5b7088;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.damage-uvv-row button {
+  min-height: 38px;
+  border: 1px solid #c6d6ea;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #15335c;
+  padding: 0 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.damage-uvv-row button.is-active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.damage-description textarea {
+  min-height: 150px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.damage-save-bar {
+  position: sticky;
+  bottom: 10px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 14px;
+  background: rgba(246, 249, 255, 0.94);
+  padding: 10px;
+  backdrop-filter: blur(8px);
+}
+
+.damage-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.damage-summary-grid span {
+  display: grid;
+  gap: 2px;
+  border: 1px solid #c6d6ea;
+  border-radius: 12px;
+  background: white;
+  padding: 10px;
+  color: #5b7088;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.damage-summary-grid b {
+  color: #0b1830;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.damage-report-list {
+  display: grid;
+  gap: 8px;
+  max-height: 58vh;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.damage-report-list > button {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #c6d6ea;
+  border-radius: 12px;
+  background: white;
+  color: #0f1c2e;
+  padding: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.damage-report-list > button:hover,
+.damage-report-list > button:focus-visible {
+  outline: 3px solid rgba(56, 189, 248, 0.28);
+  border-color: #38bdf8;
+}
+
+.damage-report-list span,
+.damage-report-list small {
+  color: #5b7088;
+  font-weight: 800;
+}
+
+.damage-report-list i.status {
+  width: fit-content;
+  font-style: normal;
+}
+
+@media (max-width: 980px) {
+  .damage-layout,
+  .damage-form-grid,
+  .damage-save-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .damage-side-panel {
+    position: static;
+  }
+
+  .damage-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .damage-page {
+    padding: 14px 10px 28px;
+  }
+
+  .damage-hero {
+    display: grid;
+  }
+
+  .damage-kpis {
+    justify-items: start;
+  }
+
+  .damage-capture-panel,
+  .damage-side-panel {
+    width: 100%;
+    min-width: 0;
+    border-radius: 8px;
+    margin-inline: 0;
+  }
+
+  .damage-photo-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .damage-photo-slot {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .damage-section-head {
+    flex-wrap: wrap;
+  }
+
+  .damage-form-grid,
+  .damage-article-box,
+  .damage-photo-grid,
+  .damage-uvv-row,
+  .damage-description,
+  .damage-save-bar,
+  .damage-summary-grid,
+  .damage-report-list {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .damage-save-bar {
+    position: static;
+    bottom: auto;
+  }
 }

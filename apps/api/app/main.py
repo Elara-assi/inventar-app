@@ -91,13 +91,16 @@ PUBLIC_PATH_PREFIXES = (
 
 MOBILE_ALLOWED_PREFIXES = (
     "/meta/bootstrap",
+    "/exports",
     "/items",
+    "/damage-reports",
     "/offline-sync/photos",
     "/offline-sync/items",
     "/offline-sync/status",
     "/offline-sync/reconcile",
     "/mobile-diagnostics",
     "/uploads/photos",
+    "/uploads/damage-photos",
 )
 
 
@@ -204,6 +207,41 @@ class RoomPatch(BaseModel):
     name: str | None = None
     code: str | None = None
     room_type: str | None = None
+
+
+class DamageArticleSnapshot(BaseModel):
+    article_no: str | None = None
+    nr: str | None = None
+    buchungskreis: str | None = None
+    anlagenbezeichnung: str | None = None
+    aktivdatum: str | int | float | None = None
+    aktivdatum_iso: str | None = None
+    alter: float | None = None
+
+
+class DamageReportPayload(BaseModel):
+    client_report_id: str
+    source_device_id: str | None = None
+    article_no: str
+    article: DamageArticleSnapshot
+    team_name: str = "Team 1"
+    description: str = ""
+    uvv_sticker_present: str = "unklar"
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class DamagePhotoPayload(BaseModel):
+    client_photo_id: str | None = None
+    photo_type: str
+    filename: str | None = None
+    mime_type: str | None = None
+    size: int | None = None
+
+
+class DamageSyncPayload(BaseModel):
+    report: DamageReportPayload
+    photos: list[DamagePhotoPayload] = []
 
 
 class ItemIn(BaseModel):
@@ -320,7 +358,7 @@ class ReopenIn(BaseModel):
 
 
 def ensure_upload_dirs() -> None:
-    for sub in ["originals", "stamped", "audio", "exports", "temp"]:
+    for sub in ["originals", "stamped", "audio", "exports", "temp", "damage"]:
         Path(settings.upload_root, sub).mkdir(parents=True, exist_ok=True)
 
 
@@ -5671,6 +5709,468 @@ def save_export(
     return export
 
 
+DAMAGE_PHOTO_LABELS = {
+    "front": "Frontbild",
+    "side": "Seitenbild",
+    "serial_number": "Seriennummer-Foto",
+    "uvv_sticker": "UVV-Aufkleber-Foto",
+    "damage_detail_1": "Schaden Detail 1",
+    "damage_detail_2": "Schaden Detail 2",
+}
+
+DAMAGE_PHOTO_TYPES = tuple(DAMAGE_PHOTO_LABELS.keys())
+
+
+def request_tenant_id(request: Request) -> str | None:
+    auth = getattr(request.state, "auth", {}) or {}
+    tenant_id = auth.get("tenant_id") or default_tenant_id()
+    return str(tenant_id) if tenant_id else None
+
+
+def parse_client_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def damage_article_value(article: DamageArticleSnapshot, field: str) -> Any:
+    data = article.model_dump()
+    return data.get(field)
+
+
+def damage_report_row(report_id: str) -> dict[str, Any]:
+    row = fetch_one("SELECT * FROM damage_reports WHERE id = %s", (report_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Schadensfall nicht gefunden")
+    return row
+
+
+def find_damage_report_conflict(tenant_id: str | None, article_no: str, client_report_id: str, source_device_id: str | None) -> dict[str, Any] | None:
+    existing_article = fetch_one(
+        """
+        SELECT *
+        FROM damage_reports
+        WHERE tenant_id IS NOT DISTINCT FROM %s AND article_no = %s
+        LIMIT 1
+        """,
+        (tenant_id, article_no),
+    )
+    if not existing_article:
+        return None
+    if existing_article.get("client_report_id") == client_report_id:
+        return None
+    if source_device_id and existing_article.get("source_device_id") == source_device_id:
+        return None
+    return existing_article
+
+
+def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) -> dict[str, Any]:
+    article_no = str(payload.article_no or "").strip()
+    if not article_no:
+        raise HTTPException(status_code=422, detail="Artikelnummer fehlt")
+    conflict = find_damage_report_conflict(tenant_id, article_no, payload.client_report_id, payload.source_device_id)
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Artikel {article_no} wurde bereits als Schaden erfasst.",
+        )
+    existing = fetch_one(
+        """
+        SELECT *
+        FROM damage_reports
+        WHERE tenant_id IS NOT DISTINCT FROM %s AND client_report_id = %s
+          AND (%s IS NULL OR source_device_id = %s)
+        LIMIT 1
+        """,
+        (tenant_id, payload.client_report_id, payload.source_device_id, payload.source_device_id),
+    ) or fetch_one(
+        """
+        SELECT *
+        FROM damage_reports
+        WHERE tenant_id IS NOT DISTINCT FROM %s AND article_no = %s
+        LIMIT 1
+        """,
+        (tenant_id, article_no),
+    )
+    captured_at = parse_client_datetime(payload.created_at)
+    article = payload.article
+    values = {
+        "source_device_id": payload.source_device_id,
+        "article_no": article_no,
+        "nr": damage_article_value(article, "nr") or article_no,
+        "buchungskreis": damage_article_value(article, "buchungskreis"),
+        "anlagenbezeichnung": damage_article_value(article, "anlagenbezeichnung"),
+        "aktivdatum": str(damage_article_value(article, "aktivdatum_iso") or damage_article_value(article, "aktivdatum") or ""),
+        "alter": damage_article_value(article, "alter"),
+        "team_name": (payload.team_name or "Team 1").strip() or "Team 1",
+        "damage_description": payload.description.strip(),
+        "uvv_sticker_present": payload.uvv_sticker_present if payload.uvv_sticker_present in {"ja", "nein", "unklar"} else "unklar",
+        "captured_at": captured_at,
+    }
+    if existing:
+        row = execute(
+            """
+            UPDATE damage_reports
+            SET source_device_id = COALESCE(%s, source_device_id),
+                article_no = %s,
+                nr = %s,
+                buchungskreis = %s,
+                anlagenbezeichnung = %s,
+                aktivdatum = %s,
+                alter = %s,
+                team_name = %s,
+                damage_description = %s,
+                uvv_sticker_present = %s,
+                captured_at = COALESCE(%s, captured_at),
+                updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                values["source_device_id"],
+                values["article_no"],
+                values["nr"],
+                values["buchungskreis"],
+                values["anlagenbezeichnung"],
+                values["aktivdatum"],
+                values["alter"],
+                values["team_name"],
+                values["damage_description"],
+                values["uvv_sticker_present"],
+                values["captured_at"],
+                existing["id"],
+            ),
+        )
+        audit("damage_report_updated", "damage_report", str(row["id"]), row)
+        return row
+    row = execute(
+        """
+        INSERT INTO damage_reports (
+          tenant_id, client_report_id, source_device_id, article_no, nr, buchungskreis,
+          anlagenbezeichnung, aktivdatum, alter, team_name, damage_description,
+          uvv_sticker_present, captured_at
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING *
+        """,
+        (
+            tenant_id,
+            payload.client_report_id,
+            values["source_device_id"],
+            values["article_no"],
+            values["nr"],
+            values["buchungskreis"],
+            values["anlagenbezeichnung"],
+            values["aktivdatum"],
+            values["alter"],
+            values["team_name"],
+            values["damage_description"],
+            values["uvv_sticker_present"],
+            values["captured_at"],
+        ),
+    )
+    audit("damage_report_created", "damage_report", str(row["id"]), row)
+    return row
+
+
+async def save_damage_photo(
+    *,
+    report_id: str,
+    tenant_id: str | None,
+    file: UploadFile,
+    photo_type: str,
+    client_photo_id: str | None,
+    source_device_id: str | None,
+) -> tuple[dict[str, Any], bool]:
+    if photo_type not in DAMAGE_PHOTO_TYPES:
+        raise HTTPException(status_code=422, detail="Fotoart ist unbekannt")
+    ensure_upload_dirs()
+    damage_report_row(report_id)
+    existing = fetch_one(
+        """
+        SELECT *
+        FROM damage_photos
+        WHERE damage_report_id = %s
+          AND (
+            photo_type = %s OR
+            (%s IS NOT NULL AND source_device_id = %s AND client_photo_id = %s)
+          )
+        ORDER BY uploaded_at DESC
+        LIMIT 1
+        """,
+        (report_id, photo_type, client_photo_id, source_device_id, client_photo_id),
+    )
+    data = await file.read()
+    mime_type, suffix = validate_photo_upload(file, data)
+    digest = hashlib.sha256(data).hexdigest()
+    filename = f"{report_id}-{photo_type}-{digest[:12]}{suffix}"
+    path = Path(settings.upload_root, "damage", filename)
+    path.write_bytes(data)
+    width = None
+    height = None
+    try:
+        with PillowImage.open(path) as image:
+            image = ImageOps.exif_transpose(image)
+            width, height = image.width, image.height
+    except Exception:
+        pass
+    metadata = json.dumps({"mime_type": mime_type, "size": len(data), "filename": file.filename})
+    if existing:
+        row = execute(
+            """
+            UPDATE damage_photos
+            SET client_photo_id = COALESCE(%s, client_photo_id),
+                source_device_id = COALESCE(%s, source_device_id),
+                original_path = %s,
+                original_hash = %s,
+                width = %s,
+                height = %s,
+                uploaded_at = now(),
+                metadata_json = %s::jsonb
+            WHERE id = %s
+            RETURNING *
+            """,
+            (client_photo_id, source_device_id, str(path), digest, width, height, metadata, existing["id"]),
+        )
+        audit("damage_photo_updated", "damage_report", report_id, row)
+        return row, True
+    row = execute(
+        """
+        INSERT INTO damage_photos (
+          tenant_id, damage_report_id, client_photo_id, source_device_id, photo_type,
+          original_path, original_hash, width, height, metadata_json
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+        RETURNING *
+        """,
+        (tenant_id, report_id, client_photo_id, source_device_id, photo_type, str(path), digest, width, height, metadata),
+    )
+    audit("damage_photo_uploaded", "damage_report", report_id, row)
+    return row, False
+
+
+@app.post("/damage-reports/sync")
+async def sync_damage_report(request: Request, payload: str = Form(...), files: list[UploadFile] = File(default=[])) -> dict[str, Any]:
+    try:
+        parsed = DamageSyncPayload(**json.loads(payload))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Schadenspaket ist kein gueltiges JSON") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Schadenspaket ist unvollstaendig: {exc}") from exc
+    if not parsed.report.description.strip():
+        raise HTTPException(status_code=422, detail="Schadensbeschreibung fehlt")
+    required_photo_types = {"front", "damage_detail_1"}
+    if parsed.report.uvv_sticker_present == "ja":
+        required_photo_types.add("uvv_sticker")
+    submitted_photo_types = {photo.photo_type for photo in parsed.photos}
+    missing_photo_types = [DAMAGE_PHOTO_LABELS[photo_type] for photo_type in DAMAGE_PHOTO_TYPES if photo_type in required_photo_types and photo_type not in submitted_photo_types]
+    if missing_photo_types:
+        raise HTTPException(status_code=422, detail=f"Pflichtfoto fehlt: {', '.join(missing_photo_types)}")
+    tenant_id = request_tenant_id(request)
+    report = upsert_damage_report(parsed.report, tenant_id)
+    photo_results: list[dict[str, Any]] = []
+    for index, meta in enumerate(parsed.photos):
+        if index >= len(files):
+            photo_results.append({
+                "client_photo_id": meta.client_photo_id,
+                "photo_type": meta.photo_type,
+                "status": "failed",
+                "error": "Datei fehlt im Sync-Paket",
+            })
+            continue
+        try:
+            row, already_exists = await save_damage_photo(
+                report_id=str(report["id"]),
+                tenant_id=tenant_id,
+                file=files[index],
+                photo_type=meta.photo_type,
+                client_photo_id=meta.client_photo_id,
+                source_device_id=parsed.report.source_device_id,
+            )
+            photo_results.append({
+                "client_photo_id": meta.client_photo_id,
+                "photo_type": meta.photo_type,
+                "status": "already_exists" if already_exists else "synced",
+                "server_photo_id": str(row["id"]),
+            })
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            photo_results.append({
+                "client_photo_id": meta.client_photo_id,
+                "photo_type": meta.photo_type,
+                "status": "failed",
+                "error": detail,
+            })
+    return {
+        "server_report_id": str(report["id"]),
+        "client_report_id": parsed.report.client_report_id,
+        "article_no": str(report["article_no"]),
+        "status": "updated",
+        "photo_results": photo_results,
+    }
+
+
+@app.get("/damage-reports")
+def list_damage_reports(request: Request) -> list[dict[str, Any]]:
+    tenant_id = request_tenant_id(request)
+    return fetch_all(
+        """
+        SELECT r.*,
+               (SELECT count(*)::int FROM damage_photos p WHERE p.damage_report_id = r.id) AS photo_count
+        FROM damage_reports r
+        WHERE r.tenant_id IS NOT DISTINCT FROM %s
+        ORDER BY r.updated_at DESC
+        """,
+        (tenant_id,),
+    )
+
+
+def fetch_damage_export_rows(tenant_id: str | None) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        """
+        SELECT *
+        FROM damage_reports
+        WHERE tenant_id IS NOT DISTINCT FROM %s
+        ORDER BY CASE WHEN article_no ~ '^[0-9]+$' THEN article_no::int END NULLS LAST, article_no
+        """,
+        (tenant_id,),
+    )
+    for row in rows:
+        row["photos"] = fetch_all(
+            """
+            SELECT *
+            FROM damage_photos
+            WHERE damage_report_id = %s
+            ORDER BY uploaded_at
+            """,
+            (row["id"],),
+        )
+    return rows
+
+
+def damage_photo_for_type(row: dict[str, Any], photo_type: str) -> dict[str, Any] | None:
+    for photo in row.get("photos") or []:
+        if photo.get("photo_type") == photo_type:
+            return photo
+    return None
+
+
+def insert_damage_excel_photo(ws: Any, row: dict[str, Any], row_index: int, column_index: int, photo_type: str) -> None:
+    photo = damage_photo_for_type(row, photo_type)
+    cell = ws.cell(row=row_index, column=column_index)
+    if not photo:
+        cell.value = "fehlt"
+        return
+    image_path, _, _, _ = prepare_excel_photo({"original_path": photo.get("original_path"), "photo_type": photo_type})
+    if not image_path or not image_path.exists():
+        cell.value = "Bild fehlt"
+        return
+    try:
+        image = ExcelImage(str(image_path))
+        max_width, max_height = 142, 104
+        scale = min(max_width / image.width, max_height / image.height, 1)
+        image.width = int(image.width * scale)
+        image.height = int(image.height * scale)
+        image.anchor = f"{get_column_letter(column_index)}{row_index}"
+        ws.add_image(image)
+        cell.value = " "
+        cell.hyperlink = f"/uploads/damage-photos/{photo['id']}"
+        cell.style = "Hyperlink"
+    except Exception:
+        cell.value = "Bild nicht lesbar"
+
+
+def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Schadensliste"
+    header_fill = PatternFill("solid", fgColor="0D1A2E")
+    header_font = Font(bold=True, color="FFFFFF")
+    thin = Side(style="thin", color="C6D6EA")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    headers = [
+        "Nr.",
+        "Buchungskreis",
+        "Anlagenbezeichnung",
+        "Aktivdatum",
+        "Alter",
+        "Team",
+        "Erfasst am",
+        "Geaendert am",
+        "Schadensbeschreibung",
+        "UVV-Aufkleber vorhanden",
+        "Frontbild",
+        "Seitenbild",
+        "Seriennummer-Foto",
+        "UVV-Aufkleber-Foto",
+        "Schaden Detail 1",
+        "Schaden Detail 2",
+    ]
+    ws.append(headers)
+    for column_index in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=column_index)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border
+    for row_index, row in enumerate(rows, start=2):
+        ws.cell(row=row_index, column=1, value=row.get("nr") or row.get("article_no"))
+        ws.cell(row=row_index, column=2, value=row.get("buchungskreis"))
+        ws.cell(row=row_index, column=3, value=row.get("anlagenbezeichnung"))
+        ws.cell(row=row_index, column=4, value=row.get("aktivdatum"))
+        ws.cell(row=row_index, column=5, value=float(row["alter"]) if row.get("alter") is not None else None)
+        ws.cell(row=row_index, column=6, value=row.get("team_name"))
+        ws.cell(row=row_index, column=7, value=format_excel_datetime(row.get("captured_at") or row.get("created_at")))
+        ws.cell(row=row_index, column=8, value=format_excel_datetime(row.get("updated_at")))
+        ws.cell(row=row_index, column=9, value=row.get("damage_description"))
+        ws.cell(row=row_index, column=10, value=row.get("uvv_sticker_present"))
+        for photo_offset, photo_type in enumerate(DAMAGE_PHOTO_TYPES, start=11):
+            insert_damage_excel_photo(ws, row, row_index, photo_offset, photo_type)
+        for column_index in range(1, len(headers) + 1):
+            cell = ws.cell(row=row_index, column=column_index)
+            cell.border = border
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        ws.row_dimensions[row_index].height = 92
+    ws.freeze_panes = "A2"
+    if rows:
+        ws.auto_filter.ref = f"A1:P{len(rows) + 1}"
+    widths = [10, 16, 36, 14, 10, 18, 20, 20, 48, 18, 22, 22, 24, 24, 24, 24]
+    for index, width in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(index)].width = width
+
+    summary_ws = wb.create_sheet("Uebersicht", 0)
+    summary_ws.append(["Export", "Schadensliste"])
+    summary_ws.append(["Erzeugt am", excel_value(datetime.now())])
+    summary_ws.append(["Schadensfaelle", len(rows)])
+    summary_ws.append(["Teams", len({row.get("team_name") for row in rows if row.get("team_name")} )])
+    summary_ws.column_dimensions["A"].width = 22
+    summary_ws.column_dimensions["B"].width = 36
+    summary_ws["A1"].font = Font(bold=True)
+    summary_ws["B1"].font = Font(bold=True)
+    return wb
+
+
+@app.post("/damage-reports/export/excel")
+def export_damage_excel(request: Request) -> dict[str, Any]:
+    ensure_upload_dirs()
+    tenant_id = request_tenant_id(request)
+    rows = fetch_damage_export_rows(tenant_id)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"schadensliste-{timestamp}.xlsx"
+    path = Path(settings.upload_root, "exports", filename)
+    wb = build_damage_excel_workbook(rows)
+    wb.save(path)
+    export = execute(
+        "INSERT INTO exports (tenant_id, session_id, export_type, file_path) VALUES (%s, NULL, %s, %s) RETURNING *",
+        (tenant_id, "damage_excel", str(path)),
+    )
+    audit("damage_export_created", "damage_export", str(export["id"]), {"rows": len(rows), "file": str(path)})
+    return export
+
+
 @app.get("/items/{item_id}/ai-results")
 def ai_results(item_id: str) -> list[dict[str, Any]]:
     return fetch_all("SELECT * FROM ai_results WHERE item_id = %s ORDER BY created_at DESC", (item_id,))
@@ -5853,11 +6353,34 @@ def export_all_excel() -> dict[str, Any]:
 
 
 @app.get("/exports/{export_id}/download")
-def download_export(export_id: str) -> FileResponse:
+def download_export(export_id: str, request: Request) -> FileResponse:
     row = fetch_one("SELECT * FROM exports WHERE id = %s", (export_id,))
     if not row or not os.path.exists(row["file_path"]):
         raise HTTPException(status_code=404, detail="Export not found")
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("tenant_id") and row.get("tenant_id") and str(row.get("tenant_id")) != str(auth.get("tenant_id")):
+        raise HTTPException(status_code=403, detail="Export gehoert nicht zu diesem Mandanten")
+    if (
+        auth.get("kind") == "mobile_session"
+        and row.get("export_type") != "damage_excel"
+        and str(row.get("session_id") or "") != str(auth.get("session_id") or "")
+    ):
+        raise HTTPException(status_code=403, detail="Export gehoert nicht zu dieser mobilen Session")
     return FileResponse(row["file_path"], filename=Path(row["file_path"]).name)
+
+
+@app.get("/uploads/damage-photos/{photo_id}")
+def download_damage_photo(photo_id: str, request: Request) -> FileResponse:
+    row = fetch_one("SELECT * FROM damage_photos WHERE id = %s", (photo_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Schadensfoto nicht gefunden")
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("tenant_id") and row.get("tenant_id") and str(row.get("tenant_id")) != str(auth.get("tenant_id")):
+        raise HTTPException(status_code=403, detail="Foto gehoert nicht zu diesem Mandanten")
+    path = safe_upload_path(row["original_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Fotodatei nicht gefunden")
+    return FileResponse(path)
 
 
 @app.get("/uploads/photos/{photo_id}")
