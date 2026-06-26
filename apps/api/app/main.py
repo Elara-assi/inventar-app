@@ -5931,6 +5931,7 @@ async def save_damage_photo(
         pass
     metadata = json.dumps({"mime_type": mime_type, "size": len(data), "filename": file.filename})
     if existing:
+        old_path = Path(str(existing.get("original_path") or ""))
         row = execute(
             """
             UPDATE damage_photos
@@ -5948,6 +5949,11 @@ async def save_damage_photo(
             """,
             (session_id, client_photo_id, source_device_id, str(path), digest, width, height, metadata, existing["id"]),
         )
+        try:
+            if old_path != path and old_path.exists() and old_path.is_file():
+                old_path.unlink()
+        except Exception:
+            pass
         audit("damage_photo_updated", "damage_report", report_id, row)
         return row, True
     row = execute(
