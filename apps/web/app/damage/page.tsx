@@ -339,7 +339,10 @@ export default function DamageCapturePage() {
   useEffect(() => {
     registerDamageServiceWorker();
     setIsOnline(getDamageOnlineStatus());
-    const onOnline = () => setIsOnline(true);
+    const onOnline = () => {
+      setIsOnline(true);
+      refreshServerReports(true).catch(() => undefined);
+    };
     const onOffline = () => setIsOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -366,6 +369,15 @@ export default function DamageCapturePage() {
       });
     };
   }, [refreshQrOptions, refreshReports, refreshServerReports]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && getDamageOnlineStatus()) {
+        refreshServerReports(true).catch(() => undefined);
+      }
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [refreshServerReports]);
 
   useEffect(() => {
     setStoredDamageTeamName(teamName);
