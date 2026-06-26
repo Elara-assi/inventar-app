@@ -8496,6 +8496,68 @@ body:has(.damage-page) .brand span {
   backdrop-filter: blur(8px);
 }
 
+.damage-qr-section {
+  display: grid;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.damage-qr-select {
+  gap: 6px;
+}
+
+.damage-qr-session {
+  color: #0b1830;
+  font-size: 15px;
+}
+
+.damage-qr-box {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 178px;
+  border: 1px dashed #b8c9de;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(37, 99, 235, 0.05) 1px, transparent 1px),
+    #fff;
+  background-size: 24px 24px;
+  padding: 12px;
+}
+
+.damage-qr-box svg {
+  width: min(156px, 100%);
+  height: auto;
+}
+
+.damage-qr-section small,
+.damage-qr-note {
+  color: #5b7088;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.damage-qr-empty {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed #b8c9de;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.damage-qr-empty strong {
+  color: #0b1830;
+}
+
+.damage-qr-empty span {
+  color: #5b7088;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .damage-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -1,7 +1,8 @@
 "use client";
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { downloadApiFile } from "@/lib/api";
+import { QRCodeSVG } from "qrcode.react";
+import { api, downloadApiFile, joinUrl } from "@/lib/api";
 import {
   DamageArticle,
   DamagePhoto,
@@ -34,6 +35,25 @@ const photoSlots: Array<{ type: DamagePhotoType; label: string; required: boolea
 ];
 
 const emptySummary: DamageSummary = { total: 0, pending: 0, synced: 0, failed: 0, conflict: 0 };
+
+type DamageSession = {
+  id: string;
+  join_token: string;
+  join_token_expires_at?: string | null;
+  room_name?: string | null;
+  building_name?: string | null;
+  location_name?: string | null;
+  status: string;
+};
+
+type DamageQrOption = {
+  id: string;
+  token: string;
+  label: string;
+  detail: string;
+  expiresAt?: string | null;
+  source: "server" | "local";
+};
 
 function registerDamageServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -86,6 +106,52 @@ function statusTone(status: DamageReport["sync_status"]) {
   return "pruefen";
 }
 
+function sessionLabel(session: DamageSession) {
+  return session.room_name || session.building_name || session.location_name || `Session ${session.id.slice(0, 8)}`;
+}
+
+function sessionDetail(session: DamageSession) {
+  return [session.location_name, session.building_name, session.room_name].filter(Boolean).join(" / ") || "Offene Session";
+}
+
+function localQrOptionsFromCapsules(): DamageQrOption[] {
+  if (typeof window === "undefined") return [];
+  const options: DamageQrOption[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index) || "";
+    if (!key.startsWith("inventar.mobile_session_capsule.")) continue;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const capsule = JSON.parse(raw) as {
+        token?: string;
+        joined?: { session?: { id?: string; room_id?: string; building_id?: string; location_id?: string } };
+        bootstrap?: {
+          locations?: Array<{ id: string; name: string }>;
+          buildings?: Array<{ id: string; name: string }>;
+          rooms?: Array<{ id: string; name: string }>;
+        };
+      };
+      const session = capsule.joined?.session;
+      const token = capsule.token || key.replace("inventar.mobile_session_capsule.", "");
+      if (!session?.id || !token) continue;
+      const room = capsule.bootstrap?.rooms?.find((entry) => entry.id === session.room_id);
+      const building = capsule.bootstrap?.buildings?.find((entry) => entry.id === session.building_id);
+      const location = capsule.bootstrap?.locations?.find((entry) => entry.id === session.location_id);
+      options.push({
+        id: session.id,
+        token,
+        label: room?.name || building?.name || location?.name || `Session ${session.id.slice(0, 8)}`,
+        detail: "Lokal gekoppelte Session",
+        source: "local",
+      });
+    } catch {
+      // Ignore older or partial local capsules.
+    }
+  }
+  return options;
+}
+
 async function compressPhoto(file: File, maxSide = 1800): Promise<Blob> {
   if (typeof document === "undefined" || !file.type.startsWith("image/")) return file;
   const url = URL.createObjectURL(file);
@@ -133,6 +199,10 @@ export default function DamageCapturePage() {
   const [message, setMessage] = useState("Bereit");
   const [error, setError] = useState("");
   const [existingHint, setExistingHint] = useState("");
+  const [qrOptions, setQrOptions] = useState<DamageQrOption[]>([]);
+  const [selectedQrSessionId, setSelectedQrSessionId] = useState("");
+  const [qrBusy, setQrBusy] = useState(false);
+  const [qrMessage, setQrMessage] = useState("");
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
 
   const photoMap = useMemo(() => {
@@ -151,6 +221,11 @@ export default function DamageCapturePage() {
     && teamName.trim().length > 0
     && description.trim().length >= 3
     && missingRequiredPhotos.length === 0;
+  const selectedQrOption = useMemo(
+    () => qrOptions.find((option) => option.id === selectedQrSessionId) || qrOptions[0],
+    [qrOptions, selectedQrSessionId],
+  );
+  const selectedQrExpired = selectedQrOption?.expiresAt ? new Date(selectedQrOption.expiresAt).getTime() <= Date.now() : false;
 
   const refreshReports = useCallback(async () => {
     const nextReports = await listDamageReports();
@@ -179,6 +254,39 @@ export default function DamageCapturePage() {
     setPhotos(storedPhotos);
   }, []);
 
+  const refreshQrOptions = useCallback(async () => {
+    const localOptions = localQrOptionsFromCapsules();
+    try {
+      const sessions = await api<DamageSession[]>("/sessions");
+      const serverOptions = sessions
+        .filter((session) => session.status === "open" && session.join_token)
+        .map((session) => ({
+          id: session.id,
+          token: session.join_token,
+          label: sessionLabel(session),
+          detail: sessionDetail(session),
+          expiresAt: session.join_token_expires_at,
+          source: "server" as const,
+        }));
+      const nextOptions = serverOptions.length ? serverOptions : localOptions;
+      setQrOptions(nextOptions);
+      setSelectedQrSessionId((current) => (
+        current && nextOptions.some((option) => option.id === current)
+          ? current
+          : nextOptions[0]?.id || ""
+      ));
+      setQrMessage(serverOptions.length ? "" : localOptions.length ? "Lokale Kopplung erkannt" : "");
+    } catch {
+      setQrOptions(localOptions);
+      setSelectedQrSessionId((current) => (
+        current && localOptions.some((option) => option.id === current)
+          ? current
+          : localOptions[0]?.id || ""
+      ));
+      setQrMessage(localOptions.length ? "Lokale Kopplung erkannt" : "");
+    }
+  }, []);
+
   useEffect(() => {
     registerDamageServiceWorker();
     setIsOnline(getDamageOnlineStatus());
@@ -196,6 +304,7 @@ export default function DamageCapturePage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Artikelkatalog konnte nicht geladen werden"))
       .finally(() => setCatalogReady(true));
     refreshReports().catch(() => undefined);
+    refreshQrOptions().catch(() => undefined);
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
@@ -206,7 +315,7 @@ export default function DamageCapturePage() {
         return {};
       });
     };
-  }, [refreshReports]);
+  }, [refreshQrOptions, refreshReports]);
 
   useEffect(() => {
     setStoredDamageTeamName(teamName);
@@ -396,6 +505,29 @@ export default function DamageCapturePage() {
     }
   }
 
+  async function renewSelectedQr() {
+    if (!selectedQrOption || selectedQrOption.source !== "server") return;
+    setQrBusy(true);
+    setQrMessage("");
+    try {
+      const session = await api<DamageSession>(`/sessions/${selectedQrOption.id}/join-token`, { method: "POST", body: "{}" });
+      setQrOptions((current) => current.map((option) => (
+        option.id === selectedQrOption.id
+          ? {
+            ...option,
+            token: session.join_token,
+            expiresAt: session.join_token_expires_at,
+          }
+          : option
+      )));
+      setQrMessage("QR aktualisiert");
+    } catch (err) {
+      setQrMessage(err instanceof Error ? err.message : "QR konnte nicht aktualisiert werden");
+    } finally {
+      setQrBusy(false);
+    }
+  }
+
   function openReport(report: DamageReport) {
     setArticleNo(report.article_no);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -533,6 +665,49 @@ export default function DamageCapturePage() {
         </div>
 
         <aside className="damage-side-panel">
+          <div className="damage-qr-section">
+            <div className="damage-section-head">
+              <div>
+                <h2>Handys koppeln</h2>
+                <span>QR öffnet direkt diese Schadenerfassung.</span>
+              </div>
+            </div>
+            {selectedQrOption ? (
+              <>
+                {qrOptions.length > 1 ? (
+                  <label className="field damage-qr-select">
+                    <span>Session</span>
+                    <select value={selectedQrOption.id} onChange={(event) => setSelectedQrSessionId(event.target.value)}>
+                      {qrOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <strong className="damage-qr-session">{selectedQrOption.label}</strong>
+                )}
+                <div className="damage-qr-box">
+                  <QRCodeSVG value={joinUrl(selectedQrOption.token, "damage")} size={156} />
+                </div>
+                <small>{selectedQrExpired ? "QR abgelaufen" : selectedQrOption.detail}</small>
+                {selectedQrOption.source === "server" ? (
+                  <button className="btn secondary" type="button" disabled={qrBusy} onClick={() => void renewSelectedQr()}>
+                    QR erneuern
+                  </button>
+                ) : null}
+                {qrMessage ? <span className="damage-qr-note">{qrMessage}</span> : null}
+              </>
+            ) : (
+              <>
+                <div className="damage-qr-empty">
+                  <strong>Keine offene Session</strong>
+                  <span>Session starten, dann erscheint hier der QR.</span>
+                </div>
+                {qrMessage ? <span className="damage-qr-note">{qrMessage}</span> : null}
+              </>
+            )}
+          </div>
+
           <div className="damage-section-head">
             <div>
               <h2>Lokaler Stand</h2>
