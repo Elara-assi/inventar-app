@@ -55,6 +55,19 @@ type DamageQrOption = {
   source: "server" | "local";
 };
 
+type ServerDamageReport = {
+  id: string;
+  article_no: string;
+  nr?: string | null;
+  anlagenbezeichnung?: string | null;
+  team_name?: string | null;
+  damage_description?: string | null;
+  uvv_sticker_present?: string | null;
+  captured_at?: string | null;
+  updated_at?: string | null;
+  photo_count?: number | null;
+};
+
 function registerDamageServiceWorker() {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   if (process.env.NODE_ENV !== "production") {
@@ -203,6 +216,9 @@ export default function DamageCapturePage() {
   const [selectedQrSessionId, setSelectedQrSessionId] = useState("");
   const [qrBusy, setQrBusy] = useState(false);
   const [qrMessage, setQrMessage] = useState("");
+  const [serverReports, setServerReports] = useState<ServerDamageReport[]>([]);
+  const [serverReportsBusy, setServerReportsBusy] = useState(false);
+  const [serverReportsMessage, setServerReportsMessage] = useState("");
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
 
   const photoMap = useMemo(() => {
@@ -226,6 +242,22 @@ export default function DamageCapturePage() {
     [qrOptions, selectedQrSessionId],
   );
   const selectedQrExpired = selectedQrOption?.expiresAt ? new Date(selectedQrOption.expiresAt).getTime() <= Date.now() : false;
+  const serverReportForArticle = useMemo(() => {
+    const normalized = articleNo.trim();
+    if (!normalized) return undefined;
+    return serverReports.find((report) => (
+      String(report.article_no || "").trim() === normalized
+      || String(report.nr || "").trim() === normalized
+    ));
+  }, [articleNo, serverReports]);
+  const serverPhotoCount = useMemo(
+    () => serverReports.reduce((total, report) => total + Number(report.photo_count || 0), 0),
+    [serverReports],
+  );
+  const serverTeamCount = useMemo(
+    () => new Set(serverReports.map((report) => report.team_name).filter(Boolean)).size,
+    [serverReports],
+  );
 
   const refreshReports = useCallback(async () => {
     const nextReports = await listDamageReports();
@@ -237,6 +269,23 @@ export default function DamageCapturePage() {
       failed: nextReports.filter((report) => report.sync_status === "failed").length,
       conflict: nextReports.filter((report) => report.sync_status === "conflict").length,
     });
+  }, []);
+
+  const refreshServerReports = useCallback(async (quiet = false) => {
+    if (!getDamageOnlineStatus()) {
+      setServerReportsMessage("Offline: Server-Stand bleibt unverändert.");
+      return;
+    }
+    if (!quiet) setServerReportsBusy(true);
+    try {
+      const nextReports = await api<ServerDamageReport[]>("/damage-reports");
+      setServerReports(nextReports);
+      setServerReportsMessage(nextReports.length ? "" : "Noch kein synchronisierter Schaden auf dem Server.");
+    } catch (err) {
+      setServerReportsMessage(err instanceof Error ? err.message : "Server-Stand konnte nicht geladen werden.");
+    } finally {
+      if (!quiet) setServerReportsBusy(false);
+    }
   }, []);
 
   const loadPhotosForReport = useCallback(async (reportId: string) => {
@@ -304,6 +353,7 @@ export default function DamageCapturePage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Artikelkatalog konnte nicht geladen werden"))
       .finally(() => setCatalogReady(true));
     refreshReports().catch(() => undefined);
+    refreshServerReports(true).catch(() => undefined);
     refreshQrOptions().catch(() => undefined);
     return () => {
       window.removeEventListener("online", onOnline);
@@ -315,7 +365,7 @@ export default function DamageCapturePage() {
         return {};
       });
     };
-  }, [refreshQrOptions, refreshReports]);
+  }, [refreshQrOptions, refreshReports, refreshServerReports]);
 
   useEffect(() => {
     setStoredDamageTeamName(teamName);
@@ -469,6 +519,7 @@ export default function DamageCapturePage() {
       setMessage(`Sync fertig: ${result.synced} synchronisiert, ${result.failed} Fehler, ${result.conflict} Doppelung`);
       if (result.lastError) setError(result.lastError);
       await refreshReports();
+      await refreshServerReports(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Schaden konnte nicht synchronisiert werden");
     } finally {
@@ -484,6 +535,7 @@ export default function DamageCapturePage() {
       setMessage(`Sync fertig: ${result.synced} synchronisiert, ${result.failed} Fehler, ${result.conflict} Doppelung`);
       if (result.lastError) setError(result.lastError);
       await refreshReports();
+      await refreshServerReports(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sync fehlgeschlagen");
     } finally {
@@ -584,6 +636,11 @@ export default function DamageCapturePage() {
                 <strong>{article.anlagenbezeichnung}</strong>
                 <span>Nr. {article.nr} / Buchungskreis {article.buchungskreis}</span>
                 <span>Aktivdatum {articleDate(article) || "offen"} / Alter {article.alter ?? "offen"}</span>
+                {serverReportForArticle ? (
+                  <span className="damage-server-hit">
+                    Bereits synchronisiert: {serverReportForArticle.team_name || "Team offen"} / {formatDateTime(serverReportForArticle.updated_at || serverReportForArticle.captured_at || undefined)}
+                  </span>
+                ) : null}
               </>
             ) : (
               <>
@@ -708,10 +765,39 @@ export default function DamageCapturePage() {
             )}
           </div>
 
+          <div className="damage-server-section">
+            <div className="damage-section-head damage-section-head-action">
+              <div>
+                <h2>Erfasste Schäden</h2>
+                <span>Synchronisierte Handy-Aufnahmen vom Server.</span>
+              </div>
+              <button className="btn secondary damage-mini-button" type="button" disabled={serverReportsBusy} onClick={() => void refreshServerReports()}>
+                {serverReportsBusy ? "Lädt" : "Aktualisieren"}
+              </button>
+            </div>
+            <div className="damage-summary-grid">
+              <span><b>{serverReports.length}</b>Server</span>
+              <span><b>{serverPhotoCount}</b>Fotos</span>
+              <span><b>{serverTeamCount}</b>Teams</span>
+            </div>
+            {serverReportsMessage ? <p className="damage-server-message">{serverReportsMessage}</p> : null}
+            <div className="damage-report-list damage-server-report-list">
+              {serverReports.slice(0, 18).map((report) => (
+                <article className="damage-report-card" key={report.id}>
+                  <strong>{report.article_no} / {report.anlagenbezeichnung || "Artikel ohne Bezeichnung"}</strong>
+                  <span>{report.team_name || "Team offen"} / {formatDateTime(report.updated_at || report.captured_at || undefined)}</span>
+                  <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
+                  {report.damage_description ? <small>{report.damage_description}</small> : null}
+                </article>
+              ))}
+              {!serverReports.length && !serverReportsMessage ? <p className="muted">Noch kein synchronisierter Schaden.</p> : null}
+            </div>
+          </div>
+
           <div className="damage-section-head">
             <div>
               <h2>Lokaler Stand</h2>
-              <span>Export erst nach Sync vollständig auf dem Server.</span>
+              <span>Nur dieses Gerät: wichtig für Offline-Aufnahmen.</span>
             </div>
           </div>
           <div className="damage-summary-grid">

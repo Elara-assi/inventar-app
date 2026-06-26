@@ -8355,6 +8355,15 @@ body:has(.damage-page) .brand span {
   font-weight: 800;
 }
 
+.damage-server-hit {
+  width: fit-content;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #166534 !important;
+  padding: 6px 9px;
+}
+
 .damage-photo-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(218px, 1fr));
@@ -8583,6 +8592,35 @@ body:has(.damage-page) .brand span {
   line-height: 1;
 }
 
+.damage-section-head-action {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.damage-mini-button {
+  min-height: 34px;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.damage-server-section {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.damage-server-message {
+  margin: 0;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .damage-report-list {
   display: grid;
   gap: 8px;
@@ -8591,7 +8629,12 @@ body:has(.damage-page) .brand span {
   padding-right: 2px;
 }
 
-.damage-report-list > button {
+.damage-server-report-list {
+  max-height: 34vh;
+}
+
+.damage-report-list > button,
+.damage-report-card {
   display: grid;
   gap: 4px;
   border: 1px solid var(--line);
@@ -8601,6 +8644,10 @@ body:has(.damage-page) .brand span {
   padding: 11px;
   text-align: left;
   cursor: pointer;
+}
+
+.damage-report-card {
+  cursor: default;
 }
 
 .damage-report-list > button:hover,
@@ -8613,6 +8660,13 @@ body:has(.damage-page) .brand span {
 .damage-report-list small {
   color: #5b7088;
   font-weight: 800;
+}
+
+.damage-report-card small {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .damage-report-list i.status {
