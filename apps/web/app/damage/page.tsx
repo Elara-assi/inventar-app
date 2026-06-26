@@ -28,10 +28,10 @@ import {
 import { createDamageExcelExport, getDamageOnlineStatus, syncPendingDamageReports } from "@/lib/damageSync";
 
 const photoSlots: Array<{ type: DamagePhotoType; label: string; required: boolean; hint: string }> = [
-  { type: "front", label: "Frontbild", required: true, hint: "Pflicht" },
-  { type: "side", label: "Seitenbild", required: false, hint: "optional" },
-  { type: "serial_number", label: "Seriennummer", required: false, hint: "optional" },
-  { type: "uvv_sticker", label: "UVV-Aufkleber", required: false, hint: "wenn vorhanden" },
+  { type: "front", label: "Frontansicht", required: true, hint: "Pflicht" },
+  { type: "side", label: "Rückansicht", required: false, hint: "optional" },
+  { type: "serial_number", label: "Typenschild (Seriennummer und BJ)", required: false, hint: "optional" },
+  { type: "uvv_sticker", label: "UVV-Aufkleber (wenn vorhanden)", required: false, hint: "wenn vorhanden" },
   { type: "damage_detail_1", label: "Schaden 1", required: true, hint: "Pflicht" },
   { type: "damage_detail_2", label: "Schaden 2", required: false, hint: "optional" },
 ];
@@ -132,6 +132,21 @@ function sessionDetail(session: DamageSession) {
   return [session.location_name, session.building_name, session.room_name].filter(Boolean).join(" / ") || "Offene Session";
 }
 
+function sessionTokenActive(session: DamageSession) {
+  return !session.join_token_expires_at || new Date(session.join_token_expires_at).getTime() > Date.now();
+}
+
+function damageQrOptionFromSession(session: DamageSession): DamageQrOption {
+  return {
+    id: session.id,
+    token: session.join_token,
+    label: `Gemeinsame Liste - ${sessionLabel(session)}`,
+    detail: "Alle Aufnehmer synchronisieren in eine Serverliste.",
+    expiresAt: session.join_token_expires_at,
+    source: "server",
+  };
+}
+
 function normalizedUvv(value?: string | null): DamageReport["uvv_sticker_present"] {
   return value === "ja" || value === "nein" || value === "unklar" ? value : "unklar";
 }
@@ -199,8 +214,8 @@ function localQrOptionsFromCapsules(): DamageQrOption[] {
       options.push({
         id: session.id,
         token,
-        label: room?.name || building?.name || location?.name || `Session ${session.id.slice(0, 8)}`,
-        detail: "Lokal gekoppelte Session",
+        label: `Gemeinsame Liste - ${room?.name || building?.name || location?.name || `Session ${session.id.slice(0, 8)}`}`,
+        detail: "Lokal gekoppelt. Alle Aufnehmer synchronisieren in eine Serverliste.",
         source: "local",
       });
     } catch {
@@ -210,8 +225,22 @@ function localQrOptionsFromCapsules(): DamageQrOption[] {
   return options;
 }
 
-async function compressPhoto(file: File, maxSide = 1800): Promise<Blob> {
+function damagePhotoPlan(type: DamagePhotoType) {
+  const detailPhoto = type === "serial_number" || type === "uvv_sticker";
+  return {
+    maxSide: detailPhoto ? 1900 : 1600,
+    initialQuality: detailPhoto ? 0.82 : 0.76,
+    targetBytes: detailPhoto ? 1_800_000 : 1_200_000,
+  };
+}
+
+async function canvasToJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+}
+
+async function compressPhoto(file: File, type: DamagePhotoType): Promise<Blob> {
   if (typeof document === "undefined" || !file.type.startsWith("image/")) return file;
+  const plan = damagePhotoPlan(type);
   const url = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -220,7 +249,7 @@ async function compressPhoto(file: File, maxSide = 1800): Promise<Blob> {
       img.onerror = reject;
       img.src = url;
     });
-    const scale = Math.min(maxSide / image.width, maxSide / image.height, 1);
+    const scale = Math.min(plan.maxSide / image.width, plan.maxSide / image.height, 1);
     const width = Math.max(1, Math.round(image.width * scale));
     const height = Math.max(1, Math.round(image.height * scale));
     const canvas = document.createElement("canvas");
@@ -229,8 +258,14 @@ async function compressPhoto(file: File, maxSide = 1800): Promise<Blob> {
     const context = canvas.getContext("2d");
     if (!context) return file;
     context.drawImage(image, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.84));
-    return blob ?? file;
+    let best: Blob | null = null;
+    for (const quality of [plan.initialQuality, 0.72, 0.64]) {
+      const blob = await canvasToJpeg(canvas, quality);
+      if (!blob) continue;
+      best = blob;
+      if (blob.size <= plan.targetBytes) return blob;
+    }
+    return best ?? file;
   } catch {
     return file;
   } finally {
@@ -272,6 +307,7 @@ export default function DamageCapturePage() {
   const freeTitleInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
   const draftSaveTimer = useRef<number | null>(null);
+  const serverReportsRefreshInFlight = useRef(false);
 
   const photoMap = useMemo(() => {
     const map = new Map<DamagePhotoType, DamagePhoto>();
@@ -328,10 +364,12 @@ export default function DamageCapturePage() {
   }, []);
 
   const refreshServerReports = useCallback(async (quiet = false) => {
+    if (serverReportsRefreshInFlight.current) return;
     if (!getDamageOnlineStatus()) {
       setServerReportsMessage("Offline: Server-Stand bleibt unverändert.");
       return;
     }
+    serverReportsRefreshInFlight.current = true;
     if (!quiet) setServerReportsBusy(true);
     try {
       const nextReports = await api<ServerDamageReport[]>("/damage-reports");
@@ -340,6 +378,7 @@ export default function DamageCapturePage() {
     } catch (err) {
       setServerReportsMessage(err instanceof Error ? err.message : "Server-Stand konnte nicht geladen werden.");
     } finally {
+      serverReportsRefreshInFlight.current = false;
       if (!quiet) setServerReportsBusy(false);
     }
   }, []);
@@ -396,16 +435,13 @@ export default function DamageCapturePage() {
     const localOptions = localQrOptionsFromCapsules();
     try {
       const sessions = await api<DamageSession[]>("/sessions");
-      const serverOptions = sessions
-        .filter((session) => session.status === "open" && session.join_token)
-        .map((session) => ({
-          id: session.id,
-          token: session.join_token,
-          label: sessionLabel(session),
-          detail: sessionDetail(session),
-          expiresAt: session.join_token_expires_at,
-          source: "server" as const,
-        }));
+      let serverOptions = sessions
+        .filter((session) => session.status === "open" && session.join_token && sessionTokenActive(session))
+        .map(damageQrOptionFromSession);
+      if (!serverOptions.length) {
+        const session = await api<DamageSession>("/damage-reports/access-session", { method: "POST", body: "{}" });
+        serverOptions = [damageQrOptionFromSession(session)];
+      }
       const nextOptions = serverOptions.length ? serverOptions : localOptions;
       setQrOptions(nextOptions);
       setSelectedQrSessionId((current) => (
@@ -461,12 +497,12 @@ export default function DamageCapturePage() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible" && getDamageOnlineStatus()) {
+      if (!busy && document.visibilityState === "visible" && getDamageOnlineStatus()) {
         refreshServerReports(true).catch(() => undefined);
       }
-    }, 5_000);
+    }, 15_000);
     return () => window.clearInterval(timer);
-  }, [refreshServerReports]);
+  }, [busy, refreshServerReports]);
 
   useEffect(() => {
     setStoredDamageTeamName(teamName);
@@ -651,7 +687,7 @@ export default function DamageCapturePage() {
     setBusy(true);
     setError("");
     try {
-      const blob = await compressPhoto(file, type === "damage_detail_1" || type === "damage_detail_2" || type === "serial_number" ? 2200 : 1800);
+      const blob = await compressPhoto(file, type);
       const draft = await saveCurrentDraftReport("local");
       const reportId = draft?.local_report_id ?? localReportId;
       const existing = photoMap.get(type);
@@ -757,7 +793,7 @@ export default function DamageCapturePage() {
     try {
       const saved = await saveCurrentReport();
       if (!saved) return;
-      const result = await syncPendingDamageReports(deviceId);
+      const result = await syncPendingDamageReports(deviceId, { onlyLocalReportId: saved.local_report_id });
       await refreshReports();
       await refreshServerReports(true);
       if (result.failed || result.conflict) {
@@ -918,7 +954,7 @@ export default function DamageCapturePage() {
         <div>
           <a className="damage-back-link" href="/">Zurück</a>
           <h1>Schadenerfassung</h1>
-          <p>Artikelnummer eingeben, Pflichtfotos sichern, Schaden beschreiben. Alles wird zuerst lokal gespeichert.</p>
+          <p>Artikelnummer eingeben, Pflichtfotos sichern, Schaden beschreiben. Alle Aufnehmer arbeiten in derselben Schadensliste.</p>
         </div>
         <div className="damage-kpis" aria-label="Schadensstatus">
           <span className={`status ${isOnline ? "geprueft" : "pruefen"}`}>{isOnline ? "Online" : "Offline"}</span>
@@ -933,7 +969,7 @@ export default function DamageCapturePage() {
           <div className="damage-section-head">
             <div>
               <h2>Aufnahme</h2>
-              <span>{existingHint || "Ein Artikel darf lokal nur einmal als Schaden angelegt werden."}</span>
+              <span>{existingHint || "Alle Aufnehmer schreiben in eine gemeinsame Liste."}</span>
             </div>
             <span className="status erfasst">{teamName || "Team"}</span>
           </div>
@@ -1104,7 +1140,7 @@ export default function DamageCapturePage() {
           <section className="damage-server-section damage-server-main">
             <div className="damage-section-head damage-section-head-action">
               <div>
-                <h2>Erfasste Sch&auml;den</h2>
+                <h2>Gemeinsame Schadensliste</h2>
                 <span>Direkt nach der Erfassung sichtbar. Zum Nachbearbeiten einen Artikel &ouml;ffnen.</span>
               </div>
               <div className="damage-list-toolbar">
@@ -1119,7 +1155,7 @@ export default function DamageCapturePage() {
             <div className="damage-summary-grid damage-server-summary">
               <span><b>{serverReports.length}</b>Artikel</span>
               <span><b>{serverPhotoCount}</b>Fotos</span>
-              <span><b>{serverTeamCount}</b>Teams</span>
+              <span><b>{serverTeamCount}</b>Aufnehmer</span>
             </div>
             {serverReportsMessage ? <p className="damage-server-message">{serverReportsMessage}</p> : null}
             <div className="damage-report-list damage-server-report-list">
@@ -1147,14 +1183,14 @@ export default function DamageCapturePage() {
             <div className="damage-section-head">
               <div>
                 <h2>Handys koppeln</h2>
-                <span>QR öffnet direkt diese Schadenerfassung.</span>
+                <span>QR &ouml;ffnet direkt die gemeinsame Schadensliste.</span>
               </div>
             </div>
             {selectedQrOption ? (
               <>
                 {qrOptions.length > 1 ? (
                   <label className="field damage-qr-select">
-                    <span>Session</span>
+                    <span>Mobiler Zugang</span>
                     <select value={selectedQrOption.id} onChange={(event) => setSelectedQrSessionId(event.target.value)}>
                       {qrOptions.map((option) => (
                         <option key={option.id} value={option.id}>{option.label}</option>
@@ -1189,8 +1225,8 @@ export default function DamageCapturePage() {
           <div className="damage-server-section">
             <div className="damage-section-head damage-section-head-action">
               <div>
-                <h2>Erfasste Schäden</h2>
-                <span>Synchronisierte Handy-Aufnahmen vom Server.</span>
+                <h2>Gemeinsame Liste</h2>
+                <span>Synchronisierte Aufnahmen aller Aufnehmer vom Server.</span>
               </div>
               <button className="btn secondary damage-mini-button" type="button" disabled={serverReportsBusy} onClick={() => void refreshServerReports()}>
                 {serverReportsBusy ? "Lädt" : "Aktualisieren"}
@@ -1199,7 +1235,7 @@ export default function DamageCapturePage() {
             <div className="damage-summary-grid">
               <span><b>{serverReports.length}</b>Server</span>
               <span><b>{serverPhotoCount}</b>Fotos</span>
-              <span><b>{serverTeamCount}</b>Teams</span>
+              <span><b>{serverTeamCount}</b>Aufnehmer</span>
             </div>
             {serverReportsMessage ? <p className="damage-server-message">{serverReportsMessage}</p> : null}
             <div className="damage-report-list damage-server-report-list">

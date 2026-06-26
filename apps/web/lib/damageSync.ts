@@ -1,4 +1,4 @@
-import { ApiError, api, apiResponse } from "@/lib/api";
+import { ApiError, api, apiResponse, getAuthToken } from "@/lib/api";
 import {
   DamagePhoto,
   DamageReport,
@@ -22,6 +22,11 @@ type DamageSyncResponse = {
   }>;
 };
 
+type MobileDamageContext = {
+  sessionId?: string;
+  deviceId?: string;
+};
+
 export type DamageSyncResult = {
   synced: number;
   failed: number;
@@ -30,16 +35,43 @@ export type DamageSyncResult = {
   lastError?: string;
 };
 
+type DamageSyncOptions = {
+  onlyLocalReportId?: string;
+};
+
 export function getDamageOnlineStatus() {
   if (typeof navigator === "undefined") return true;
   return navigator.onLine;
 }
 
-function buildPayload(report: DamageReport, photos: DamagePhoto[], deviceId: string) {
+function decodeMobileDamageContext(): MobileDamageContext {
+  const token = getAuthToken();
+  const payloadText = token.split(".")[1];
+  if (!payloadText || typeof window === "undefined") return {};
+  try {
+    const normalized = payloadText.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    const payload = JSON.parse(window.atob(padded)) as {
+      kind?: string;
+      session_id?: string;
+      device_id?: string;
+    };
+    if (payload.kind !== "mobile_session") return {};
+    return {
+      sessionId: payload.session_id,
+      deviceId: payload.device_id,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function buildPayload(report: DamageReport, photos: DamagePhoto[], deviceId: string, context: MobileDamageContext) {
   return {
     report: {
       client_report_id: report.local_report_id,
-      source_device_id: deviceId,
+      session_id: context.sessionId,
+      source_device_id: context.deviceId || deviceId,
       article_no: report.article_no,
       article: report.article,
       entry_type: report.entry_type ?? "catalog",
@@ -72,8 +104,8 @@ function isDamageReportReadyForSync(report: DamageReport, photos: DamagePhoto[])
 async function appendPhotoFiles(form: FormData, photos: DamagePhoto[]) {
   for (const photo of photos) {
     const type = photo.mime_type || photo.blob.type || "image/jpeg";
-    const data = await photo.blob.arrayBuffer();
-    form.append("files", new Blob([data], { type }), photo.file_name || `${photo.client_photo_id}.jpg`);
+    const fileBlob = photo.blob.type ? photo.blob : photo.blob.slice(0, photo.blob.size, type);
+    form.append("files", fileBlob, photo.file_name || `${photo.client_photo_id}.jpg`);
   }
 }
 
@@ -81,7 +113,7 @@ export async function syncDamageReport(report: DamageReport, deviceId: string): 
   const photos = await listDamagePhotos(report.local_report_id);
   await markDamageReportStatus(report.local_report_id, "uploading", { last_error: undefined });
   const form = new FormData();
-  form.append("payload", JSON.stringify(buildPayload(report, photos, deviceId)));
+  form.append("payload", JSON.stringify(buildPayload(report, photos, deviceId, decodeMobileDamageContext())));
   await appendPhotoFiles(form, photos);
   const response = await apiResponse("/damage-reports/sync", {
     method: "POST",
@@ -90,7 +122,7 @@ export async function syncDamageReport(report: DamageReport, deviceId: string): 
   return response.json() as Promise<DamageSyncResponse>;
 }
 
-export async function syncPendingDamageReports(deviceId: string): Promise<DamageSyncResult> {
+export async function syncPendingDamageReports(deviceId: string, options: DamageSyncOptions = {}): Promise<DamageSyncResult> {
   if (!getDamageOnlineStatus()) {
     const summary = await getDamageSummary();
     return { synced: 0, failed: 0, conflict: 0, pending: summary.pending, lastError: "Offline: Schäden bleiben lokal gespeichert." };
@@ -99,7 +131,10 @@ export async function syncPendingDamageReports(deviceId: string): Promise<Damage
   let failed = 0;
   let conflict = 0;
   let lastError = "";
-  const reports = (await listDamageReports()).filter((report) => ["local", "pending", "failed", "uploading"].includes(report.sync_status));
+  const reports = (await listDamageReports()).filter((report) => (
+    ["local", "pending", "failed", "uploading"].includes(report.sync_status)
+    && (!options.onlyLocalReportId || report.local_report_id === options.onlyLocalReportId)
+  ));
   for (const report of reports) {
     try {
       const photos = await listDamagePhotos(report.local_report_id);

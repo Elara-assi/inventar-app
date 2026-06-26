@@ -1375,8 +1375,8 @@ def create_session(body: SessionIn) -> dict[str, Any]:
 
     row = execute(
         """
-        INSERT INTO inventory_sessions (tenant_id, location_id, building_id, room_id, join_token, started_by, inventory_type)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO inventory_sessions (tenant_id, location_id, building_id, room_id, join_token, join_token_expires_at, started_by, inventory_type)
+        VALUES (%s, %s, %s, %s, %s, now() + interval '36 hours', %s, %s)
         RETURNING *
         """,
         (room.get("tenant_id") or default_tenant_id(), location_id, building_id, room_id, token, body.started_by, inventory_type),
@@ -1428,11 +1428,98 @@ def get_session(session_id: str) -> dict[str, Any]:
 def renew_join_token(session_id: str) -> dict[str, Any]:
     token = secrets.token_urlsafe(18)
     row = execute(
-        "UPDATE inventory_sessions SET join_token = %s, join_token_expires_at = now() + interval '12 hours' WHERE id = %s RETURNING *",
+        "UPDATE inventory_sessions SET join_token = %s, join_token_expires_at = now() + interval '36 hours' WHERE id = %s RETURNING *",
         (token, session_id),
     )
     audit("join_token_created", "inventory_session", session_id, {"join_token": token})
     return row
+
+
+def first_damage_access_room(tenant_id: str | None) -> dict[str, Any]:
+    room = fetch_one(
+        """
+        SELECT r.id AS room_id, b.id AS building_id, l.id AS location_id
+        FROM rooms r
+        JOIN buildings b ON b.id = r.building_id
+        JOIN locations l ON l.id = b.location_id
+        WHERE COALESCE(r.tenant_id, b.tenant_id, l.tenant_id) IS NOT DISTINCT FROM %s
+        ORDER BY r.created_at ASC
+        LIMIT 1
+        """,
+        (tenant_id,),
+    )
+    if room:
+        return room
+    location = execute(
+        """
+        INSERT INTO locations (tenant_id, name, code)
+        VALUES (%s, %s, %s)
+        RETURNING *
+        """,
+        (tenant_id, "Schadenerfassung", f"SCHADEN-{secrets.token_hex(3).upper()}"),
+    )
+    building = execute(
+        """
+        INSERT INTO buildings (tenant_id, location_id, name, code)
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+        """,
+        (tenant_id, location["id"], "Gemeinsame Liste", "SCHADEN"),
+    )
+    created_room = execute(
+        """
+        INSERT INTO rooms (tenant_id, building_id, name, code, room_type)
+        VALUES (%s, %s, %s, %s, 'workspace')
+        RETURNING *
+        """,
+        (tenant_id, building["id"], "Schadensliste", "SCHADEN"),
+    )
+    return {
+        "location_id": location["id"],
+        "building_id": building["id"],
+        "room_id": created_room["id"],
+    }
+
+
+@app.post("/damage-reports/access-session")
+def ensure_damage_access_session(request: Request) -> dict[str, Any]:
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("kind") == "mobile_session" and auth.get("session_id"):
+        return get_session(str(auth["session_id"]))
+    tenant_id = request_tenant_id(request)
+    existing = fetch_one(
+        """
+        SELECT s.*, (s.join_token_expires_at <= now()) AS token_expired
+        FROM inventory_sessions s
+        WHERE s.tenant_id IS NOT DISTINCT FROM %s AND s.status = 'open'
+        ORDER BY s.created_at DESC
+        LIMIT 1
+        """,
+        (tenant_id,),
+    )
+    if existing:
+        if existing.get("token_expired"):
+            token = secrets.token_urlsafe(18)
+            execute(
+                "UPDATE inventory_sessions SET join_token = %s, join_token_expires_at = now() + interval '36 hours' WHERE id = %s RETURNING *",
+                (token, existing["id"]),
+            )
+        return get_session(str(existing["id"]))
+    room = first_damage_access_room(tenant_id)
+    token = secrets.token_urlsafe(18)
+    started_by = auth.get("sub") if auth.get("kind") == "user" else None
+    row = execute(
+        """
+        INSERT INTO inventory_sessions (
+          tenant_id, location_id, building_id, room_id, join_token, join_token_expires_at, started_by, inventory_type
+        )
+        VALUES (%s, %s, %s, %s, %s, now() + interval '36 hours', %s, 'bga')
+        RETURNING *
+        """,
+        (tenant_id, room["location_id"], room["building_id"], room["room_id"], token, started_by),
+    )
+    audit("damage_access_session_created", "inventory_session", str(row["id"]), row)
+    return get_session(str(row["id"]))
 
 
 @app.post("/sessions/join")
@@ -1525,7 +1612,7 @@ def reopen_session(session_id: str, body: ReopenIn | None = None) -> dict[str, A
         SET status = 'open',
             closed_at = NULL,
             closed_by = NULL,
-            join_token_expires_at = now() + interval '12 hours'
+            join_token_expires_at = now() + interval '36 hours'
         WHERE id = %s
         RETURNING *
         """,
@@ -5713,12 +5800,12 @@ def save_export(
 
 
 DAMAGE_PHOTO_LABELS = {
-    "front": "Frontbild",
-    "side": "Seitenbild",
-    "serial_number": "Seriennummer-Foto",
-    "uvv_sticker": "UVV-Aufkleber-Foto",
-    "damage_detail_1": "Schaden Detail 1",
-    "damage_detail_2": "Schaden Detail 2",
+    "front": "Frontansicht",
+    "side": "Rückansicht",
+    "serial_number": "Typenschild (Seriennummer und BJ)",
+    "uvv_sticker": "UVV-Aufkleber (wenn vorhanden)",
+    "damage_detail_1": "Schaden 1",
+    "damage_detail_2": "Schaden 2",
 }
 
 DAMAGE_PHOTO_TYPES = tuple(DAMAGE_PHOTO_LABELS.keys())
@@ -6065,12 +6152,16 @@ def list_damage_reports(request: Request) -> list[dict[str, Any]]:
     return fetch_all(
         """
         SELECT r.*,
-               (SELECT count(*)::int FROM damage_photos p WHERE p.damage_report_id = r.id) AS photo_count,
-               COALESCE(
-                 (SELECT array_agg(p.photo_type ORDER BY p.photo_type) FROM damage_photos p WHERE p.damage_report_id = r.id),
-                 ARRAY[]::text[]
-               ) AS photo_types
+               COALESCE(p.photo_count, 0)::int AS photo_count,
+               COALESCE(p.photo_types, ARRAY[]::text[]) AS photo_types
         FROM damage_reports r
+        LEFT JOIN (
+          SELECT damage_report_id,
+                 count(*)::int AS photo_count,
+                 array_agg(photo_type ORDER BY photo_type) AS photo_types
+          FROM damage_photos
+          GROUP BY damage_report_id
+        ) p ON p.damage_report_id = r.id
         WHERE r.tenant_id IS NOT DISTINCT FROM %s
         ORDER BY r.updated_at DESC
         """,
@@ -6154,12 +6245,12 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
         "Ge\u00e4ndert am",
         "Schadensbeschreibung",
         "UVV-Aufkleber vorhanden",
-        "Frontbild",
-        "Seitenbild",
-        "Seriennummer-Foto",
-        "UVV-Aufkleber-Foto",
-        "Schaden Detail 1",
-        "Schaden Detail 2",
+        "Frontansicht",
+        "Rückansicht",
+        "Typenschild (Seriennummer und BJ)",
+        "UVV-Aufkleber (wenn vorhanden)",
+        "Schaden 1",
+        "Schaden 2",
     ]
     ws.append(headers)
     for column_index in range(1, len(headers) + 1):

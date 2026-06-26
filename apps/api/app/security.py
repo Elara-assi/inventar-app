@@ -87,7 +87,7 @@ def create_mobile_session_token(session: dict[str, Any], device: dict[str, Any])
             "session_id": str(session["id"]),
             "device_id": str(device["id"]),
         },
-        minutes=12 * 60,
+        minutes=36 * 60,
     )
 
 
