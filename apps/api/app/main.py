@@ -5838,6 +5838,21 @@ def damage_report_row(report_id: str) -> dict[str, Any]:
     return row
 
 
+def delete_damage_files(paths: list[str]) -> int:
+    upload_root = Path(settings.upload_root, "damage").resolve()
+    removed = 0
+    for raw_path in paths:
+        try:
+            path = Path(str(raw_path)).resolve()
+            if upload_root not in path.parents or not path.exists() or not path.is_file():
+                continue
+            path.unlink()
+            removed += 1
+        except Exception:
+            continue
+    return removed
+
+
 def find_damage_report_conflict(tenant_id: str | None, article_no: str, client_report_id: str, source_device_id: str | None) -> dict[str, Any] | None:
     existing_article = fetch_one(
         """
@@ -6167,6 +6182,31 @@ def list_damage_reports(request: Request) -> list[dict[str, Any]]:
         """,
         (tenant_id,),
     )
+
+
+@app.delete("/damage-reports/{report_id}")
+def delete_damage_report(report_id: str, request: Request) -> dict[str, Any]:
+    tenant_id = request_tenant_id(request)
+    report = fetch_one(
+        "SELECT * FROM damage_reports WHERE id = %s AND tenant_id IS NOT DISTINCT FROM %s",
+        (report_id, tenant_id),
+    )
+    if not report:
+        raise HTTPException(status_code=404, detail="Schadensfall nicht gefunden")
+    photo_paths = [
+        str(row["original_path"])
+        for row in fetch_all("SELECT original_path FROM damage_photos WHERE damage_report_id = %s", (report_id,))
+        if row.get("original_path")
+    ]
+    photo_count = len(photo_paths)
+    execute("DELETE FROM damage_reports WHERE id = %s RETURNING id", (report_id,))
+    removed_files = delete_damage_files(photo_paths)
+    audit("damage_report_deleted", "damage_report", report_id, {
+        "article_no": report.get("article_no"),
+        "photo_count": photo_count,
+        "removed_files": removed_files,
+    })
+    return {"deleted": True, "report_id": report_id, "photo_count": photo_count, "removed_files": removed_files}
 
 
 def fetch_damage_export_rows(tenant_id: str | None) -> list[dict[str, Any]]:

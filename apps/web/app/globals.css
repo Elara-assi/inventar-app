@@ -8767,6 +8767,18 @@ body:has(.damage-page) .brand span {
   border-color: #38bdf8;
 }
 
+.damage-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.damage-card-actions .btn {
+  flex: 1 1 112px;
+  min-height: 34px;
+}
+
 .damage-report-list > button:hover,
 .damage-report-list > button:focus-visible {
   outline: 3px solid rgba(56, 189, 248, 0.28);

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { api, downloadApiFile, joinUrl } from "@/lib/api";
+import { api, clearAuthToken, downloadApiFile, getAuthToken, joinUrl } from "@/lib/api";
 import {
   DamageArticle,
   DamageEntryType,
@@ -10,6 +10,7 @@ import {
   DamagePhotoType,
   DamageReport,
   DamageSummary,
+  clearLocalDamageData,
   createDamagePhotoId,
   createDamageReportId,
   deleteDamagePhoto,
@@ -25,7 +26,8 @@ import {
   saveDamageReport,
   setStoredDamageTeamName,
 } from "@/lib/damageStore";
-import { createDamageExcelExport, getDamageOnlineStatus, syncPendingDamageReports } from "@/lib/damageSync";
+import { createDamageExcelExport, deleteServerDamageReport, getDamageOnlineStatus, syncPendingDamageReports } from "@/lib/damageSync";
+import { clearAllQueueItems } from "@/lib/offlineQueue";
 
 const photoSlots: Array<{ type: DamagePhotoType; label: string; required: boolean; hint: string }> = [
   { type: "front", label: "Frontansicht", required: true, hint: "Pflicht" },
@@ -145,6 +147,31 @@ function damageQrOptionFromSession(session: DamageSession): DamageQrOption {
     expiresAt: session.join_token_expires_at,
     source: "server",
   };
+}
+
+function isMobileAccessToken() {
+  const token = getAuthToken();
+  const payloadText = token.split(".")[1];
+  if (!payloadText || typeof window === "undefined") return false;
+  try {
+    const normalized = payloadText.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    const payload = JSON.parse(window.atob(padded)) as { kind?: string };
+    return payload.kind === "mobile_session";
+  } catch {
+    return false;
+  }
+}
+
+function clearMobileJoinCapsules() {
+  if (typeof window === "undefined") return;
+  const keys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index) || "";
+    if (key.startsWith("inventar.mobile_session_capsule.")) keys.push(key);
+  }
+  keys.forEach((key) => window.localStorage.removeItem(key));
+  if (isMobileAccessToken()) clearAuthToken();
 }
 
 function normalizedUvv(value?: string | null): DamageReport["uvv_sticker_present"] {
@@ -839,6 +866,46 @@ export default function DamageCapturePage() {
     }
   }
 
+  async function deleteServerReport(report: ServerDamageReport) {
+    const label = `${report.article_no} / ${report.anlagenbezeichnung || "Artikel ohne Bezeichnung"}`;
+    if (!window.confirm(`Diesen Schadensdatensatz wirklich löschen?\n\n${label}\n\nFotos werden ebenfalls vom Server entfernt.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteServerDamageReport(report.id);
+      setServerReports((current) => current.filter((entry) => entry.id !== report.id));
+      if (serverReportForArticle?.id === report.id) {
+        resetCaptureForm("Server-Datensatz gelöscht - nächster Artikel bereit");
+      } else {
+        setMessage("Server-Datensatz gelöscht");
+      }
+      await refreshServerReports(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Server-Datensatz konnte nicht geloescht werden");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearThisDevice() {
+    if (!window.confirm("Lokale Daten auf diesem Gerät wirklich löschen?\n\nDas entfernt lokale Schadensentwürfe, alte Handy-Sync-Bilder und wartende Offline-Einträge auf diesem Handy/Browser.")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await clearLocalDamageData();
+      await clearAllQueueItems();
+      clearMobileJoinCapsules();
+      resetCaptureForm("Dieses Gerät ist lokal geleert - bitte frischen QR verwenden");
+      await refreshReports();
+      setSummary(emptySummary);
+      setReports([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lokale Daten konnten nicht geloescht werden");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function switchCaptureMode(nextMode: DamageEntryType) {
     if (nextMode === captureMode) return;
     setCaptureMode(nextMode);
@@ -1160,7 +1227,7 @@ export default function DamageCapturePage() {
             {serverReportsMessage ? <p className="damage-server-message">{serverReportsMessage}</p> : null}
             <div className="damage-report-list damage-server-report-list">
               {serverReports.map((report) => (
-                <button className="damage-report-card damage-server-open-card" type="button" key={report.id} onClick={() => openServerReport(report)}>
+                <article className="damage-report-card" key={report.id}>
                   <span className={`damage-entry-type ${isFreeServerReport(report) ? "is-free" : ""}`}>
                     {isFreeServerReport(report) ? "Nicht in Liste" : "Listenartikel"}
                   </span>
@@ -1170,8 +1237,15 @@ export default function DamageCapturePage() {
                   <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
                   {report.photo_types?.length ? <span>Vorhanden: {report.photo_types.map((type) => photoSlots.find((slot) => slot.type === type)?.label || type).join(", ")}</span> : null}
                   {report.damage_description ? <small>{report.damage_description}</small> : null}
-                  <i className="status pruefen">Nachbearbeiten</i>
-                </button>
+                  <div className="damage-card-actions">
+                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => openServerReport(report)}>
+                      &Ouml;ffnen
+                    </button>
+                    <button className="btn danger damage-mini-button" type="button" disabled={busy} onClick={() => void deleteServerReport(report)}>
+                      L&ouml;schen
+                    </button>
+                  </div>
+                </article>
               ))}
               {!serverReports.length && !serverReportsMessage ? <p className="muted">Noch kein synchronisierter Schaden.</p> : null}
             </div>
@@ -1249,6 +1323,14 @@ export default function DamageCapturePage() {
                   <span>{report.team_name || "Team offen"} / {formatDateTime(report.updated_at || report.captured_at || undefined)}</span>
                   <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
                   {report.damage_description ? <small>{report.damage_description}</small> : null}
+                  <div className="damage-card-actions">
+                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => openServerReport(report)}>
+                      &Ouml;ffnen
+                    </button>
+                    <button className="btn danger damage-mini-button" type="button" disabled={busy} onClick={() => void deleteServerReport(report)}>
+                      L&ouml;schen
+                    </button>
+                  </div>
                 </article>
               ))}
               {!serverReports.length && !serverReportsMessage ? <p className="muted">Noch kein synchronisierter Schaden.</p> : null}
@@ -1268,6 +1350,9 @@ export default function DamageCapturePage() {
           </div>
           <button className="btn accent" type="button" disabled={busy || !summary.pending} onClick={() => void syncAll()}>
             Alle offenen synchronisieren
+          </button>
+          <button className="btn secondary" type="button" disabled={busy} onClick={() => void clearThisDevice()}>
+            Dieses Ger&auml;t leeren
           </button>
           <div className="damage-report-list">
             {reports.slice(0, 16).map((report) => (

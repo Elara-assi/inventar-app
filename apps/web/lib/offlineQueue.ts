@@ -393,6 +393,10 @@ export async function discardQueueItems(ids?: string[]): Promise<void> {
   await Promise.all(items.map((item) => withStore("readwrite", (store) => store.put(compactTombstone(item, "discarded", "Lokale Daten wurden bewusst verworfen.")))));
 }
 
+export async function clearAllQueueItems(): Promise<void> {
+  await withStore("readwrite", (store) => store.clear());
+}
+
 async function putQueueItem(item: QueueItem): Promise<void> {
   await withStore("readwrite", (store) => store.put(item));
 }

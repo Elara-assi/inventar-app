@@ -172,3 +172,7 @@ export async function syncPendingDamageReports(deviceId: string, options: Damage
 export async function createDamageExcelExport(): Promise<{ id: string }> {
   return api<{ id: string }>("/damage-reports/export/excel", { method: "POST", body: "{}" });
 }
+
+export async function deleteServerDamageReport(reportId: string): Promise<{ deleted: boolean; removed_files: number }> {
+  return api<{ deleted: boolean; removed_files: number }>(`/damage-reports/${reportId}`, { method: "DELETE" });
+}
