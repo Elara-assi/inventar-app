@@ -402,7 +402,7 @@ function initialJoinTarget(): "capture" | "damage" {
 
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
-  const [joinTarget, setJoinTarget] = useState<"capture" | "damage">(initialJoinTarget);
+  const [joinTarget, setJoinTarget] = useState<"capture" | "damage">("capture");
   const [deviceId, setDeviceId] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
   const [joinError, setJoinError] = useState("");
