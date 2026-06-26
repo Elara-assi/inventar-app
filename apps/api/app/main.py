@@ -1489,7 +1489,7 @@ def ensure_damage_access_session(request: Request) -> dict[str, Any]:
     tenant_id = request_tenant_id(request)
     existing = fetch_one(
         """
-        SELECT s.*, (s.join_token_expires_at <= now()) AS token_expired
+        SELECT s.*, (s.join_token_expires_at <= now() + interval '30 hours') AS token_needs_refresh
         FROM inventory_sessions s
         WHERE s.tenant_id IS NOT DISTINCT FROM %s AND s.status = 'open'
         ORDER BY s.created_at DESC
@@ -1498,7 +1498,7 @@ def ensure_damage_access_session(request: Request) -> dict[str, Any]:
         (tenant_id,),
     )
     if existing:
-        if existing.get("token_expired"):
+        if existing.get("token_needs_refresh"):
             token = secrets.token_urlsafe(18)
             execute(
                 "UPDATE inventory_sessions SET join_token = %s, join_token_expires_at = now() + interval '36 hours' WHERE id = %s RETURNING *",
