@@ -304,7 +304,7 @@ export default function DamageCapturePage() {
     setReports(nextReports);
     setSummary({
       total: nextReports.length,
-      pending: nextReports.filter((report) => ["local", "pending", "uploading"].includes(report.sync_status)).length,
+      pending: nextReports.filter((report) => ["local", "pending", "uploading", "failed"].includes(report.sync_status)).length,
       synced: nextReports.filter((report) => report.sync_status === "synced").length,
       failed: nextReports.filter((report) => report.sync_status === "failed").length,
       conflict: nextReports.filter((report) => report.sync_status === "conflict").length,
@@ -487,6 +487,14 @@ export default function DamageCapturePage() {
         setUvvStickerPresent("unklar");
         await loadPhotosForReport("");
         setError(`Artikel ${normalized} nicht im importierten Katalog gefunden.`);
+        return;
+      }
+      if (article?.article_no === found.article_no && localReportId) {
+        const synced = serverReports.find((report) => (
+          String(report.article_no || "").trim() === normalized
+          || String(report.nr || "").trim() === normalized
+        ));
+        if (synced) setExistingHint("Artikel ist bereits synchronisiert und wurde zum Nachbearbeiten ge\u00f6ffnet.");
         return;
       }
       const existing = await getDamageReportByArticle(normalized);
@@ -676,12 +684,12 @@ export default function DamageCapturePage() {
       const result = await syncPendingDamageReports(deviceId);
       await refreshReports();
       await refreshServerReports(true);
-      resetCaptureForm(
-        result.failed || result.conflict
-          ? `Schaden lokal gesichert - Sync prüfen: ${result.failed} Fehler, ${result.conflict} Doppelung`
-          : `Schaden synchronisiert - nächster Artikel bereit`,
-      );
-      if (result.lastError) setError(result.lastError);
+      if (result.failed || result.conflict) {
+        setMessage(`Schaden lokal gesichert - Sync pr\u00fcfen: ${result.failed} Fehler, ${result.conflict} Doppelung`);
+        if (result.lastError) setError(result.lastError);
+        return;
+      }
+      resetCaptureForm("Schaden synchronisiert - n\u00e4chster Artikel bereit");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Schaden konnte nicht synchronisiert werden");
     } finally {

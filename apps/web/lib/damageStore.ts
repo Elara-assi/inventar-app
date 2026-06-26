@@ -349,7 +349,7 @@ export async function getDamageSummary(): Promise<DamageSummary> {
   const reports = await listDamageReports();
   return {
     total: reports.length,
-    pending: reports.filter((report) => report.sync_status === "local" || report.sync_status === "pending" || report.sync_status === "uploading").length,
+    pending: reports.filter((report) => report.sync_status === "local" || report.sync_status === "pending" || report.sync_status === "uploading" || report.sync_status === "failed").length,
     synced: reports.filter((report) => report.sync_status === "synced").length,
     failed: reports.filter((report) => report.sync_status === "failed").length,
     conflict: reports.filter((report) => report.sync_status === "conflict").length,
