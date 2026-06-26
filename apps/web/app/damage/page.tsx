@@ -66,6 +66,7 @@ type ServerDamageReport = {
   captured_at?: string | null;
   updated_at?: string | null;
   photo_count?: number | null;
+  photo_types?: DamagePhotoType[] | null;
 };
 
 function registerDamageServiceWorker() {
@@ -125,6 +126,10 @@ function sessionLabel(session: DamageSession) {
 
 function sessionDetail(session: DamageSession) {
   return [session.location_name, session.building_name, session.room_name].filter(Boolean).join(" / ") || "Offene Session";
+}
+
+function normalizedUvv(value?: string | null): DamageReport["uvv_sticker_present"] {
+  return value === "ja" || value === "nein" || value === "unklar" ? value : "unklar";
 }
 
 function localQrOptionsFromCapsules(): DamageQrOption[] {
@@ -228,10 +233,22 @@ export default function DamageCapturePage() {
     return map;
   }, [photos]);
 
+  const serverReportForArticle = useMemo(() => {
+    const normalized = articleNo.trim();
+    if (!normalized) return undefined;
+    return serverReports.find((report) => (
+      String(report.article_no || "").trim() === normalized
+      || String(report.nr || "").trim() === normalized
+    ));
+  }, [articleNo, serverReports]);
+  const serverPhotoTypeSet = useMemo(
+    () => new Set<DamagePhotoType>(serverReportForArticle?.photo_types || []),
+    [serverReportForArticle],
+  );
   const uvvPhotoRequired = uvvStickerPresent === "ja";
   const missingRequiredPhotos = photoSlots
     .filter((slot) => slot.required || (slot.type === "uvv_sticker" && uvvPhotoRequired))
-    .filter((slot) => !photoMap.has(slot.type))
+    .filter((slot) => !photoMap.has(slot.type) && !serverPhotoTypeSet.has(slot.type))
     .map((slot) => slot.label);
   const canSave = Boolean(article)
     && Boolean(localReportId)
@@ -243,14 +260,6 @@ export default function DamageCapturePage() {
     [qrOptions, selectedQrSessionId],
   );
   const selectedQrExpired = selectedQrOption?.expiresAt ? new Date(selectedQrOption.expiresAt).getTime() <= Date.now() : false;
-  const serverReportForArticle = useMemo(() => {
-    const normalized = articleNo.trim();
-    if (!normalized) return undefined;
-    return serverReports.find((report) => (
-      String(report.article_no || "").trim() === normalized
-      || String(report.nr || "").trim() === normalized
-    ));
-  }, [articleNo, serverReports]);
   const serverPhotoCount = useMemo(
     () => serverReports.reduce((total, report) => total + Number(report.photo_count || 0), 0),
     [serverReports],
@@ -448,10 +457,16 @@ export default function DamageCapturePage() {
         setExistingHint("Artikel ist bereits lokal erfasst und wurde zum Bearbeiten geöffnet.");
         await loadPhotosForReport(existing.local_report_id);
       } else {
+        const synced = serverReports.find((report) => (
+          String(report.article_no || "").trim() === normalized
+          || String(report.nr || "").trim() === normalized
+        ));
         const nextId = createDamageReportId();
         setLocalReportId(nextId);
-        setDescription("");
-        setUvvStickerPresent("unklar");
+        setDescription(synced?.damage_description || "");
+        setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
+        if (synced?.team_name) setTeamName(synced.team_name);
+        setExistingHint(synced ? "Artikel ist bereits synchronisiert und wurde zum Nachbearbeiten ge\u00f6ffnet." : "");
         await loadPhotosForReport(nextId);
       }
     }
@@ -529,6 +544,7 @@ export default function DamageCapturePage() {
     const now = new Date().toISOString();
     const saved = await saveDamageReport({
       local_report_id: localReportId,
+      server_report_id: serverReportForArticle?.id,
       article_no: article.article_no,
       article,
       team_name: teamName.trim() || "Team 1",
@@ -638,6 +654,15 @@ export default function DamageCapturePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function openServerReport(report: ServerDamageReport) {
+    setArticleNo(String(report.article_no || report.nr || ""));
+    setMessage("Synchronisierten Schaden zum Nachbearbeiten ge\u00f6ffnet");
+    window.setTimeout(() => {
+      articleInputRef.current?.focus();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 60);
+  }
+
   return (
     <main className="damage-page">
       <section className="damage-hero">
@@ -654,6 +679,7 @@ export default function DamageCapturePage() {
       </section>
 
       <section className="damage-layout">
+        <div className="damage-main-column">
         <div className="damage-capture-panel">
           <div className="damage-section-head">
             <div>
@@ -707,9 +733,10 @@ export default function DamageCapturePage() {
           <div className="damage-photo-grid">
             {photoSlots.map((slot) => {
               const photo = photoMap.get(slot.type);
+              const serverHasPhoto = serverPhotoTypeSet.has(slot.type);
               const required = slot.required || (slot.type === "uvv_sticker" && uvvPhotoRequired);
               return (
-                <div className={`damage-photo-slot ${photo ? "has-photo" : ""} ${required ? "is-required" : ""}`} key={slot.type}>
+                <div className={`damage-photo-slot ${photo || serverHasPhoto ? "has-photo" : ""} ${serverHasPhoto && !photo ? "has-server-photo" : ""} ${required ? "is-required" : ""}`} key={slot.type}>
                   <button
                     type="button"
                     disabled={!article || busy}
@@ -719,7 +746,7 @@ export default function DamageCapturePage() {
                   </button>
                   <div>
                     <strong>{slot.label}</strong>
-                    <small>{required ? "Pflicht" : slot.hint}</small>
+                    <small>{serverHasPhoto && !photo ? "am Server" : required ? "Pflicht" : slot.hint}</small>
                     {photo ? <button type="button" disabled={busy} onClick={() => void removePhoto(slot.type)}>Entfernen</button> : null}
                   </div>
                   <input
@@ -770,6 +797,38 @@ export default function DamageCapturePage() {
               Neuer Artikel
             </button>
           </div>
+        </div>
+
+          <section className="damage-server-section damage-server-main">
+            <div className="damage-section-head damage-section-head-action">
+              <div>
+                <h2>Erfasste Sch&auml;den</h2>
+                <span>Direkt nach der Erfassung sichtbar. Zum Nachbearbeiten einen Artikel &ouml;ffnen.</span>
+              </div>
+              <button className="btn secondary damage-mini-button" type="button" disabled={serverReportsBusy} onClick={() => void refreshServerReports()}>
+                {serverReportsBusy ? "L\u00e4dt" : "Aktualisieren"}
+              </button>
+            </div>
+            <div className="damage-summary-grid damage-server-summary">
+              <span><b>{serverReports.length}</b>Artikel</span>
+              <span><b>{serverPhotoCount}</b>Fotos</span>
+              <span><b>{serverTeamCount}</b>Teams</span>
+            </div>
+            {serverReportsMessage ? <p className="damage-server-message">{serverReportsMessage}</p> : null}
+            <div className="damage-report-list damage-server-report-list">
+              {serverReports.map((report) => (
+                <button className="damage-report-card damage-server-open-card" type="button" key={report.id} onClick={() => openServerReport(report)}>
+                  <strong>{report.article_no} / {report.anlagenbezeichnung || "Artikel ohne Bezeichnung"}</strong>
+                  <span>{report.team_name || "Team offen"} / {formatDateTime(report.updated_at || report.captured_at || undefined)}</span>
+                  <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
+                  {report.photo_types?.length ? <span>Vorhanden: {report.photo_types.map((type) => photoSlots.find((slot) => slot.type === type)?.label || type).join(", ")}</span> : null}
+                  {report.damage_description ? <small>{report.damage_description}</small> : null}
+                  <i className="status pruefen">Nachbearbeiten</i>
+                </button>
+              ))}
+              {!serverReports.length && !serverReportsMessage ? <p className="muted">Noch kein synchronisierter Schaden.</p> : null}
+            </div>
+          </section>
         </div>
 
         <aside className="damage-side-panel">

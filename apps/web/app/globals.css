@@ -8253,6 +8253,12 @@ body:has(.damage-page) .brand span {
   align-items: start;
 }
 
+.damage-main-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
 .damage-capture-panel,
 .damage-side-panel {
   display: grid;
@@ -8390,6 +8396,11 @@ body:has(.damage-page) .brand span {
 .damage-photo-slot.has-photo {
   border-color: #22c55e;
   background: #f0fdf4;
+}
+
+.damage-photo-slot.has-server-photo {
+  border-color: #93c5fd;
+  background: #eff6ff;
 }
 
 .damage-photo-slot > button {
@@ -8610,6 +8621,17 @@ body:has(.damage-page) .brand span {
   padding-top: 12px;
 }
 
+.damage-server-main {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+}
+
+.damage-side-panel > .damage-server-section {
+  display: none;
+}
+
 .damage-server-message {
   margin: 0;
   border: 1px solid #bfdbfe;
@@ -8633,6 +8655,11 @@ body:has(.damage-page) .brand span {
   max-height: 34vh;
 }
 
+.damage-server-main .damage-server-report-list {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  max-height: none;
+}
+
 .damage-report-list > button,
 .damage-report-card {
   display: grid;
@@ -8648,6 +8675,16 @@ body:has(.damage-page) .brand span {
 
 .damage-report-card {
   cursor: default;
+}
+
+.damage-server-open-card {
+  cursor: pointer;
+}
+
+.damage-server-open-card:hover,
+.damage-server-open-card:focus-visible {
+  outline: 3px solid rgba(56, 189, 248, 0.28);
+  border-color: #38bdf8;
 }
 
 .damage-report-list > button:hover,

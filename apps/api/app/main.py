@@ -5772,12 +5772,6 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
     article_no = str(payload.article_no or "").strip()
     if not article_no:
         raise HTTPException(status_code=422, detail="Artikelnummer fehlt")
-    conflict = find_damage_report_conflict(tenant_id, article_no, payload.client_report_id, payload.source_device_id)
-    if conflict:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Artikel {article_no} wurde bereits als Schaden erfasst.",
-        )
     existing = fetch_one(
         """
         SELECT *
@@ -5969,18 +5963,40 @@ async def sync_damage_report(request: Request, payload: str = Form(...), files: 
         raise HTTPException(status_code=422, detail=f"Schadenspaket ist unvollständig: {exc}") from exc
     if not parsed.report.description.strip():
         raise HTTPException(status_code=422, detail="Schadensbeschreibung fehlt")
-    required_photo_types = {"front", "damage_detail_1"}
-    if parsed.report.uvv_sticker_present == "ja":
-        required_photo_types.add("uvv_sticker")
-    submitted_photo_types = {photo.photo_type for photo in parsed.photos}
-    missing_photo_types = [DAMAGE_PHOTO_LABELS[photo_type] for photo_type in DAMAGE_PHOTO_TYPES if photo_type in required_photo_types and photo_type not in submitted_photo_types]
-    if missing_photo_types:
-        raise HTTPException(status_code=422, detail=f"Pflichtfoto fehlt: {', '.join(missing_photo_types)}")
     auth = getattr(request.state, "auth", {}) or {}
     if auth.get("kind") == "mobile_session":
         parsed.report.session_id = str(auth.get("session_id") or "") or parsed.report.session_id
         parsed.report.source_device_id = str(auth.get("device_id") or "") or parsed.report.source_device_id
     tenant_id = request_tenant_id(request)
+    required_photo_types = {"front", "damage_detail_1"}
+    if parsed.report.uvv_sticker_present == "ja":
+        required_photo_types.add("uvv_sticker")
+    submitted_photo_types = {photo.photo_type for photo in parsed.photos}
+    existing_report = fetch_one(
+        """
+        SELECT id
+        FROM damage_reports
+        WHERE tenant_id IS NOT DISTINCT FROM %s AND article_no = %s
+        LIMIT 1
+        """,
+        (tenant_id, str(parsed.report.article_no or "").strip()),
+    )
+    existing_photo_types = {
+        str(row["photo_type"])
+        for row in fetch_all(
+            "SELECT photo_type FROM damage_photos WHERE damage_report_id = %s",
+            (existing_report["id"],),
+        )
+    } if existing_report else set()
+    missing_photo_types = [
+        DAMAGE_PHOTO_LABELS[photo_type]
+        for photo_type in DAMAGE_PHOTO_TYPES
+        if photo_type in required_photo_types
+        and photo_type not in submitted_photo_types
+        and photo_type not in existing_photo_types
+    ]
+    if missing_photo_types:
+        raise HTTPException(status_code=422, detail=f"Pflichtfoto fehlt: {', '.join(missing_photo_types)}")
     report = upsert_damage_report(parsed.report, tenant_id)
     photo_results: list[dict[str, Any]] = []
     for index, meta in enumerate(parsed.photos):
@@ -6031,7 +6047,11 @@ def list_damage_reports(request: Request) -> list[dict[str, Any]]:
     return fetch_all(
         """
         SELECT r.*,
-               (SELECT count(*)::int FROM damage_photos p WHERE p.damage_report_id = r.id) AS photo_count
+               (SELECT count(*)::int FROM damage_photos p WHERE p.damage_report_id = r.id) AS photo_count,
+               COALESCE(
+                 (SELECT array_agg(p.photo_type ORDER BY p.photo_type) FROM damage_photos p WHERE p.damage_report_id = r.id),
+                 ARRAY[]::text[]
+               ) AS photo_types
         FROM damage_reports r
         WHERE r.tenant_id IS NOT DISTINCT FROM %s
         ORDER BY r.updated_at DESC
