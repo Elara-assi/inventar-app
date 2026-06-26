@@ -2,6 +2,7 @@ import { ApiError, api, apiResponse, getAuthToken } from "@/lib/api";
 import {
   DamagePhoto,
   DamageReport,
+  deleteLocalDamageReport,
   getDamageSummary,
   listDamagePhotos,
   listDamageReports,
@@ -183,6 +184,11 @@ export async function syncPendingDamageReports(deviceId: string, options: Damage
           server_report_id: result.server_report_id,
           last_error: undefined,
         });
+        try {
+          await deleteLocalDamageReport(report.local_report_id);
+        } catch {
+          // Server has the report; a local cleanup problem must not turn a successful upload into a failed sync.
+        }
         synced += 1;
       }
     } catch (error) {

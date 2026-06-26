@@ -215,6 +215,25 @@ function isFreeServerReport(report?: ServerDamageReport | null) {
   return report?.entry_type === "free" || String(report?.article_no || "").startsWith("FREI-");
 }
 
+function serverReportArticleKey(report: ServerDamageReport) {
+  return String(report.article_no || report.nr || "").trim();
+}
+
+function localReportCoveredByServer(localReport: DamageReport, localPhotos: DamagePhoto[], serverReport: ServerDamageReport) {
+  const localUpdated = new Date(localReport.updated_at).getTime();
+  const serverUpdated = new Date(serverReport.updated_at || serverReport.captured_at || "").getTime();
+  const serverPhotoTypes = new Set(serverReport.photo_types || []);
+  const allLocalPhotosAlreadyServerSide = localPhotos.every((photo) => serverPhotoTypes.has(photo.photo_type));
+  const sameServerReport = Boolean(localReport.server_report_id && localReport.server_report_id === serverReport.id);
+  const sameDescription = Boolean(
+    localReport.description.trim()
+    && serverReport.damage_description?.trim()
+    && localReport.description.trim() === serverReport.damage_description.trim(),
+  );
+  const serverIsNewerOrSame = !Number.isFinite(serverUpdated) || !Number.isFinite(localUpdated) || serverUpdated + 5_000 >= localUpdated;
+  return allLocalPhotosAlreadyServerSide && (sameServerReport || (sameDescription && serverIsNewerOrSame) || localReport.sync_status === "synced");
+}
+
 function localQrOptionsFromCapsules(): DamageQrOption[] {
   if (typeof window === "undefined") return [];
   const options: DamageQrOption[] = [];
@@ -822,14 +841,15 @@ export default function DamageCapturePage() {
       const saved = await saveCurrentReport();
       if (!saved) return;
       const result = await syncPendingDamageReports(deviceId, { onlyLocalReportId: saved.local_report_id });
-      await refreshReports();
-      await refreshServerReports(true);
       if (result.failed || result.conflict || result.skipped) {
         setMessage(`Schaden lokal gesichert - Sync pr\u00fcfen: ${result.failed} Fehler, ${result.conflict} Doppelung, ${result.skipped} nicht syncbar`);
         if (result.lastError) setError(result.lastError);
+        await refreshReports();
+        await refreshServerReports(true);
         return;
       }
       resetCaptureForm("Schaden synchronisiert - n\u00e4chster Artikel bereit");
+      void Promise.all([refreshReports(), refreshServerReports(true)]).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Schaden konnte nicht synchronisiert werden");
     } finally {
@@ -859,7 +879,11 @@ export default function DamageCapturePage() {
     try {
       const result = await syncPendingDamageReports(deviceId, { onlyLocalReportId: report.local_report_id });
       if (result.synced) {
-        setMessage("Lokaler Datensatz synchronisiert");
+        if (report.local_report_id === localReportId) {
+          resetCaptureForm("Lokaler Datensatz synchronisiert - n\u00e4chster Artikel bereit");
+        } else {
+          setMessage("Lokaler Datensatz synchronisiert");
+        }
       } else {
         setMessage(`Lokaler Datensatz nicht synchronisiert: ${result.failed} Fehler, ${result.skipped} nicht syncbar`);
       }
@@ -1029,12 +1053,36 @@ export default function DamageCapturePage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function openServerReport(report: ServerDamageReport) {
-    const nextArticleNo = String(report.article_no || report.nr || "");
+  async function clearCoveredLocalCopyForServerReport(report: ServerDamageReport) {
+    const nextArticleNo = serverReportArticleKey(report);
+    if (!nextArticleNo) return;
+    const localCopy = await getDamageReportByArticle(nextArticleNo);
+    if (!localCopy) return;
+    const localPhotos = await listDamagePhotos(localCopy.local_report_id);
+    if (localReportCoveredByServer(localCopy, localPhotos, report)) {
+      await deleteLocalDamageReport(localCopy.local_report_id);
+      await refreshReports();
+    }
+  }
+
+  async function openServerReport(report: ServerDamageReport) {
+    const nextArticleNo = serverReportArticleKey(report);
     const isFree = isFreeServerReport(report);
+    setBusy(true);
+    setError("");
+    try {
+      await clearCoveredLocalCopyForServerReport(report);
+    } catch {
+      // Opening the server record is still useful even when local cleanup is blocked.
+    } finally {
+      setBusy(false);
+    }
     setCaptureMode(isFree ? "free" : "catalog");
     setArticle(null);
     setLocalReportId("");
+    setDescription(report.damage_description || "");
+    setUvvStickerPresent(normalizedUvv(report.uvv_sticker_present));
+    if (report.team_name) setTeamName(report.team_name);
     if (isFree) {
       setFreeArticleNo(nextArticleNo);
       setFreeTitle(report.anlagenbezeichnung || "");
@@ -1276,7 +1324,7 @@ export default function DamageCapturePage() {
                   {report.photo_types?.length ? <span>Vorhanden: {report.photo_types.map((type) => photoSlots.find((slot) => slot.type === type)?.label || type).join(", ")}</span> : null}
                   {report.damage_description ? <small>{report.damage_description}</small> : null}
                   <div className="damage-card-actions">
-                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => openServerReport(report)}>
+                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => void openServerReport(report)}>
                       &Ouml;ffnen
                     </button>
                     <button className="btn danger damage-mini-button" type="button" disabled={busy} onClick={() => void deleteServerReport(report)}>
@@ -1362,7 +1410,7 @@ export default function DamageCapturePage() {
                   <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
                   {report.damage_description ? <small>{report.damage_description}</small> : null}
                   <div className="damage-card-actions">
-                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => openServerReport(report)}>
+                    <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => void openServerReport(report)}>
                       &Ouml;ffnen
                     </button>
                     <button className="btn danger damage-mini-button" type="button" disabled={busy} onClick={() => void deleteServerReport(report)}>
