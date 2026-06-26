@@ -21,6 +21,7 @@ import {
   listDamageReports,
   loadDamageCatalog,
   putDamagePhoto,
+  saveDamageDraftReport,
   saveDamageReport,
   setStoredDamageTeamName,
 } from "@/lib/damageStore";
@@ -270,6 +271,7 @@ export default function DamageCapturePage() {
   const articleInputRef = useRef<HTMLInputElement | null>(null);
   const freeTitleInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
+  const draftSaveTimer = useRef<number | null>(null);
 
   const photoMap = useMemo(() => {
     const map = new Map<DamagePhotoType, DamagePhoto>();
@@ -475,7 +477,7 @@ export default function DamageCapturePage() {
     const normalized = articleNo.trim();
     let ignore = false;
     async function resolveArticle() {
-      setError("");
+      setError((current) => current.startsWith("Artikel ") ? "" : current);
       setExistingHint("");
       if (!normalized) {
         setArticle(null);
@@ -526,7 +528,6 @@ export default function DamageCapturePage() {
           || String(report.nr || "").trim() === normalized
         ));
         const nextId = getDraftReportId(normalized) || createDamageReportId();
-        setDraftReportId(normalized, nextId);
         setLocalReportId(nextId);
         setDescription(synced?.damage_description || "");
         setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
@@ -545,7 +546,7 @@ export default function DamageCapturePage() {
     if (captureMode !== "free") return;
     let ignore = false;
     async function resolveFreeArticle() {
-      setError("");
+      setError((current) => current.startsWith("Freier Schaden") ? "" : current);
       setExistingHint("");
       const nextNo = freeArticleNo || createFreeArticleNo();
       if (!freeArticleNo) {
@@ -576,7 +577,6 @@ export default function DamageCapturePage() {
       }
       const synced = serverReports.find((report) => String(report.article_no || "").trim() === nextNo);
       const nextId = getDraftReportId(nextNo) || createDamageReportId();
-      setDraftReportId(nextNo, nextId);
       setLocalReportId(nextId);
       setDescription(synced?.damage_description || "");
       setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
@@ -591,6 +591,59 @@ export default function DamageCapturePage() {
     };
   }, [articleNo, captureMode, freeArticleNo, freeTitle, loadPhotosForReport, localReportId, serverReports]);
 
+  function currentDraftReport(syncStatus: DamageReport["sync_status"] = "local"): DamageReport | null {
+    if (!article || !localReportId) return null;
+    const now = new Date().toISOString();
+    return {
+      local_report_id: localReportId,
+      server_report_id: serverReportForArticle?.id,
+      article_no: article.article_no,
+      article,
+      entry_type: captureMode,
+      free_reference: captureMode === "free" ? freeReference.trim() : undefined,
+      team_name: teamName.trim() || "Team 1",
+      description,
+      uvv_sticker_present: uvvStickerPresent,
+      sync_status: syncStatus,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
+  async function saveCurrentDraftReport(syncStatus: DamageReport["sync_status"] = "local") {
+    const draft = currentDraftReport(syncStatus);
+    if (!draft) return null;
+    const saved = await saveDamageDraftReport(draft);
+    setDraftReportId(saved.article_no, saved.local_report_id);
+    setLocalReportId(saved.local_report_id);
+    return saved;
+  }
+
+  function hasDraftContent() {
+    return photos.length > 0
+      || description.trim().length > 0
+      || uvvStickerPresent !== "unklar"
+      || (captureMode === "free" && (freeTitle.trim().length > 0 || freeReference.trim().length > 0));
+  }
+
+  useEffect(() => {
+    if (busy || !article || !localReportId || !hasDraftContent()) return;
+    if (draftSaveTimer.current) window.clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = window.setTimeout(() => {
+      saveCurrentDraftReport("local")
+        .then((saved) => {
+          if (saved) void refreshReports();
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "Lokaler Entwurf konnte nicht gespeichert werden"));
+    }, 350);
+    return () => {
+      if (draftSaveTimer.current) {
+        window.clearTimeout(draftSaveTimer.current);
+        draftSaveTimer.current = null;
+      }
+    };
+  }, [article, localReportId, captureMode, freeTitle, freeReference, description, uvvStickerPresent, photos.length, teamName, busy]);
+
   async function selectPhoto(type: DamagePhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -599,10 +652,12 @@ export default function DamageCapturePage() {
     setError("");
     try {
       const blob = await compressPhoto(file, type === "damage_detail_1" || type === "damage_detail_2" || type === "serial_number" ? 2200 : 1800);
+      const draft = await saveCurrentDraftReport("local");
+      const reportId = draft?.local_report_id ?? localReportId;
       const existing = photoMap.get(type);
       const photo = await putDamagePhoto({
         client_photo_id: existing?.client_photo_id ?? createDamagePhotoId(),
-        local_report_id: localReportId,
+        local_report_id: reportId,
         photo_type: type,
         blob,
         file_name: `${articleNo || "artikel"}-${type}.jpg`,
@@ -645,6 +700,10 @@ export default function DamageCapturePage() {
   }
 
   async function saveCurrentReport() {
+    if (draftSaveTimer.current) {
+      window.clearTimeout(draftSaveTimer.current);
+      draftSaveTimer.current = null;
+    }
     if (!article || !localReportId) {
       setError(captureMode === "free" ? "Bitte zuerst eine Bezeichnung f\u00fcr den freien Schaden eingeben." : "Bitte zuerst eine g\u00fcltige Artikelnummer eingeben.");
       return null;
@@ -663,7 +722,7 @@ export default function DamageCapturePage() {
       article_no: article.article_no,
       article,
       entry_type: captureMode,
-      free_reference: captureMode === "free" ? (freeReference.trim() || undefined) : undefined,
+      free_reference: captureMode === "free" ? freeReference.trim() : undefined,
       team_name: teamName.trim() || "Team 1",
       description: description.trim(),
       uvv_sticker_present: uvvStickerPresent,
@@ -671,6 +730,7 @@ export default function DamageCapturePage() {
       created_at: now,
       updated_at: now,
     });
+    setDraftReportId(saved.article_no, saved.local_report_id);
     setLocalReportId(saved.local_report_id);
     setMessage("Schaden lokal gesichert");
     await refreshReports();

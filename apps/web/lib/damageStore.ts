@@ -302,6 +302,24 @@ export async function saveDamageReport(report: DamageReport): Promise<DamageRepo
   return next;
 }
 
+export async function saveDamageDraftReport(report: DamageReport): Promise<DamageReport> {
+  const now = nowIso();
+  const existing = await getDamageReportByArticle(report.article_no);
+  const next: DamageReport = {
+    ...report,
+    local_report_id: existing?.local_report_id ?? report.local_report_id,
+    server_report_id: existing?.server_report_id ?? report.server_report_id,
+    entry_type: report.entry_type ?? existing?.entry_type ?? "catalog",
+    free_reference: report.free_reference ?? existing?.free_reference,
+    created_at: existing?.created_at ?? report.created_at ?? now,
+    updated_at: now,
+    sync_status: report.sync_status,
+    last_error: existing?.last_error,
+  };
+  await withStore(REPORT_STORE, "readwrite", (store) => store.put(next));
+  return next;
+}
+
 export async function markDamageReportStatus(
   localReportId: string,
   syncStatus: DamageSyncStatus,

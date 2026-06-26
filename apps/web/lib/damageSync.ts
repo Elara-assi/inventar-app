@@ -60,6 +60,15 @@ function buildPayload(report: DamageReport, photos: DamagePhoto[], deviceId: str
   };
 }
 
+function isDamageReportReadyForSync(report: DamageReport, photos: DamagePhoto[]) {
+  if (!report.description.trim() || !report.team_name.trim()) return false;
+  if (report.server_report_id) return true;
+  const photoTypes = new Set(photos.map((photo) => photo.photo_type));
+  if (!photoTypes.has("front") || !photoTypes.has("damage_detail_1")) return false;
+  if (report.uvv_sticker_present === "ja" && !photoTypes.has("uvv_sticker")) return false;
+  return true;
+}
+
 async function appendPhotoFiles(form: FormData, photos: DamagePhoto[]) {
   for (const photo of photos) {
     const type = photo.mime_type || photo.blob.type || "image/jpeg";
@@ -93,6 +102,8 @@ export async function syncPendingDamageReports(deviceId: string): Promise<Damage
   const reports = (await listDamageReports()).filter((report) => ["local", "pending", "failed", "uploading"].includes(report.sync_status));
   for (const report of reports) {
     try {
+      const photos = await listDamagePhotos(report.local_report_id);
+      if (!isDamageReportReadyForSync(report, photos)) continue;
       const result = await syncDamageReport(report, deviceId);
       const failedPhotos = result.photo_results.filter((photo) => photo.status === "failed");
       if (failedPhotos.length) {
