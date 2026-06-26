@@ -1,4 +1,4 @@
-const CACHE_VERSION = "inventar-mobile-shell-v14-damage-delete-reset";
+const CACHE_VERSION = "inventar-mobile-shell-v15-damage-sync-diagnostics";
 const STATIC_ASSETS = ["/manifest.json", "/icon.svg", "/damage", "/data/damage-articles.v1.json"];
 
 self.addEventListener("install", (event) => {

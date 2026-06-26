@@ -363,6 +363,22 @@ export async function deleteDamagePhoto(clientPhotoId: string): Promise<void> {
   await withStore(PHOTO_STORE, "readwrite", (store) => store.delete(clientPhotoId));
 }
 
+export async function deleteLocalDamageReport(localReportId: string): Promise<void> {
+  const db = await initDamageDb();
+  const photos = await listDamagePhotos(localReportId);
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction([REPORT_STORE, PHOTO_STORE], "readwrite");
+    transaction.objectStore(REPORT_STORE).delete(localReportId);
+    const photoStore = transaction.objectStore(PHOTO_STORE);
+    for (const photo of photos) {
+      photoStore.delete(photo.client_photo_id);
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("Lokaler Schadensdatensatz konnte nicht geloescht werden"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Lokale Schadensdatensatz-Loeschung wurde abgebrochen"));
+  });
+}
+
 export async function clearLocalDamageData(): Promise<void> {
   const db = await initDamageDb();
   await new Promise<void>((resolve, reject) => {

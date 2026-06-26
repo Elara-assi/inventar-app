@@ -11,6 +11,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
+from uuid import UUID
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -6186,6 +6187,10 @@ def list_damage_reports(request: Request) -> list[dict[str, Any]]:
 
 @app.delete("/damage-reports/{report_id}")
 def delete_damage_report(report_id: str, request: Request) -> dict[str, Any]:
+    try:
+        UUID(report_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Schadensfall-ID ist ungültig") from exc
     tenant_id = request_tenant_id(request)
     report = fetch_one(
         "SELECT * FROM damage_reports WHERE id = %s AND tenant_id IS NOT DISTINCT FROM %s",

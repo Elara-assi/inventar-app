@@ -31,12 +31,19 @@ export type DamageSyncResult = {
   synced: number;
   failed: number;
   conflict: number;
+  skipped: number;
   pending: number;
   lastError?: string;
 };
 
 type DamageSyncOptions = {
   onlyLocalReportId?: string;
+};
+
+const requiredPhotoLabels: Record<string, string> = {
+  front: "Frontansicht",
+  damage_detail_1: "Schaden 1",
+  uvv_sticker: "UVV-Aufkleber",
 };
 
 export function getDamageOnlineStatus() {
@@ -92,13 +99,25 @@ function buildPayload(report: DamageReport, photos: DamagePhoto[], deviceId: str
   };
 }
 
-function isDamageReportReadyForSync(report: DamageReport, photos: DamagePhoto[]) {
-  if (!report.description.trim() || !report.team_name.trim()) return false;
-  if (report.server_report_id) return true;
+export function damageReportSyncIssues(report: DamageReport, photos: DamagePhoto[]) {
+  const issues: string[] = [];
+  if (!report.team_name.trim()) issues.push("Team fehlt");
+  if (!report.description.trim()) issues.push("Schadensbeschreibung fehlt");
+  if (report.server_report_id) return issues;
   const photoTypes = new Set(photos.map((photo) => photo.photo_type));
-  if (!photoTypes.has("front") || !photoTypes.has("damage_detail_1")) return false;
-  if (report.uvv_sticker_present === "ja" && !photoTypes.has("uvv_sticker")) return false;
-  return true;
+  for (const requiredType of ["front", "damage_detail_1"]) {
+    if (!photoTypes.has(requiredType as DamagePhoto["photo_type"])) {
+      issues.push(`Pflichtfoto fehlt: ${requiredPhotoLabels[requiredType]}`);
+    }
+  }
+  if (report.uvv_sticker_present === "ja" && !photoTypes.has("uvv_sticker")) {
+    issues.push(`Pflichtfoto fehlt: ${requiredPhotoLabels.uvv_sticker}`);
+  }
+  return issues;
+}
+
+function isDamageReportReadyForSync(report: DamageReport, photos: DamagePhoto[]) {
+  return damageReportSyncIssues(report, photos).length === 0;
 }
 
 async function appendPhotoFiles(form: FormData, photos: DamagePhoto[]) {
@@ -125,11 +144,12 @@ export async function syncDamageReport(report: DamageReport, deviceId: string): 
 export async function syncPendingDamageReports(deviceId: string, options: DamageSyncOptions = {}): Promise<DamageSyncResult> {
   if (!getDamageOnlineStatus()) {
     const summary = await getDamageSummary();
-    return { synced: 0, failed: 0, conflict: 0, pending: summary.pending, lastError: "Offline: Schäden bleiben lokal gespeichert." };
+    return { synced: 0, failed: 0, conflict: 0, skipped: 0, pending: summary.pending, lastError: "Offline: Schäden bleiben lokal gespeichert." };
   }
   let synced = 0;
   let failed = 0;
   let conflict = 0;
+  let skipped = 0;
   let lastError = "";
   const reports = (await listDamageReports()).filter((report) => (
     ["local", "pending", "failed", "uploading"].includes(report.sync_status)
@@ -138,7 +158,16 @@ export async function syncPendingDamageReports(deviceId: string, options: Damage
   for (const report of reports) {
     try {
       const photos = await listDamagePhotos(report.local_report_id);
-      if (!isDamageReportReadyForSync(report, photos)) continue;
+      if (!isDamageReportReadyForSync(report, photos)) {
+        skipped += 1;
+        const message = `Noch nicht syncbar: ${damageReportSyncIssues(report, photos).join(", ")}`;
+        if (options.onlyLocalReportId || report.sync_status !== "local") {
+          await markDamageReportStatus(report.local_report_id, "failed", { last_error: message });
+          failed += 1;
+        }
+        lastError = message;
+        continue;
+      }
       const result = await syncDamageReport(report, deviceId);
       const failedPhotos = result.photo_results.filter((photo) => photo.status === "failed");
       if (failedPhotos.length) {
@@ -166,7 +195,7 @@ export async function syncPendingDamageReports(deviceId: string, options: Damage
     }
   }
   const summary = await getDamageSummary();
-  return { synced, failed, conflict, pending: summary.pending, lastError: lastError || undefined };
+  return { synced, failed, conflict, skipped, pending: summary.pending, lastError: lastError || undefined };
 }
 
 export async function createDamageExcelExport(): Promise<{ id: string }> {

@@ -14,6 +14,7 @@ import {
   createDamagePhotoId,
   createDamageReportId,
   deleteDamagePhoto,
+  deleteLocalDamageReport,
   getDamageArticle,
   getDamageReportByArticle,
   getOrCreateDamageDeviceId,
@@ -823,8 +824,8 @@ export default function DamageCapturePage() {
       const result = await syncPendingDamageReports(deviceId, { onlyLocalReportId: saved.local_report_id });
       await refreshReports();
       await refreshServerReports(true);
-      if (result.failed || result.conflict) {
-        setMessage(`Schaden lokal gesichert - Sync pr\u00fcfen: ${result.failed} Fehler, ${result.conflict} Doppelung`);
+      if (result.failed || result.conflict || result.skipped) {
+        setMessage(`Schaden lokal gesichert - Sync pr\u00fcfen: ${result.failed} Fehler, ${result.conflict} Doppelung, ${result.skipped} nicht syncbar`);
         if (result.lastError) setError(result.lastError);
         return;
       }
@@ -841,12 +842,49 @@ export default function DamageCapturePage() {
     setError("");
     try {
       const result = await syncPendingDamageReports(deviceId);
-      setMessage(`Sync fertig: ${result.synced} synchronisiert, ${result.failed} Fehler, ${result.conflict} Doppelung`);
+      setMessage(`Sync fertig: ${result.synced} synchronisiert, ${result.failed} Fehler, ${result.conflict} Doppelung, ${result.skipped} nicht syncbar`);
       if (result.lastError) setError(result.lastError);
       await refreshReports();
       await refreshServerReports(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sync fehlgeschlagen");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncLocalReport(report: DamageReport) {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await syncPendingDamageReports(deviceId, { onlyLocalReportId: report.local_report_id });
+      if (result.synced) {
+        setMessage("Lokaler Datensatz synchronisiert");
+      } else {
+        setMessage(`Lokaler Datensatz nicht synchronisiert: ${result.failed} Fehler, ${result.skipped} nicht syncbar`);
+      }
+      if (result.lastError) setError(result.lastError);
+      await refreshReports();
+      await refreshServerReports(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lokaler Datensatz konnte nicht synchronisiert werden");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteLocalReport(report: DamageReport) {
+    const label = `${report.article_no} / ${report.article.anlagenbezeichnung || "Artikel ohne Bezeichnung"}`;
+    if (!window.confirm(`Diesen lokalen Datensatz auf diesem Gerät löschen?\n\n${label}\n\nDas löscht nur den lokalen Handy-/Browser-Stand, nicht den Server.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteLocalDamageReport(report.local_report_id);
+      if (report.local_report_id === localReportId) resetCaptureForm("Lokaler Datensatz gelöscht - nächster Artikel bereit");
+      else setMessage("Lokaler Datensatz gelöscht");
+      await refreshReports();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lokaler Datensatz konnte nicht gelöscht werden");
     } finally {
       setBusy(false);
     }
@@ -1356,14 +1394,25 @@ export default function DamageCapturePage() {
           </button>
           <div className="damage-report-list">
             {reports.slice(0, 16).map((report) => (
-              <button key={report.local_report_id} type="button" onClick={() => openReport(report)}>
+              <article className="damage-report-card" key={report.local_report_id}>
                 {report.entry_type === "free" ? <span className="damage-entry-type is-free">Nicht in Liste</span> : null}
                 <strong>{report.article_no} / {report.article.anlagenbezeichnung}</strong>
                 {report.free_reference ? <span>Hinweis: {report.free_reference}</span> : null}
                 <span>{report.team_name} / {formatDateTime(report.updated_at)}</span>
                 <i className={`status ${statusTone(report.sync_status)}`}>{statusLabel(report.sync_status)}</i>
                 {report.last_error ? <small>{report.last_error}</small> : null}
-              </button>
+                <div className="damage-card-actions">
+                  <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => openReport(report)}>
+                    &Ouml;ffnen
+                  </button>
+                  <button className="btn accent damage-mini-button" type="button" disabled={busy} onClick={() => void syncLocalReport(report)}>
+                    Sync
+                  </button>
+                  <button className="btn danger damage-mini-button" type="button" disabled={busy} onClick={() => void deleteLocalReport(report)}>
+                    L&ouml;schen
+                  </button>
+                </div>
+              </article>
             ))}
             {!reports.length ? <p className="muted">Noch kein Schaden lokal gespeichert.</p> : null}
           </div>
