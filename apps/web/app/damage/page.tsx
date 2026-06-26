@@ -219,6 +219,7 @@ export default function DamageCapturePage() {
   const [serverReports, setServerReports] = useState<ServerDamageReport[]>([]);
   const [serverReportsBusy, setServerReportsBusy] = useState(false);
   const [serverReportsMessage, setServerReportsMessage] = useState("");
+  const articleInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
 
   const photoMap = useMemo(() => {
@@ -303,6 +304,28 @@ export default function DamageCapturePage() {
     setPhotos(storedPhotos);
   }, []);
 
+  const resetCaptureForm = useCallback((nextMessage = "Neue Schadensaufnahme bereit") => {
+    setArticleNo("");
+    setArticle(null);
+    setLocalReportId("");
+    setDescription("");
+    setUvvStickerPresent("unklar");
+    setPhotos([]);
+    setPhotoPreviews((current) => {
+      Object.values(current).forEach((url) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
+      return {};
+    });
+    setExistingHint("");
+    setError("");
+    setMessage(nextMessage);
+    window.setTimeout(() => {
+      articleInputRef.current?.focus();
+      articleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }, []);
+
   const refreshQrOptions = useCallback(async () => {
     const localOptions = localQrOptionsFromCapsules();
     try {
@@ -375,7 +398,7 @@ export default function DamageCapturePage() {
       if (document.visibilityState === "visible" && getDamageOnlineStatus()) {
         refreshServerReports(true).catch(() => undefined);
       }
-    }, 15_000);
+    }, 5_000);
     return () => window.clearInterval(timer);
   }, [refreshServerReports]);
 
@@ -521,6 +544,20 @@ export default function DamageCapturePage() {
     return saved;
   }
 
+  async function saveLocalOnly() {
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await saveCurrentReport();
+      if (!saved) return;
+      resetCaptureForm("Schaden lokal gesichert - nächster Artikel bereit");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Schaden konnte nicht lokal gespeichert werden");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveAndSync() {
     setBusy(true);
     setError("");
@@ -528,10 +565,14 @@ export default function DamageCapturePage() {
       const saved = await saveCurrentReport();
       if (!saved) return;
       const result = await syncPendingDamageReports(deviceId);
-      setMessage(`Sync fertig: ${result.synced} synchronisiert, ${result.failed} Fehler, ${result.conflict} Doppelung`);
-      if (result.lastError) setError(result.lastError);
       await refreshReports();
       await refreshServerReports(true);
+      resetCaptureForm(
+        result.failed || result.conflict
+          ? `Schaden lokal gesichert - Sync prüfen: ${result.failed} Fehler, ${result.conflict} Doppelung`
+          : `Schaden synchronisiert - nächster Artikel bereit`,
+      );
+      if (result.lastError) setError(result.lastError);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Schaden konnte nicht synchronisiert werden");
     } finally {
@@ -633,6 +674,7 @@ export default function DamageCapturePage() {
             <label className="field damage-number-field">
               <span>Artikel-Nr. aus Spalte A</span>
               <input
+                ref={articleInputRef}
                 inputMode="numeric"
                 value={articleNo}
                 onChange={(event) => setArticleNo(event.target.value.replace(/[^\d]/g, ""))}
@@ -718,16 +760,13 @@ export default function DamageCapturePage() {
           </label>
 
           <div className="damage-save-bar">
-            <button className="btn accent" type="button" disabled={!canSave || busy} onClick={() => void saveCurrentReport()}>
+            <button className="btn accent" type="button" disabled={!canSave || busy} onClick={() => void saveLocalOnly()}>
               Lokal sichern
             </button>
             <button className="btn accent" type="button" disabled={!canSave || busy} onClick={() => void saveAndSync()}>
               Speichern & Sync
             </button>
-            <button className="btn secondary" type="button" disabled={busy} onClick={() => {
-              setArticleNo("");
-              setMessage("Neue Schadensaufnahme bereit");
-            }}>
+            <button className="btn secondary" type="button" disabled={busy} onClick={() => resetCaptureForm()}>
               Neuer Artikel
             </button>
           </div>
