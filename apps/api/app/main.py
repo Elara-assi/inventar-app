@@ -5902,7 +5902,7 @@ async def save_damage_photo(
         WHERE damage_report_id = %s
           AND (
             photo_type = %s OR
-            (%s IS NOT NULL AND source_device_id = %s AND client_photo_id = %s)
+            (%s::text IS NOT NULL AND source_device_id = %s AND client_photo_id = %s)
           )
         ORDER BY uploaded_at DESC
         LIMIT 1
