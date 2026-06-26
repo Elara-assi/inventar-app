@@ -135,6 +135,20 @@ function normalizedUvv(value?: string | null): DamageReport["uvv_sticker_present
   return value === "ja" || value === "nein" || value === "unklar" ? value : "unklar";
 }
 
+const DAMAGE_DRAFT_KEY_PREFIX = "inventar.damage.draft_report.";
+
+function getDraftReportId(articleNo: string) {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(`${DAMAGE_DRAFT_KEY_PREFIX}${articleNo.trim()}`) || "";
+}
+
+function setDraftReportId(articleNo: string, reportId: string) {
+  if (typeof window === "undefined") return;
+  const key = articleNo.trim();
+  if (!key || !reportId) return;
+  window.localStorage.setItem(`${DAMAGE_DRAFT_KEY_PREFIX}${key}`, reportId);
+}
+
 function createFreeArticleNo() {
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -511,7 +525,8 @@ export default function DamageCapturePage() {
           String(report.article_no || "").trim() === normalized
           || String(report.nr || "").trim() === normalized
         ));
-        const nextId = createDamageReportId();
+        const nextId = getDraftReportId(normalized) || createDamageReportId();
+        setDraftReportId(normalized, nextId);
         setLocalReportId(nextId);
         setDescription(synced?.damage_description || "");
         setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
@@ -560,7 +575,8 @@ export default function DamageCapturePage() {
         return;
       }
       const synced = serverReports.find((report) => String(report.article_no || "").trim() === nextNo);
-      const nextId = createDamageReportId();
+      const nextId = getDraftReportId(nextNo) || createDamageReportId();
+      setDraftReportId(nextNo, nextId);
       setLocalReportId(nextId);
       setDescription(synced?.damage_description || "");
       setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
