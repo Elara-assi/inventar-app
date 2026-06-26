@@ -245,14 +245,14 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           {hasCapturedItems && session && !isClosed ? (
             <details className="pairing-details">
               <summary>QR-Code anzeigen</summary>
-              <div className="qr-box pairing-qr">
-                <QRCodeSVG value={joinUrl(session.join_token)} size={160} />
-              </div>
+              <PairingQrGrid token={session.join_token} size={118} />
             </details>
           ) : (
-            <div className="qr-box pairing-qr">
-              {session && !isClosed ? <QRCodeSVG value={joinUrl(session.join_token)} size={178} /> : <strong>Gesperrt</strong>}
-            </div>
+            session && !isClosed ? <PairingQrGrid token={session.join_token} size={128} /> : (
+              <div className="qr-box pairing-qr">
+                <strong>Gesperrt</strong>
+              </div>
+            )
           )}
           <div className="pairing-meta">
             <span>Token</span>
@@ -263,6 +263,27 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         </aside>
       </section>
     </main>
+  );
+}
+
+function PairingQrGrid({ token, size }: { token: string; size: number }) {
+  return (
+    <div className="qr-choice-grid pairing-qr-grid">
+      <div className="qr-choice-card">
+        <strong>Inventur</strong>
+        <span>Objekte erfassen</span>
+        <div className="qr-box pairing-qr">
+          <QRCodeSVG value={joinUrl(token)} size={size} />
+        </div>
+      </div>
+      <div className="qr-choice-card is-damage">
+        <strong>Schäden</strong>
+        <span>Direkt erfassen</span>
+        <div className="qr-box pairing-qr">
+          <QRCodeSVG value={joinUrl(token, "damage")} size={size} />
+        </div>
+      </div>
+    </div>
   );
 }
 

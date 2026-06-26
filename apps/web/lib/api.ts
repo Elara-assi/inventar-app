@@ -128,7 +128,10 @@ export async function downloadApiFile(path: string, fallbackName = "download"): 
   URL.revokeObjectURL(url);
 }
 
-export function joinUrl(token: string) {
-  if (typeof window === "undefined") return `/mobile/join/${token}`;
-  return `${window.location.origin}/mobile/join/${token}`;
+export function joinUrl(token: string, target?: "damage") {
+  const encodedToken = encodeURIComponent(token);
+  const suffix = target === "damage" ? "?target=damage" : "";
+  const path = `/mobile/join/${encodedToken}${suffix}`;
+  if (typeof window === "undefined") return path;
+  return `${window.location.origin}${path}`;
 }

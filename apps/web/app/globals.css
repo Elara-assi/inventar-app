@@ -966,6 +966,51 @@ textarea {
   border-radius: 8px;
 }
 
+.qr-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 12px;
+}
+
+.qr-choice-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.qr-choice-card.is-damage {
+  border-color: rgba(49, 196, 141, 0.5);
+  background: linear-gradient(180deg, rgba(49, 196, 141, 0.08), #fff 44%);
+}
+
+.qr-choice-card strong {
+  font-size: 14px;
+}
+
+.qr-choice-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.qr-choice-card .qr-box {
+  min-height: auto;
+  padding: 10px;
+}
+
+.qr-choice-card svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.pairing-qr-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 @media (max-width: 760px) {
   .start-shell,
   .grid-2,

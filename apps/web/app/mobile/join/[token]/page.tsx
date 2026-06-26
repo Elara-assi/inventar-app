@@ -395,8 +395,14 @@ async function copyToClipboard(text: string) {
   document.body.removeChild(textArea);
 }
 
+function initialJoinTarget(): "capture" | "damage" {
+  if (typeof window === "undefined") return "capture";
+  return new URLSearchParams(window.location.search).get("target") === "damage" ? "damage" : "capture";
+}
+
 export default function MobileJoinPage({ params }: { params: Promise<{ token: string }> }) {
   const [token, setToken] = useState("");
+  const [joinTarget, setJoinTarget] = useState<"capture" | "damage">(initialJoinTarget);
   const [deviceId, setDeviceId] = useState("");
   const [joined, setJoined] = useState<Joined | null>(null);
   const [joinError, setJoinError] = useState("");
@@ -471,6 +477,15 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
   useEffect(() => {
     params.then((value) => setToken(value.token));
   }, [params]);
+
+  useEffect(() => {
+    setJoinTarget(initialJoinTarget());
+  }, []);
+
+  useEffect(() => {
+    if (!joined || joinTarget !== "damage") return;
+    window.location.replace("/damage");
+  }, [joined, joinTarget]);
 
   useEffect(() => {
     registerMobileServiceWorker();
@@ -1978,7 +1993,7 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <span>{inventoryTypeLabel(inventoryType)}</span>
           </div>
           <div className="mobile-room-actions">
-            <a className="mobile-damage-link" href="/damage">Schaeden erfassen</a>
+            <a className="mobile-damage-link" href="/damage">Schäden erfassen</a>
             <span className="live-indicator">Live</span>
           </div>
         </div> : null}
@@ -1989,7 +2004,9 @@ export default function MobileJoinPage({ params }: { params: Promise<{ token: st
             <p>
               {joinError
                 ? "Der QR-Code ist ungültig oder abgelaufen. Bitte öffne einen aktuellen QR-Code aus der Prüferliste."
-                : "Die Handy-Erfassung wird vorbereitet."}
+                : joinTarget === "damage"
+                  ? "Die Schadenerfassung wird vorbereitet."
+                  : "Die Handy-Erfassung wird vorbereitet."}
             </p>
             {joinError ? <div className="summary-box danger"><strong>Hinweis</strong><span>{joinError}</span></div> : null}
           </section>

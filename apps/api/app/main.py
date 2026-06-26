@@ -221,6 +221,7 @@ class DamageArticleSnapshot(BaseModel):
 
 class DamageReportPayload(BaseModel):
     client_report_id: str
+    session_id: str | None = None
     source_device_id: str | None = None
     article_no: str
     article: DamageArticleSnapshot
@@ -5798,6 +5799,7 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
     captured_at = parse_client_datetime(payload.created_at)
     article = payload.article
     values = {
+        "session_id": payload.session_id,
         "source_device_id": payload.source_device_id,
         "article_no": article_no,
         "nr": damage_article_value(article, "nr") or article_no,
@@ -5814,7 +5816,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
         row = execute(
             """
             UPDATE damage_reports
-            SET source_device_id = COALESCE(%s, source_device_id),
+            SET session_id = COALESCE(%s, session_id),
+                source_device_id = COALESCE(%s, source_device_id),
                 article_no = %s,
                 nr = %s,
                 buchungskreis = %s,
@@ -5830,6 +5833,7 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
             RETURNING *
             """,
             (
+                values["session_id"],
                 values["source_device_id"],
                 values["article_no"],
                 values["nr"],
@@ -5849,16 +5853,17 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
     row = execute(
         """
         INSERT INTO damage_reports (
-          tenant_id, client_report_id, source_device_id, article_no, nr, buchungskreis,
+          tenant_id, client_report_id, session_id, source_device_id, article_no, nr, buchungskreis,
           anlagenbezeichnung, aktivdatum, alter, team_name, damage_description,
           uvv_sticker_present, captured_at
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
             tenant_id,
             payload.client_report_id,
+            values["session_id"],
             values["source_device_id"],
             values["article_no"],
             values["nr"],
@@ -5880,6 +5885,7 @@ async def save_damage_photo(
     *,
     report_id: str,
     tenant_id: str | None,
+    session_id: str | None,
     file: UploadFile,
     photo_type: str,
     client_photo_id: str | None,
@@ -5922,7 +5928,8 @@ async def save_damage_photo(
         row = execute(
             """
             UPDATE damage_photos
-            SET client_photo_id = COALESCE(%s, client_photo_id),
+            SET session_id = COALESCE(%s, session_id),
+                client_photo_id = COALESCE(%s, client_photo_id),
                 source_device_id = COALESCE(%s, source_device_id),
                 original_path = %s,
                 original_hash = %s,
@@ -5933,20 +5940,20 @@ async def save_damage_photo(
             WHERE id = %s
             RETURNING *
             """,
-            (client_photo_id, source_device_id, str(path), digest, width, height, metadata, existing["id"]),
+            (session_id, client_photo_id, source_device_id, str(path), digest, width, height, metadata, existing["id"]),
         )
         audit("damage_photo_updated", "damage_report", report_id, row)
         return row, True
     row = execute(
         """
         INSERT INTO damage_photos (
-          tenant_id, damage_report_id, client_photo_id, source_device_id, photo_type,
+          tenant_id, damage_report_id, session_id, client_photo_id, source_device_id, photo_type,
           original_path, original_hash, width, height, metadata_json
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
         RETURNING *
         """,
-        (tenant_id, report_id, client_photo_id, source_device_id, photo_type, str(path), digest, width, height, metadata),
+        (tenant_id, report_id, session_id, client_photo_id, source_device_id, photo_type, str(path), digest, width, height, metadata),
     )
     audit("damage_photo_uploaded", "damage_report", report_id, row)
     return row, False
@@ -5969,6 +5976,10 @@ async def sync_damage_report(request: Request, payload: str = Form(...), files: 
     missing_photo_types = [DAMAGE_PHOTO_LABELS[photo_type] for photo_type in DAMAGE_PHOTO_TYPES if photo_type in required_photo_types and photo_type not in submitted_photo_types]
     if missing_photo_types:
         raise HTTPException(status_code=422, detail=f"Pflichtfoto fehlt: {', '.join(missing_photo_types)}")
+    auth = getattr(request.state, "auth", {}) or {}
+    if auth.get("kind") == "mobile_session":
+        parsed.report.session_id = str(auth.get("session_id") or "") or parsed.report.session_id
+        parsed.report.source_device_id = str(auth.get("device_id") or "") or parsed.report.source_device_id
     tenant_id = request_tenant_id(request)
     report = upsert_damage_report(parsed.report, tenant_id)
     photo_results: list[dict[str, Any]] = []
@@ -5985,6 +5996,7 @@ async def sync_damage_report(request: Request, payload: str = Form(...), files: 
             row, already_exists = await save_damage_photo(
                 report_id=str(report["id"]),
                 tenant_id=tenant_id,
+                session_id=parsed.report.session_id,
                 file=files[index],
                 photo_type=meta.photo_type,
                 client_photo_id=meta.client_photo_id,

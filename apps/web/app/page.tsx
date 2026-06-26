@@ -597,9 +597,28 @@ export default function DashboardPage() {
             <span>{currentBuildingLabel}</span>
             <span>{currentRoomLabel}</span>
           </div>
-          <div className="qr-box">
-            {activeSession ? <QRCodeSVG value={joinUrl(activeSession.join_token)} size={220} /> : <strong>QR erscheint nach Session-Start</strong>}
-          </div>
+          {activeSession ? (
+            <div className="qr-choice-grid">
+              <div className="qr-choice-card">
+                <strong>Inventur</strong>
+                <span>Objekte erfassen</span>
+                <div className="qr-box">
+                  <QRCodeSVG value={joinUrl(activeSession.join_token)} size={128} />
+                </div>
+              </div>
+              <div className="qr-choice-card is-damage">
+                <strong>Schäden</strong>
+                <span>Direkt zur Schadenerfassung</span>
+                <div className="qr-box">
+                  <QRCodeSVG value={joinUrl(activeSession.join_token, "damage")} size={128} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="qr-box">
+              <strong>QR erscheint nach Session-Start</strong>
+            </div>
+          )}
           {activeSession ? <a className="btn secondary" href={`/session/${activeSession.id}`}>Live-Prüfung öffnen</a> : null}
         </aside>
       </section>
