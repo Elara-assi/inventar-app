@@ -42,6 +42,8 @@ function buildPayload(report: DamageReport, photos: DamagePhoto[], deviceId: str
       source_device_id: deviceId,
       article_no: report.article_no,
       article: report.article,
+      entry_type: report.entry_type ?? "catalog",
+      free_reference: report.free_reference,
       team_name: report.team_name,
       description: report.description,
       uvv_sticker_present: report.uvv_sticker_present,

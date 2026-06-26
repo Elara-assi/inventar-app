@@ -225,6 +225,8 @@ class DamageReportPayload(BaseModel):
     source_device_id: str | None = None
     article_no: str
     article: DamageArticleSnapshot
+    entry_type: str = "catalog"
+    free_reference: str | None = None
     team_name: str = "Team 1"
     description: str = ""
     uvv_sticker_present: str = "unklar"
@@ -5792,6 +5794,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
     )
     captured_at = parse_client_datetime(payload.created_at)
     article = payload.article
+    entry_type = "free" if str(payload.entry_type or "").strip() == "free" else "catalog"
+    free_reference = (payload.free_reference or "").strip() or None
     values = {
         "session_id": payload.session_id,
         "source_device_id": payload.source_device_id,
@@ -5801,6 +5805,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
         "anlagenbezeichnung": damage_article_value(article, "anlagenbezeichnung"),
         "aktivdatum": str(damage_article_value(article, "aktivdatum_iso") or damage_article_value(article, "aktivdatum") or ""),
         "alter": damage_article_value(article, "alter"),
+        "entry_type": entry_type,
+        "free_reference": free_reference,
         "team_name": (payload.team_name or "Team 1").strip() or "Team 1",
         "damage_description": payload.description.strip(),
         "uvv_sticker_present": payload.uvv_sticker_present if payload.uvv_sticker_present in {"ja", "nein", "unklar"} else "unklar",
@@ -5818,6 +5824,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
                 anlagenbezeichnung = %s,
                 aktivdatum = %s,
                 alter = %s,
+                entry_type = %s,
+                free_reference = %s,
                 team_name = %s,
                 damage_description = %s,
                 uvv_sticker_present = %s,
@@ -5835,6 +5843,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
                 values["anlagenbezeichnung"],
                 values["aktivdatum"],
                 values["alter"],
+                values["entry_type"],
+                values["free_reference"],
                 values["team_name"],
                 values["damage_description"],
                 values["uvv_sticker_present"],
@@ -5848,10 +5858,10 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
         """
         INSERT INTO damage_reports (
           tenant_id, client_report_id, session_id, source_device_id, article_no, nr, buchungskreis,
-          anlagenbezeichnung, aktivdatum, alter, team_name, damage_description,
+          anlagenbezeichnung, aktivdatum, alter, entry_type, free_reference, team_name, damage_description,
           uvv_sticker_present, captured_at
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING *
         """,
         (
@@ -5865,6 +5875,8 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
             values["anlagenbezeichnung"],
             values["aktivdatum"],
             values["alter"],
+            values["entry_type"],
+            values["free_reference"],
             values["team_name"],
             values["damage_description"],
             values["uvv_sticker_present"],
@@ -6124,14 +6136,16 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
     thin = Side(style="thin", color="C6D6EA")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     headers = [
+        "Art",
         "Nr.",
         "Buchungskreis",
         "Anlagenbezeichnung",
+        "Freier Hinweis",
         "Aktivdatum",
         "Alter",
         "Team",
         "Erfasst am",
-        "Geändert am",
+        "Ge\u00e4ndert am",
         "Schadensbeschreibung",
         "UVV-Aufkleber vorhanden",
         "Frontbild",
@@ -6149,17 +6163,20 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = border
     for row_index, row in enumerate(rows, start=2):
-        ws.cell(row=row_index, column=1, value=row.get("nr") or row.get("article_no"))
-        ws.cell(row=row_index, column=2, value=row.get("buchungskreis"))
-        ws.cell(row=row_index, column=3, value=row.get("anlagenbezeichnung"))
-        ws.cell(row=row_index, column=4, value=row.get("aktivdatum"))
-        ws.cell(row=row_index, column=5, value=float(row["alter"]) if row.get("alter") is not None else None)
-        ws.cell(row=row_index, column=6, value=row.get("team_name"))
-        ws.cell(row=row_index, column=7, value=format_excel_datetime(row.get("captured_at") or row.get("created_at")))
-        ws.cell(row=row_index, column=8, value=format_excel_datetime(row.get("updated_at")))
-        ws.cell(row=row_index, column=9, value=row.get("damage_description"))
-        ws.cell(row=row_index, column=10, value=row.get("uvv_sticker_present"))
-        for photo_offset, photo_type in enumerate(DAMAGE_PHOTO_TYPES, start=11):
+        entry_type = "Nicht in Liste" if row.get("entry_type") == "free" else "Listenartikel"
+        ws.cell(row=row_index, column=1, value=entry_type)
+        ws.cell(row=row_index, column=2, value=row.get("nr") or row.get("article_no"))
+        ws.cell(row=row_index, column=3, value=row.get("buchungskreis"))
+        ws.cell(row=row_index, column=4, value=row.get("anlagenbezeichnung"))
+        ws.cell(row=row_index, column=5, value=row.get("free_reference"))
+        ws.cell(row=row_index, column=6, value=row.get("aktivdatum"))
+        ws.cell(row=row_index, column=7, value=float(row["alter"]) if row.get("alter") is not None else None)
+        ws.cell(row=row_index, column=8, value=row.get("team_name"))
+        ws.cell(row=row_index, column=9, value=format_excel_datetime(row.get("captured_at") or row.get("created_at")))
+        ws.cell(row=row_index, column=10, value=format_excel_datetime(row.get("updated_at")))
+        ws.cell(row=row_index, column=11, value=row.get("damage_description"))
+        ws.cell(row=row_index, column=12, value=row.get("uvv_sticker_present"))
+        for photo_offset, photo_type in enumerate(DAMAGE_PHOTO_TYPES, start=13):
             insert_damage_excel_photo(ws, row, row_index, photo_offset, photo_type)
         for column_index in range(1, len(headers) + 1):
             cell = ws.cell(row=row_index, column=column_index)
@@ -6168,15 +6185,16 @@ def build_damage_excel_workbook(rows: list[dict[str, Any]]) -> Workbook:
         ws.row_dimensions[row_index].height = 92
     ws.freeze_panes = "A2"
     if rows:
-        ws.auto_filter.ref = f"A1:P{len(rows) + 1}"
-    widths = [10, 16, 36, 14, 10, 18, 20, 20, 48, 18, 22, 22, 24, 24, 24, 24]
+        ws.auto_filter.ref = f"A1:R{len(rows) + 1}"
+    widths = [16, 12, 16, 36, 30, 14, 10, 18, 20, 20, 48, 18, 22, 22, 24, 24, 24, 24]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
 
-    summary_ws = wb.create_sheet("Übersicht", 0)
+    summary_ws = wb.create_sheet("\u00dcbersicht", 0)
     summary_ws.append(["Export", "Schadensliste"])
     summary_ws.append(["Erzeugt am", excel_value(datetime.now())])
-    summary_ws.append(["Schadensfälle", len(rows)])
+    summary_ws.append(["Nicht in Liste", len([row for row in rows if row.get("entry_type") == "free"])])
+    summary_ws.append(["Schadensf\u00e4lle", len(rows)])
     summary_ws.append(["Teams", len({row.get("team_name") for row in rows if row.get("team_name")} )])
     summary_ws.column_dimensions["A"].width = 22
     summary_ws.column_dimensions["B"].width = 36

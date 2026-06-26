@@ -8318,10 +8318,41 @@ body:has(.damage-page) .brand span {
   font-weight: 900;
 }
 
+.damage-mode-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(132px, 1fr));
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #c6d6ea;
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 4px;
+}
+
+.damage-mode-toggle button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5b7088;
+  padding: 0 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.damage-mode-toggle button.is-active {
+  background: #0f1c2e;
+  color: #fff;
+}
+
 .damage-form-grid {
   display: grid;
   grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr);
   gap: 12px;
+}
+
+.damage-free-grid {
+  grid-template-columns: minmax(180px, 0.7fr) minmax(220px, 1fr) minmax(220px, 1fr);
 }
 
 .damage-number-field input {
@@ -8334,6 +8365,13 @@ body:has(.damage-page) .brand span {
 .damage-team-field input {
   min-height: 68px;
   font-size: 20px;
+  font-weight: 900;
+}
+
+.damage-free-title-field input,
+.damage-free-reference-field input {
+  min-height: 68px;
+  font-size: 18px;
   font-weight: 900;
 }
 
@@ -8359,6 +8397,23 @@ body:has(.damage-page) .brand span {
 .damage-article-box span {
   color: #466079;
   font-weight: 800;
+}
+
+.damage-inline-action {
+  width: fit-content;
+  min-height: 34px;
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d4ed8;
+  padding: 7px 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.damage-inline-action:hover,
+.damage-inline-action:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.18);
 }
 
 .damage-server-hit {
@@ -8614,6 +8669,13 @@ body:has(.damage-page) .brand span {
   white-space: nowrap;
 }
 
+.damage-list-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .damage-server-section {
   display: grid;
   gap: 10px;
@@ -8677,6 +8739,24 @@ body:has(.damage-page) .brand span {
   cursor: default;
 }
 
+.damage-entry-type {
+  width: fit-content;
+  border: 1px solid #c6d6ea;
+  border-radius: 999px;
+  background: #f8fbff;
+  color: #466079;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.damage-entry-type.is-free {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .damage-server-open-card {
   cursor: pointer;
 }
@@ -8699,6 +8779,16 @@ body:has(.damage-page) .brand span {
   font-weight: 800;
 }
 
+.damage-report-list .damage-entry-type {
+  color: #466079;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.damage-report-list .damage-entry-type.is-free {
+  color: #9a3412;
+}
+
 .damage-report-card small {
   display: -webkit-box;
   overflow: hidden;
@@ -8714,6 +8804,7 @@ body:has(.damage-page) .brand span {
 @media (max-width: 980px) {
   .damage-layout,
   .damage-form-grid,
+  .damage-free-grid,
   .damage-save-bar {
     grid-template-columns: 1fr;
   }
@@ -8761,6 +8852,7 @@ body:has(.damage-page) .brand span {
   }
 
   .damage-form-grid,
+  .damage-mode-toggle,
   .damage-article-box,
   .damage-photo-grid,
   .damage-uvv-row,

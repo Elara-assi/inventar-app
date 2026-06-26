@@ -17,12 +17,15 @@ export type DamagePhotoType =
   | "damage_detail_2";
 
 export type DamageSyncStatus = "local" | "pending" | "uploading" | "synced" | "failed" | "conflict";
+export type DamageEntryType = "catalog" | "free";
 
 export type DamageReport = {
   local_report_id: string;
   server_report_id?: string;
   article_no: string;
   article: DamageArticle;
+  entry_type?: DamageEntryType;
+  free_reference?: string;
   team_name: string;
   description: string;
   uvv_sticker_present: "ja" | "nein" | "unklar";
@@ -288,6 +291,8 @@ export async function saveDamageReport(report: DamageReport): Promise<DamageRepo
     ...report,
     local_report_id: existing?.local_report_id ?? report.local_report_id,
     server_report_id: existing?.server_report_id ?? report.server_report_id,
+    entry_type: report.entry_type ?? existing?.entry_type ?? "catalog",
+    free_reference: report.free_reference ?? existing?.free_reference,
     created_at: existing?.created_at ?? report.created_at ?? now,
     updated_at: now,
     sync_status: "pending",

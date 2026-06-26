@@ -5,6 +5,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { api, downloadApiFile, joinUrl } from "@/lib/api";
 import {
   DamageArticle,
+  DamageEntryType,
   DamagePhoto,
   DamagePhotoType,
   DamageReport,
@@ -58,6 +59,8 @@ type DamageQrOption = {
 type ServerDamageReport = {
   id: string;
   article_no: string;
+  entry_type?: DamageEntryType | null;
+  free_reference?: string | null;
   nr?: string | null;
   anlagenbezeichnung?: string | null;
   team_name?: string | null;
@@ -132,6 +135,28 @@ function normalizedUvv(value?: string | null): DamageReport["uvv_sticker_present
   return value === "ja" || value === "nein" || value === "unklar" ? value : "unklar";
 }
 
+function createFreeArticleNo() {
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `FREI-${stamp}-${suffix}`;
+}
+
+function createFreeDamageArticle(articleNo: string, title: string): DamageArticle {
+  return {
+    article_no: articleNo,
+    nr: articleNo,
+    buchungskreis: "Nicht in Liste",
+    anlagenbezeichnung: title.trim() || "Freier Schaden",
+    aktivdatum: null,
+    aktivdatum_iso: null,
+    alter: null,
+  };
+}
+
+function isFreeServerReport(report?: ServerDamageReport | null) {
+  return report?.entry_type === "free" || String(report?.article_no || "").startsWith("FREI-");
+}
+
 function localQrOptionsFromCapsules(): DamageQrOption[] {
   if (typeof window === "undefined") return [];
   const options: DamageQrOption[] = [];
@@ -203,8 +228,12 @@ export default function DamageCapturePage() {
   const [catalogReady, setCatalogReady] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [teamName, setTeamName] = useState("Team 1");
+  const [captureMode, setCaptureMode] = useState<DamageEntryType>("catalog");
   const [articleNo, setArticleNo] = useState("");
   const [article, setArticle] = useState<DamageArticle | null>(null);
+  const [freeArticleNo, setFreeArticleNo] = useState("");
+  const [freeTitle, setFreeTitle] = useState("");
+  const [freeReference, setFreeReference] = useState("");
   const [localReportId, setLocalReportId] = useState("");
   const [description, setDescription] = useState("");
   const [uvvStickerPresent, setUvvStickerPresent] = useState<DamageReport["uvv_sticker_present"]>("unklar");
@@ -225,6 +254,7 @@ export default function DamageCapturePage() {
   const [serverReportsBusy, setServerReportsBusy] = useState(false);
   const [serverReportsMessage, setServerReportsMessage] = useState("");
   const articleInputRef = useRef<HTMLInputElement | null>(null);
+  const freeTitleInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
 
   const photoMap = useMemo(() => {
@@ -314,7 +344,17 @@ export default function DamageCapturePage() {
   }, []);
 
   const resetCaptureForm = useCallback((nextMessage = "Neue Schadensaufnahme bereit") => {
-    setArticleNo("");
+    if (captureMode === "free") {
+      setFreeArticleNo(createFreeArticleNo());
+      setFreeTitle("");
+      setFreeReference("");
+      setArticleNo("");
+    } else {
+      setArticleNo("");
+      setFreeArticleNo("");
+      setFreeTitle("");
+      setFreeReference("");
+    }
     setArticle(null);
     setLocalReportId("");
     setDescription("");
@@ -330,10 +370,11 @@ export default function DamageCapturePage() {
     setError("");
     setMessage(nextMessage);
     window.setTimeout(() => {
-      articleInputRef.current?.focus();
-      articleInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const target = captureMode === "free" ? freeTitleInputRef.current : articleInputRef.current;
+      target?.focus();
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 60);
-  }, []);
+  }, [captureMode]);
 
   const refreshQrOptions = useCallback(async () => {
     const localOptions = localQrOptionsFromCapsules();
@@ -416,6 +457,7 @@ export default function DamageCapturePage() {
   }, [teamName]);
 
   useEffect(() => {
+    if (captureMode === "free") return;
     const normalized = articleNo.trim();
     let ignore = false;
     async function resolveArticle() {
@@ -474,7 +516,56 @@ export default function DamageCapturePage() {
     return () => {
       ignore = true;
     };
-  }, [articleNo, catalogReady, loadPhotosForReport]);
+  }, [articleNo, captureMode, catalogReady, loadPhotosForReport, serverReports]);
+
+  useEffect(() => {
+    if (captureMode !== "free") return;
+    let ignore = false;
+    async function resolveFreeArticle() {
+      setError("");
+      setExistingHint("");
+      const nextNo = freeArticleNo || createFreeArticleNo();
+      if (!freeArticleNo) {
+        setFreeArticleNo(nextNo);
+        return;
+      }
+      if (articleNo !== nextNo) setArticleNo(nextNo);
+      const title = freeTitle.trim();
+      if (!title) {
+        setArticle(null);
+        setExistingHint("Freier Schaden: Bezeichnung eingeben, dann Fotos und Beschreibung erfassen.");
+        return;
+      }
+      const nextArticle = createFreeDamageArticle(nextNo, title);
+      setArticle(nextArticle);
+      if (localReportId && articleNo === nextNo) return;
+      const existing = await getDamageReportByArticle(nextNo);
+      if (ignore) return;
+      if (existing) {
+        setLocalReportId(existing.local_report_id);
+        setDescription(existing.description);
+        setUvvStickerPresent(existing.uvv_sticker_present);
+        setTeamName(existing.team_name || getStoredDamageTeamName());
+        setFreeReference(existing.free_reference || "");
+        setExistingHint("Freier Schaden ist bereits lokal erfasst und wurde zum Bearbeiten ge\u00f6ffnet.");
+        await loadPhotosForReport(existing.local_report_id);
+        return;
+      }
+      const synced = serverReports.find((report) => String(report.article_no || "").trim() === nextNo);
+      const nextId = createDamageReportId();
+      setLocalReportId(nextId);
+      setDescription(synced?.damage_description || "");
+      setUvvStickerPresent(normalizedUvv(synced?.uvv_sticker_present));
+      if (synced?.team_name) setTeamName(synced.team_name);
+      if (synced?.free_reference) setFreeReference(synced.free_reference);
+      setExistingHint(synced ? "Freier Schaden ist bereits synchronisiert und wurde zum Nachbearbeiten ge\u00f6ffnet." : "");
+      await loadPhotosForReport(nextId);
+    }
+    resolveFreeArticle().catch((err) => setError(err instanceof Error ? err.message : "Freier Schaden konnte nicht vorbereitet werden"));
+    return () => {
+      ignore = true;
+    };
+  }, [articleNo, captureMode, freeArticleNo, freeTitle, loadPhotosForReport, localReportId, serverReports]);
 
   async function selectPhoto(type: DamagePhotoType, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -531,7 +622,7 @@ export default function DamageCapturePage() {
 
   async function saveCurrentReport() {
     if (!article || !localReportId) {
-      setError("Bitte zuerst eine gültige Artikelnummer eingeben.");
+      setError(captureMode === "free" ? "Bitte zuerst eine Bezeichnung f\u00fcr den freien Schaden eingeben." : "Bitte zuerst eine g\u00fcltige Artikelnummer eingeben.");
       return null;
     }
     if (!canSave) {
@@ -547,6 +638,8 @@ export default function DamageCapturePage() {
       server_report_id: serverReportForArticle?.id,
       article_no: article.article_no,
       article,
+      entry_type: captureMode,
+      free_reference: captureMode === "free" ? (freeReference.trim() || undefined) : undefined,
       team_name: teamName.trim() || "Team 1",
       description: description.trim(),
       uvv_sticker_present: uvvStickerPresent,
@@ -626,6 +719,50 @@ export default function DamageCapturePage() {
     }
   }
 
+  function switchCaptureMode(nextMode: DamageEntryType) {
+    if (nextMode === captureMode) return;
+    setCaptureMode(nextMode);
+    setArticle(null);
+    setLocalReportId("");
+    setDescription("");
+    setUvvStickerPresent("unklar");
+    setPhotos([]);
+    setPhotoPreviews((current) => {
+      Object.values(current).forEach((url) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
+      return {};
+    });
+    setExistingHint("");
+    setError("");
+    if (nextMode === "free") {
+      const nextNo = createFreeArticleNo();
+      setFreeArticleNo(nextNo);
+      setFreeTitle("");
+      setFreeReference("");
+      setArticleNo(nextNo);
+      setMessage("Freier Schaden bereit");
+    } else {
+      setArticleNo("");
+      setFreeArticleNo("");
+      setFreeTitle("");
+      setFreeReference("");
+      setMessage("Listenartikel bereit");
+    }
+    window.setTimeout(() => {
+      const target = nextMode === "free" ? freeTitleInputRef.current : articleInputRef.current;
+      target?.focus();
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 60);
+  }
+
+  function startFreeFromMissingArticle() {
+    const typedNumber = articleNo.trim();
+    switchCaptureMode("free");
+    setFreeReference(typedNumber ? `Eingegebene Nr. ${typedNumber}` : "");
+    setMessage("Artikel als freien Schaden aufnehmen");
+  }
+
   async function renewSelectedQr() {
     if (!selectedQrOption || selectedQrOption.source !== "server") return;
     setQrBusy(true);
@@ -650,15 +787,43 @@ export default function DamageCapturePage() {
   }
 
   function openReport(report: DamageReport) {
+    const isFree = report.entry_type === "free" || report.article_no.startsWith("FREI-");
+    setCaptureMode(isFree ? "free" : "catalog");
+    setArticle(null);
+    setLocalReportId("");
+    if (isFree) {
+      setFreeArticleNo(report.article_no);
+      setFreeTitle(report.article.anlagenbezeichnung || "");
+      setFreeReference(report.free_reference || "");
+    } else {
+      setFreeArticleNo("");
+      setFreeTitle("");
+      setFreeReference("");
+    }
     setArticleNo(report.article_no);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function openServerReport(report: ServerDamageReport) {
-    setArticleNo(String(report.article_no || report.nr || ""));
+    const nextArticleNo = String(report.article_no || report.nr || "");
+    const isFree = isFreeServerReport(report);
+    setCaptureMode(isFree ? "free" : "catalog");
+    setArticle(null);
+    setLocalReportId("");
+    if (isFree) {
+      setFreeArticleNo(nextArticleNo);
+      setFreeTitle(report.anlagenbezeichnung || "");
+      setFreeReference(report.free_reference || "");
+    } else {
+      setFreeArticleNo("");
+      setFreeTitle("");
+      setFreeReference("");
+    }
+    setArticleNo(nextArticleNo);
     setMessage("Synchronisierten Schaden zum Nachbearbeiten ge\u00f6ffnet");
     window.setTimeout(() => {
-      articleInputRef.current?.focus();
+      const target = isFree ? freeTitleInputRef.current : articleInputRef.current;
+      target?.focus();
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 60);
   }
@@ -692,30 +857,74 @@ export default function DamageCapturePage() {
           {error ? <p className="status upload_fehler damage-message">{error}</p> : null}
           {message ? <p className="damage-inline-message">{message}</p> : null}
 
-          <div className="damage-form-grid">
-            <label className="field damage-team-field">
-              <span>Team</span>
-              <input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Team 1" />
-            </label>
-            <label className="field damage-number-field">
-              <span>Artikel-Nr. aus Spalte A</span>
-              <input
-                ref={articleInputRef}
-                inputMode="numeric"
-                value={articleNo}
-                onChange={(event) => setArticleNo(event.target.value.replace(/[^\d]/g, ""))}
-                placeholder="z. B. 811"
-                autoFocus
-              />
-            </label>
+          <div className="damage-mode-toggle" role="group" aria-label="Art der Schadensaufnahme">
+            <button type="button" className={captureMode === "catalog" ? "is-active" : ""} onClick={() => switchCaptureMode("catalog")}>
+              Listenartikel
+            </button>
+            <button type="button" className={captureMode === "free" ? "is-active" : ""} onClick={() => switchCaptureMode("free")}>
+              Nicht in Liste
+            </button>
           </div>
+
+          {captureMode === "catalog" ? (
+            <div className="damage-form-grid">
+              <label className="field damage-team-field">
+                <span>Team</span>
+                <input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Team 1" />
+              </label>
+              <label className="field damage-number-field">
+                <span>Artikel-Nr. aus Spalte A</span>
+                <input
+                  ref={articleInputRef}
+                  inputMode="numeric"
+                  value={articleNo}
+                  onChange={(event) => setArticleNo(event.target.value.replace(/[^\d]/g, ""))}
+                  placeholder="z. B. 811"
+                  autoFocus
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="damage-form-grid damage-free-grid">
+              <label className="field damage-team-field">
+                <span>Team</span>
+                <input value={teamName} onChange={(event) => setTeamName(event.target.value)} placeholder="Team 1" />
+              </label>
+              <label className="field damage-free-title-field">
+                <span>Bezeichnung</span>
+                <input
+                  ref={freeTitleInputRef}
+                  value={freeTitle}
+                  onChange={(event) => setFreeTitle(event.target.value)}
+                  placeholder="z. B. unbekannte Maschine Waschhalle"
+                />
+              </label>
+              <label className="field damage-free-reference-field">
+                <span>Hinweis / Referenz</span>
+                <input
+                  value={freeReference}
+                  onChange={(event) => setFreeReference(event.target.value)}
+                  placeholder="z. B. Standort, alte Nummer, Fundort"
+                />
+              </label>
+            </div>
+          )}
 
           <div className={`damage-article-box ${article ? "is-found" : ""}`}>
             {article ? (
               <>
                 <strong>{article.anlagenbezeichnung}</strong>
-                <span>Nr. {article.nr} / Buchungskreis {article.buchungskreis}</span>
-                <span>Aktivdatum {articleDate(article) || "offen"} / Alter {article.alter ?? "offen"}</span>
+                {captureMode === "free" ? (
+                  <>
+                    <span>Nicht in Liste / interne Nr. {article.nr}</span>
+                    {freeReference.trim() ? <span>Hinweis: {freeReference.trim()}</span> : null}
+                  </>
+                ) : (
+                  <>
+                    <span>Nr. {article.nr} / Buchungskreis {article.buchungskreis}</span>
+                    <span>Aktivdatum {articleDate(article) || "offen"} / Alter {article.alter ?? "offen"}</span>
+                  </>
+                )}
                 {serverReportForArticle ? (
                   <span className="damage-server-hit">
                     Bereits synchronisiert: {serverReportForArticle.team_name || "Team offen"} / {formatDateTime(serverReportForArticle.updated_at || serverReportForArticle.captured_at || undefined)}
@@ -724,8 +933,17 @@ export default function DamageCapturePage() {
               </>
             ) : (
               <>
-                <strong>Artikel suchen</strong>
-                <span>Die App gleicht die Nummer mit dem lokalen Excel-Katalog ab.</span>
+                <strong>{captureMode === "free" ? "Freien Schaden vorbereiten" : "Artikel suchen"}</strong>
+                <span>
+                  {captureMode === "free"
+                    ? "Bezeichnung eingeben, dann Fotos und Beschreibung erfassen."
+                    : "Die App gleicht die Nummer mit dem lokalen Excel-Katalog ab."}
+                </span>
+                {captureMode === "catalog" && articleNo.trim() && catalogReady ? (
+                  <button className="damage-inline-action" type="button" onClick={startFreeFromMissingArticle}>
+                    Als freien Schaden aufnehmen
+                  </button>
+                ) : null}
               </>
             )}
           </div>
@@ -794,7 +1012,7 @@ export default function DamageCapturePage() {
               Speichern & Sync
             </button>
             <button className="btn secondary" type="button" disabled={busy} onClick={() => resetCaptureForm()}>
-              Neuer Artikel
+              {captureMode === "free" ? "Neuer freier Schaden" : "Neuer Artikel"}
             </button>
           </div>
         </div>
@@ -805,9 +1023,14 @@ export default function DamageCapturePage() {
                 <h2>Erfasste Sch&auml;den</h2>
                 <span>Direkt nach der Erfassung sichtbar. Zum Nachbearbeiten einen Artikel &ouml;ffnen.</span>
               </div>
-              <button className="btn secondary damage-mini-button" type="button" disabled={serverReportsBusy} onClick={() => void refreshServerReports()}>
-                {serverReportsBusy ? "L\u00e4dt" : "Aktualisieren"}
-              </button>
+              <div className="damage-list-toolbar">
+                <button className="btn secondary damage-mini-button" type="button" disabled={serverReportsBusy} onClick={() => void refreshServerReports()}>
+                  {serverReportsBusy ? "L\u00e4dt" : "Aktualisieren"}
+                </button>
+                <button className="btn secondary damage-mini-button" type="button" disabled={busy} onClick={() => void exportExcel()}>
+                  Excel-Schadensliste
+                </button>
+              </div>
             </div>
             <div className="damage-summary-grid damage-server-summary">
               <span><b>{serverReports.length}</b>Artikel</span>
@@ -818,7 +1041,11 @@ export default function DamageCapturePage() {
             <div className="damage-report-list damage-server-report-list">
               {serverReports.map((report) => (
                 <button className="damage-report-card damage-server-open-card" type="button" key={report.id} onClick={() => openServerReport(report)}>
+                  <span className={`damage-entry-type ${isFreeServerReport(report) ? "is-free" : ""}`}>
+                    {isFreeServerReport(report) ? "Nicht in Liste" : "Listenartikel"}
+                  </span>
                   <strong>{report.article_no} / {report.anlagenbezeichnung || "Artikel ohne Bezeichnung"}</strong>
+                  {report.free_reference ? <span>Hinweis: {report.free_reference}</span> : null}
                   <span>{report.team_name || "Team offen"} / {formatDateTime(report.updated_at || report.captured_at || undefined)}</span>
                   <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
                   {report.photo_types?.length ? <span>Vorhanden: {report.photo_types.map((type) => photoSlots.find((slot) => slot.type === type)?.label || type).join(", ")}</span> : null}
@@ -894,7 +1121,11 @@ export default function DamageCapturePage() {
             <div className="damage-report-list damage-server-report-list">
               {serverReports.slice(0, 18).map((report) => (
                 <article className="damage-report-card" key={report.id}>
+                  <span className={`damage-entry-type ${isFreeServerReport(report) ? "is-free" : ""}`}>
+                    {isFreeServerReport(report) ? "Nicht in Liste" : "Listenartikel"}
+                  </span>
                   <strong>{report.article_no} / {report.anlagenbezeichnung || "Artikel ohne Bezeichnung"}</strong>
+                  {report.free_reference ? <span>Hinweis: {report.free_reference}</span> : null}
                   <span>{report.team_name || "Team offen"} / {formatDateTime(report.updated_at || report.captured_at || undefined)}</span>
                   <span>{Number(report.photo_count || 0)} Fotos / UVV {report.uvv_sticker_present || "unklar"}</span>
                   {report.damage_description ? <small>{report.damage_description}</small> : null}
@@ -918,13 +1149,12 @@ export default function DamageCapturePage() {
           <button className="btn accent" type="button" disabled={busy || !summary.pending} onClick={() => void syncAll()}>
             Alle offenen synchronisieren
           </button>
-          <button className="btn secondary" type="button" disabled={busy} onClick={() => void exportExcel()}>
-            Excel-Schadensliste
-          </button>
           <div className="damage-report-list">
             {reports.slice(0, 16).map((report) => (
               <button key={report.local_report_id} type="button" onClick={() => openReport(report)}>
+                {report.entry_type === "free" ? <span className="damage-entry-type is-free">Nicht in Liste</span> : null}
                 <strong>{report.article_no} / {report.article.anlagenbezeichnung}</strong>
+                {report.free_reference ? <span>Hinweis: {report.free_reference}</span> : null}
                 <span>{report.team_name} / {formatDateTime(report.updated_at)}</span>
                 <i className={`status ${statusTone(report.sync_status)}`}>{statusLabel(report.sync_status)}</i>
                 {report.last_error ? <small>{report.last_error}</small> : null}
