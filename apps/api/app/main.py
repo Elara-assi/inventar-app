@@ -5783,7 +5783,7 @@ def upsert_damage_report(payload: DamageReportPayload, tenant_id: str | None) ->
         SELECT *
         FROM damage_reports
         WHERE tenant_id IS NOT DISTINCT FROM %s AND client_report_id = %s
-          AND (%s IS NULL OR source_device_id = %s)
+          AND (%s::text IS NULL OR source_device_id = %s)
         LIMIT 1
         """,
         (tenant_id, payload.client_report_id, payload.source_device_id, payload.source_device_id),
