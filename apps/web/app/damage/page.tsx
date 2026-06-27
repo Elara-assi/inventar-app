@@ -355,6 +355,7 @@ export default function DamageCapturePage() {
   const fileInputs = useRef<Partial<Record<DamagePhotoType, HTMLInputElement | null>>>({});
   const draftSaveTimer = useRef<number | null>(null);
   const serverReportsRefreshInFlight = useRef(false);
+  const backgroundSyncInFlight = useRef(false);
 
   const photoMap = useMemo(() => {
     const map = new Map<DamagePhotoType, DamagePhoto>();
@@ -478,6 +479,27 @@ export default function DamageCapturePage() {
     }, 60);
   }, [captureMode]);
 
+  const runBackgroundSync = useCallback(async (onlyLocalReportId?: string, announce = false) => {
+    if (!deviceId || backgroundSyncInFlight.current || !getDamageOnlineStatus()) return;
+    backgroundSyncInFlight.current = true;
+    try {
+      const result = await syncPendingDamageReports(deviceId, onlyLocalReportId ? { onlyLocalReportId } : {});
+      if (result.synced > 0) {
+        if (announce) setMessage(`${result.synced} Datensatz automatisch synchronisiert`);
+        await refreshReports();
+        await refreshServerReports(true);
+      } else if ((result.failed || result.conflict) && announce) {
+        setMessage(`Auto-Sync prüfen: ${result.failed} Fehler, ${result.conflict} Doppelung`);
+        if (result.lastError) setError(result.lastError);
+        await refreshReports();
+      }
+    } catch (err) {
+      if (announce) setError(err instanceof Error ? err.message : "Auto-Sync fehlgeschlagen");
+    } finally {
+      backgroundSyncInFlight.current = false;
+    }
+  }, [deviceId, refreshReports, refreshServerReports]);
+
   const refreshQrOptions = useCallback(async () => {
     const localOptions = localQrOptionsFromCapsules();
     try {
@@ -550,6 +572,14 @@ export default function DamageCapturePage() {
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [busy, refreshServerReports]);
+
+  useEffect(() => {
+    if (!deviceId || busy || !isOnline || !summary.pending) return;
+    const timer = window.setTimeout(() => {
+      void runBackgroundSync(undefined, false);
+    }, 1_200);
+    return () => window.clearTimeout(timer);
+  }, [busy, deviceId, isOnline, runBackgroundSync, summary.pending]);
 
   useEffect(() => {
     setStoredDamageTeamName(teamName);
