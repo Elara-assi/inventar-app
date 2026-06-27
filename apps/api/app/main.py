@@ -6169,12 +6169,21 @@ def list_damage_reports(request: Request) -> list[dict[str, Any]]:
         """
         SELECT r.*,
                COALESCE(p.photo_count, 0)::int AS photo_count,
-               COALESCE(p.photo_types, ARRAY[]::text[]) AS photo_types
+               COALESCE(p.photo_types, ARRAY[]::text[]) AS photo_types,
+               COALESCE(p.photos, '[]'::jsonb) AS photos
         FROM damage_reports r
         LEFT JOIN (
           SELECT damage_report_id,
                  count(*)::int AS photo_count,
-                 array_agg(photo_type ORDER BY photo_type) AS photo_types
+                 array_agg(photo_type ORDER BY photo_type) AS photo_types,
+                 jsonb_agg(
+                   jsonb_build_object(
+                     'id', id::text,
+                     'photo_type', photo_type,
+                     'uploaded_at', uploaded_at
+                   )
+                   ORDER BY uploaded_at
+                 ) AS photos
           FROM damage_photos
           GROUP BY damage_report_id
         ) p ON p.damage_report_id = r.id

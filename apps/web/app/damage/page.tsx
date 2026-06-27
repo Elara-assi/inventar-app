@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { api, clearAuthToken, downloadApiFile, getAuthToken, joinUrl } from "@/lib/api";
+import { api, apiObjectUrl, clearAuthToken, downloadApiFile, getAuthToken, joinUrl } from "@/lib/api";
 import {
   DamageArticle,
   DamageEntryType,
@@ -74,6 +74,11 @@ type ServerDamageReport = {
   updated_at?: string | null;
   photo_count?: number | null;
   photo_types?: DamagePhotoType[] | null;
+  photos?: Array<{
+    id: string;
+    photo_type: DamagePhotoType;
+    uploaded_at?: string | null;
+  }> | null;
 };
 
 function registerDamageServiceWorker() {
@@ -211,6 +216,19 @@ function createFreeDamageArticle(articleNo: string, title: string): DamageArticl
   };
 }
 
+function damageArticleFromServerReport(report: ServerDamageReport): DamageArticle {
+  const articleNo = serverReportArticleKey(report);
+  return {
+    article_no: articleNo,
+    nr: String(report.nr || report.article_no || articleNo),
+    buchungskreis: report.entry_type === "free" ? "Nicht in Liste" : "Aus Serverliste",
+    anlagenbezeichnung: report.anlagenbezeichnung || "Artikel ohne Bezeichnung",
+    aktivdatum: null,
+    aktivdatum_iso: null,
+    alter: null,
+  };
+}
+
 function isFreeServerReport(report?: ServerDamageReport | null) {
   return report?.entry_type === "free" || String(report?.article_no || "").startsWith("FREI-");
 }
@@ -336,6 +354,7 @@ export default function DamageCapturePage() {
   const [uvvStickerPresent, setUvvStickerPresent] = useState<DamageReport["uvv_sticker_present"]>("unklar");
   const [photos, setPhotos] = useState<DamagePhoto[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<Partial<Record<DamagePhotoType, string>>>({});
+  const [serverPhotoPreviews, setServerPhotoPreviews] = useState<Partial<Record<DamagePhotoType, string>>>({});
   const [reports, setReports] = useState<DamageReport[]>([]);
   const [summary, setSummary] = useState<DamageSummary>(emptySummary);
   const [isOnline, setIsOnline] = useState(true);
@@ -371,8 +390,18 @@ export default function DamageCapturePage() {
       || String(report.nr || "").trim() === normalized
     ));
   }, [articleNo, serverReports]);
+  const serverPhotoMap = useMemo(() => {
+    const map = new Map<DamagePhotoType, { id: string; photo_type: DamagePhotoType; uploaded_at?: string | null }>();
+    for (const photo of serverReportForArticle?.photos || []) {
+      if (photo.photo_type && !map.has(photo.photo_type)) map.set(photo.photo_type, photo);
+    }
+    return map;
+  }, [serverReportForArticle]);
   const serverPhotoTypeSet = useMemo(
-    () => new Set<DamagePhotoType>(serverReportForArticle?.photo_types || []),
+    () => new Set<DamagePhotoType>([
+      ...(serverReportForArticle?.photo_types || []),
+      ...(serverReportForArticle?.photos || []).map((photo) => photo.photo_type),
+    ]),
     [serverReportForArticle],
   );
   const uvvPhotoRequired = uvvStickerPresent === "ja";
@@ -446,6 +475,15 @@ export default function DamageCapturePage() {
     setPhotos(storedPhotos);
   }, []);
 
+  const clearServerPhotoPreviews = useCallback(() => {
+    setServerPhotoPreviews((current) => {
+      Object.values(current).forEach((url) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
+      return {};
+    });
+  }, []);
+
   const resetCaptureForm = useCallback((nextMessage = "Neue Schadensaufnahme bereit") => {
     if (captureMode === "free") {
       setFreeArticleNo(createFreeArticleNo());
@@ -469,6 +507,7 @@ export default function DamageCapturePage() {
       });
       return {};
     });
+    clearServerPhotoPreviews();
     setExistingHint("");
     setError("");
     setMessage(nextMessage);
@@ -477,7 +516,7 @@ export default function DamageCapturePage() {
       target?.focus();
       target?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 60);
-  }, [captureMode]);
+  }, [captureMode, clearServerPhotoPreviews]);
 
   const runBackgroundSync = useCallback(async (onlyLocalReportId?: string, announce = false) => {
     if (!deviceId || backgroundSyncInFlight.current || !getDamageOnlineStatus()) return;
@@ -561,8 +600,53 @@ export default function DamageCapturePage() {
         });
         return {};
       });
+      clearServerPhotoPreviews();
     };
-  }, [refreshQrOptions, refreshReports, refreshServerReports]);
+  }, [clearServerPhotoPreviews, refreshQrOptions, refreshReports, refreshServerReports]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadedUrls: string[] = [];
+    const serverPhotos = Array.from(serverPhotoMap.values()).filter((photo) => photo.id);
+
+    setServerPhotoPreviews((current) => {
+      Object.values(current).forEach((url) => {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      });
+      return {};
+    });
+
+    if (!serverPhotos.length) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.all(serverPhotos.map(async (photo) => {
+      try {
+        const url = await apiObjectUrl(`/uploads/damage-photos/${encodeURIComponent(photo.id)}`);
+        loadedUrls.push(url);
+        return [photo.photo_type, url] as const;
+      } catch {
+        return null;
+      }
+    })).then((entries) => {
+      if (cancelled) {
+        loadedUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      const next: Partial<Record<DamagePhotoType, string>> = {};
+      for (const entry of entries) {
+        if (entry) next[entry[0]] = entry[1];
+      }
+      setServerPhotoPreviews(next);
+    }).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      loadedUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [serverPhotoMap]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -600,17 +684,22 @@ export default function DamageCapturePage() {
         await loadPhotosForReport("");
         return;
       }
-      if (!catalogReady) {
+      const synced = serverReports.find((report) => (
+        String(report.article_no || "").trim() === normalized
+        || String(report.nr || "").trim() === normalized
+      ));
+      if (!catalogReady && !synced) {
         setArticle(null);
         setLocalReportId("");
         setMessage("Artikelkatalog wird offline vorbereitet...");
         await loadPhotosForReport("");
         return;
       }
-      const found = await getDamageArticle(normalized);
+      const found = catalogReady ? await getDamageArticle(normalized) : undefined;
       if (ignore) return;
-      setArticle(found ?? null);
-      if (!found) {
+      const nextArticle = found ?? (synced ? damageArticleFromServerReport(synced) : null);
+      setArticle(nextArticle);
+      if (!nextArticle) {
         setLocalReportId("");
         setDescription("");
         setUvvStickerPresent("unklar");
@@ -618,11 +707,7 @@ export default function DamageCapturePage() {
         setError(`Artikel ${normalized} nicht im importierten Katalog gefunden.`);
         return;
       }
-      if (article?.article_no === found.article_no && localReportId) {
-        const synced = serverReports.find((report) => (
-          String(report.article_no || "").trim() === normalized
-          || String(report.nr || "").trim() === normalized
-        ));
+      if (article?.article_no === nextArticle.article_no && localReportId) {
         if (synced) setExistingHint("Artikel ist bereits synchronisiert und wurde zum Nachbearbeiten ge\u00f6ffnet.");
         return;
       }
@@ -636,10 +721,6 @@ export default function DamageCapturePage() {
         setExistingHint("Artikel ist bereits lokal erfasst und wurde zum Bearbeiten geöffnet.");
         await loadPhotosForReport(existing.local_report_id);
       } else {
-        const synced = serverReports.find((report) => (
-          String(report.article_no || "").trim() === normalized
-          || String(report.nr || "").trim() === normalized
-        ));
         const nextId = getDraftReportId(normalized) || createDamageReportId();
         setLocalReportId(nextId);
         setDescription(synced?.damage_description || "");
@@ -1012,6 +1093,7 @@ export default function DamageCapturePage() {
       });
       return {};
     });
+    clearServerPhotoPreviews();
     setExistingHint("");
     setError("");
     if (nextMode === "free") {
@@ -1108,7 +1190,7 @@ export default function DamageCapturePage() {
       setBusy(false);
     }
     setCaptureMode(isFree ? "free" : "catalog");
-    setArticle(null);
+    setArticle(damageArticleFromServerReport(report));
     setLocalReportId("");
     setDescription(report.damage_description || "");
     setUvvStickerPresent(normalizedUvv(report.uvv_sticker_present));
@@ -1254,20 +1336,27 @@ export default function DamageCapturePage() {
           <div className="damage-photo-grid">
             {photoSlots.map((slot) => {
               const photo = photoMap.get(slot.type);
+              const serverPhotoUrl = serverPhotoPreviews[slot.type];
+              const previewUrl = photoPreviews[slot.type] || serverPhotoUrl;
               const serverHasPhoto = serverPhotoTypeSet.has(slot.type);
               const required = slot.required || (slot.type === "uvv_sticker" && uvvPhotoRequired);
               return (
-                <div className={`damage-photo-slot ${photo || serverHasPhoto ? "has-photo" : ""} ${serverHasPhoto && !photo ? "has-server-photo" : ""} ${required ? "is-required" : ""}`} key={slot.type}>
+                <div className={`damage-photo-slot ${previewUrl || serverHasPhoto ? "has-photo" : ""} ${serverHasPhoto && !photo ? "has-server-photo" : ""} ${required ? "is-required" : ""}`} key={slot.type}>
                   <button
                     type="button"
                     disabled={!article || busy}
                     onClick={() => fileInputs.current[slot.type]?.click()}
                   >
-                    {photoPreviews[slot.type] ? <img src={photoPreviews[slot.type]} alt={slot.label} /> : <span>+</span>}
+                    {previewUrl ? <img src={previewUrl} alt={slot.label} /> : <span>+</span>}
                   </button>
                   <div>
                     <strong>{slot.label}</strong>
-                    <small>{serverHasPhoto && !photo ? "am Server" : required ? "Pflicht" : slot.hint}</small>
+                    <small>{serverPhotoUrl && !photo ? "am Server" : serverHasPhoto && !photo ? "am Server" : required ? "Pflicht" : slot.hint}</small>
+                    {serverPhotoUrl && !photo ? (
+                      <button type="button" disabled={busy} onClick={() => window.open(serverPhotoUrl, "_blank", "noopener,noreferrer")}>
+                        Ansehen
+                      </button>
+                    ) : null}
                     {photo ? <button type="button" disabled={busy} onClick={() => void removePhoto(slot.type)}>Entfernen</button> : null}
                   </div>
                   <input
