@@ -5249,7 +5249,7 @@ def filename_part(value: str | None, fallback: str) -> str:
 
 
 EXPORT_COLUMNS = [
-    ("lfd. Nr. / Foto", "lfd_photo"),
+    ("lfd. Nr.", "lfd_photo"),
     ("Bezeichnung", "object_type"),
     ("Typ / Spezifikation", "specification"),
     ("Baujahr", "construction_year"),
@@ -5259,6 +5259,9 @@ EXPORT_COLUMNS = [
     ("UVV bis", "uvv_valid_until"),
     ("Bemerkung", "bga_remark"),
 ]
+
+MAX_EXCEL_ITEM_PHOTOS = 5
+EXCEL_ITEM_PHOTO_HEADERS = tuple(f"Foto {index}" for index in range(1, MAX_EXCEL_ITEM_PHOTOS + 1))
 
 
 def export_query(where_sql: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
@@ -5475,6 +5478,41 @@ def fetch_export_photos(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return photos
 
 
+def fetch_export_photo_map(rows: list[dict[str, Any]], limit: int = MAX_EXCEL_ITEM_PHOTOS) -> dict[str, list[dict[str, Any]]]:
+    item_ids = [str(item["id"]) for item in rows if item.get("id")]
+    if not item_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(item_ids))
+    photo_rows = fetch_all(
+        f"""
+        SELECT *
+        FROM (
+          SELECT
+            id,
+            item_id,
+            photo_type,
+            original_path,
+            stamped_path,
+            uploaded_at,
+            taken_at,
+            row_number() OVER (
+              PARTITION BY item_id
+              ORDER BY COALESCE(taken_at, uploaded_at), uploaded_at, id
+            ) AS photo_rank
+          FROM item_photos
+          WHERE item_id IN ({placeholders})
+        ) ranked
+        WHERE photo_rank <= %s
+        ORDER BY item_id, photo_rank
+        """,
+        (*item_ids, limit),
+    )
+    by_item: dict[str, list[dict[str, Any]]] = {}
+    for photo in photo_rows:
+        by_item.setdefault(str(photo.get("item_id")), []).append(photo)
+    return by_item
+
+
 def fetch_export_audit_rows(rows: list[dict[str, Any]], session_id: str | None, entity_id: str | None) -> list[dict[str, Any]]:
     ids = [str(row["id"]) for row in rows if row.get("id")]
     if session_id:
@@ -5565,12 +5603,17 @@ def build_excel_workbook(
     header_fill = PatternFill("solid", fgColor="D9E2D6")
     thin_side = Side(style="thin", color="6B7280")
     list_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    main_columns = [*EXPORT_COLUMNS, *((header, "") for header in EXCEL_ITEM_PHOTO_HEADERS)]
+    photo_map = fetch_export_photo_map(rows)
+    photo_start_column = len(EXPORT_COLUMNS) + 1
+    last_column = len(main_columns)
+    last_column_letter = get_column_letter(last_column)
 
-    ws.merge_cells("A1:I1")
+    ws.merge_cells(f"A1:{last_column_letter}1")
     ws["A1"] = "Manuelle Zählliste"
     ws["A1"].font = Font(bold=True, size=18)
     ws["A1"].alignment = Alignment(horizontal="center")
-    ws.merge_cells("A2:I2")
+    ws.merge_cells(f"A2:{last_column_letter}2")
     ws["A2"] = "Betriebs- und Geschäftsausstattung"
     ws["A2"].font = Font(bold=True, size=14)
     ws["A2"].alignment = Alignment(horizontal="center")
@@ -5587,7 +5630,7 @@ def build_excel_workbook(
         ws[cell_ref].font = Font(bold=True)
 
     header_row = 7
-    for column_index, (header, _) in enumerate(EXPORT_COLUMNS, start=1):
+    for column_index, (header, _) in enumerate(main_columns, start=1):
         cell = ws.cell(row=header_row, column=column_index, value=header)
         cell.font = Font(bold=True)
         cell.fill = header_fill
@@ -5595,21 +5638,25 @@ def build_excel_workbook(
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     for row_index, row in enumerate(rows, start=header_row + 1):
-        ws.append([excel_value(export_value(row, key)) for _, key in EXPORT_COLUMNS])
-        insert_excel_photo(ws, row, row_index)
-        for column_index, (_, key) in enumerate(EXPORT_COLUMNS, start=1):
+        ws.append([excel_value(export_value(row, key)) for _, key in EXPORT_COLUMNS] + [""] * len(EXCEL_ITEM_PHOTO_HEADERS))
+        insert_excel_photos(ws, row, photo_map.get(str(row.get("id")), []), row_index, photo_start_column)
+        for column_index, (_, key) in enumerate(main_columns, start=1):
             if key in {"value_provenance", "age_provenance", "ai_value_note", "latest_ai_at", "latest_deep_dive_at", "latest_ai_model"}:
                 ws.cell(row=row_index, column=column_index).fill = PatternFill("solid", fgColor="D9EAFE")
             cell = ws.cell(row=row_index, column=column_index)
             cell.border = list_border
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            cell.alignment = Alignment(
+                horizontal="center" if column_index >= photo_start_column else "general",
+                vertical="bottom" if column_index >= photo_start_column else "top",
+                wrap_text=True,
+            )
         ws.row_dimensions[row_index].height = max(ws.row_dimensions[row_index].height or 0, 46)
 
     ws.freeze_panes = "A8"
     if rows:
-        ws.auto_filter.ref = f"A{header_row}:I{header_row + len(rows)}"
+        ws.auto_filter.ref = f"A{header_row}:{last_column_letter}{header_row + len(rows)}"
     ws.print_title_rows = "1:7"
-    ws.print_area = f"A1:I{max(header_row + len(rows), header_row + 1)}"
+    ws.print_area = f"A1:{last_column_letter}{max(header_row + len(rows), header_row + 1)}"
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
@@ -5619,7 +5666,7 @@ def build_excel_workbook(
     ws.page_margins.right = 0.25
     ws.page_margins.top = 0.5
     ws.page_margins.bottom = 0.5
-    widths = [18, 28, 34, 12, 16, 16, 16, 16, 48]
+    widths = [12, 28, 34, 12, 16, 16, 16, 16, 48, 18, 18, 18, 18, 18]
     for index, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(index)].width = width
 
@@ -5747,34 +5794,39 @@ def build_excel_workbook(
     return wb
 
 
-def insert_excel_photo(ws: Any, row: dict[str, Any], row_index: int) -> None:
-    cell = ws.cell(row=row_index, column=1)
-    current_value = cell.value
-    photo_path = row.get("object_photo_path")
-    if not photo_path:
+def insert_excel_photos(
+    ws: Any,
+    row: dict[str, Any],
+    photos: list[dict[str, Any]],
+    row_index: int,
+    start_column: int,
+) -> None:
+    if not photos:
         return
-    path = Path(str(photo_path))
-    if not path.exists():
-        cell.value = f"{current_value or ''} / Foto fehlt".strip()
-        return
-    try:
-        image_path, _, _, _ = prepare_excel_photo({"original_path": str(path), "photo_type": "object_front"})
-        image = ExcelImage(str(image_path or path))
-    except Exception:
-        cell.value = f"{current_value or ''} / Foto nicht lesbar".strip()
-        return
-
-    max_side = 82
-    scale = min(max_side / image.width, max_side / image.height, 1)
-    image.width = int(image.width * scale)
-    image.height = int(image.height * scale)
-    image.anchor = f"A{row_index}"
-    ws.add_image(image)
-    ws.row_dimensions[row_index].height = 68
-    cell.value = current_value
-    if row.get("object_photo_id"):
-        cell.hyperlink = f"/uploads/photos/{row['object_photo_id']}"
-        cell.style = "Hyperlink"
+    ws.row_dimensions[row_index].height = max(ws.row_dimensions[row_index].height or 0, 86)
+    for offset, photo in enumerate(photos[:MAX_EXCEL_ITEM_PHOTOS]):
+        column_index = start_column + offset
+        cell = ws.cell(row=row_index, column=column_index)
+        photo_label = label_field(photo.get("photo_type"))
+        source_path = excel_photo_source(photo)
+        cell.value = photo_label if source_path else f"{photo_label}\nDatei fehlt"
+        cell.alignment = Alignment(horizontal="center", vertical="bottom", wrap_text=True)
+        if photo.get("id"):
+            cell.hyperlink = f"/uploads/photos/{photo['id']}"
+            cell.style = "Hyperlink"
+        if not source_path:
+            continue
+        try:
+            image_path, _, _, _ = prepare_excel_photo(photo)
+            image = ExcelImage(str(image_path or source_path))
+            max_width, max_height = 118, 82
+            scale = min(max_width / image.width, max_height / image.height, 1)
+            image.width = int(image.width * scale)
+            image.height = int(image.height * scale)
+            image.anchor = f"{get_column_letter(column_index)}{row_index}"
+            ws.add_image(image)
+        except Exception:
+            cell.value = f"{photo_label}\nBild nicht lesbar"
 
 
 def save_export(
